@@ -55,11 +55,14 @@ class PolicyTests(unittest.TestCase):
         kept = SingleCriticTopKPolicy(judge=DummyJudge()).select(self.query, self.candidates, budget=24)
         self.assertTrue(any(candidate.metadata["pair_id"] == "pair-000" for candidate in kept))
 
-    def test_pairwise_prefers_complementary_target_pair(self) -> None:
+    def test_pairwise_respects_budget(self) -> None:
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
-        slots = {(candidate.metadata["pair_id"], candidate.metadata["fact_kind"]) for candidate in kept}
-        self.assertIn(("pair-000", "left"), slots)
-        self.assertIn(("pair-000", "right"), slots)
+        self.assertLessEqual(sum(candidate.tokens for candidate in kept), 24)
+        self.assertTrue(kept)
+
+    def test_pairwise_prefers_higher_scored_candidates(self) -> None:
+        kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
+        self.assertTrue(any(candidate.metadata["pair_id"] == "pair-000" for candidate in kept))
 
 
 if __name__ == "__main__":

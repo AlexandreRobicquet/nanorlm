@@ -19,8 +19,8 @@ There are already serious RLM implementations inside larger research stacks. Wha
 This repo leans into that gap:
 
 - one small OpenAI-compatible code path
-- one deterministic offline backend for tests and smoke demos
-- one novel retention angle: a pairwise-critic tournament that tries to preserve complementary evidence under a hard memory budget
+- one deterministic, schema-opaque offline backend for tests and smoke demos
+- four side-by-side retention policies, including a pairwise-critic tournament — and a clear roadmap to a principled Bradley-Terry + submodular retention framework
 
 ## Quickstart
 
@@ -65,8 +65,9 @@ uv run python examples/run_verifiers.py \
 from nanorlm import ContextBlock, RLM, RLMConfig
 
 context = [
-    ContextBlock(name="left.txt", text="PAIR_ID: pair-000\nFACT_KIND: left\nFACT_VALUE: amber"),
-    ContextBlock(name="right.txt", text="PAIR_ID: pair-000\nFACT_KIND: right\nFACT_VALUE: orbit"),
+    ContextBlock(name="notes/a.md", text="The rendezvous was scheduled at the east pier."),
+    ContextBlock(name="notes/b.md", text="The passphrase for the east pier is 'quiet morning'."),
+    ContextBlock(name="notes/c.md", text="Unrelated: lunch is at noon in the cafeteria."),
 ]
 
 config = RLMConfig(
@@ -78,14 +79,12 @@ config = RLMConfig(
     seed=0,
 )
 
-result = RLM(config).completion(
-    "For pair-000, what is the full code? Combine the left token and the right token.",
-    context,
-)
-
+result = RLM(config).completion("What is the passphrase for the east pier?", context)
 print(result.answer)
 print(result.trace.tree)
 ```
+
+The `demo/heuristic` backend is a deterministic, lexical-overlap scorer — useful for understanding the control flow and exercising policies, but not for real reasoning. Point `base_url` at an OpenAI-compatible endpoint (with an API key) and any of the policies will dispatch through `OpenAIChatBackend` instead.
 
 `RLMConfig` exposes the public control surface:
 
@@ -111,8 +110,8 @@ print(result.trace.tree)
 
 - `keep_recent`: blunt recency baseline
 - `summary_only`: aggressively compresses memory and drops structured metadata
-- `single_critic_topk`: scores each candidate independently
-- `pairwise_tournament`: runs a lightweight tournament, then biases final selection toward complementary evidence
+- `single_critic_topk`: scores each candidate independently with the critic, keeps top-k under budget
+- `pairwise_tournament`: runs a lightweight multi-round pairwise tournament via the critic, ranks by wins/score/timestamp, then fills the budget greedily
 
 The memory item schema is intentionally simple:
 
@@ -127,106 +126,54 @@ The implementation also keeps optional `answer_candidate`, `confidence`, and lig
 
 ## Benchmarks
 
-### PairBench
+> **Empirical status — honesty pass.** An earlier revision of this repo reported headline accuracy numbers on the synthetic `PairBench` / `NeedlePairs` datasets. Those numbers were produced against a heuristic offline backend that co-evolved with the benchmark schema: the "deterministic" backend had hard-coded regex extraction for `PAIR_ID` / `FACT_KIND` / `FACT_VALUE` markers and a literal pair-reassembly oracle, and one of the retention policies also special-cased the same metadata keys. Those tricks have been removed. The heuristic backend is now schema-opaque: it does pure lexical overlap, ranks by critic score, and composes an answer from retained summaries — no oracle, no structural shortcuts.
+>
+> Honest numbers on real long-context benchmarks (RULER, BABILong, RepoQA-20) with real models (one API, one local) are the milestone-5 deliverable on the v1.0 roadmap. Until then, the repo should be read as a **mechanism reference**, not a performance claim.
 
-Synthetic long-context tasks where the answer depends on retaining the right pair of facts under a hard memory budget.
+### PairBench, NeedlePairs (in-repo synthetic datasets)
 
-Local smoke run:
-
-```text
+```bash
 uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-
-| policy | examples | accuracy |
-| --- | ---: | ---: |
-| keep_recent | 10 | 0.400 |
-| summary_only | 10 | 0.000 |
-| single_critic_topk | 10 | 0.100 |
-| pairwise_tournament | 10 | 0.700 |
-```
-
-### NeedlePairs
-
-The same complementary-fact problem dropped into a much noisier haystack.
-
-Local smoke run:
-
-```text
 uv run python bench.py --dataset needlepairs --limit 10 --budget 60 --depth 2
-
-| policy | examples | accuracy |
-| --- | ---: | ---: |
-| keep_recent | 10 | 0.300 |
-| summary_only | 10 | 0.000 |
-| single_critic_topk | 10 | 0.300 |
-| pairwise_tournament | 10 | 0.700 |
 ```
 
-### Verifiers-20
+These now serve as **smoke tests and trace demos only** — they exercise the split / recurse / retain / answer loop end-to-end without relying on a model backend. Accuracy against the deterministic heuristic backend is near zero on both, as expected: assembling "left + right" facts across document fragments requires actual language reasoning, not regex.
 
-`examples/verifiers_20.json` is a curated set of codebase-QA questions over `PrimeIntellect-ai/verifiers`. The deterministic heuristic backend is only a sanity path here; the real point of this benchmark is to run the same recursion engine against a real OpenAI-compatible model and inspect the retained trace.
+### Verifiers-20 (curated real-repo codebase QA)
 
-Heuristic smoke run over `5` examples:
+`examples/verifiers_20.json` is a hand-curated set of 20 QA pairs over `PrimeIntellect-ai/verifiers`, each tagged with `must_contain` strings and `provenance` files. This is the only dataset in the repo aimed at real-model evaluation; the heuristic backend is not expected to score well on it.
 
-```text
-uv run python bench.py --dataset verifiers_20 --limit 5 --budget 120 --depth 2 --repo-root /tmp/nanorlm-verifiers
-
-| policy | examples | accuracy |
-| --- | ---: | ---: |
-| keep_recent | 5 | 0.000 |
-| summary_only | 5 | 0.000 |
-| single_critic_topk | 5 | 0.200 |
-| pairwise_tournament | 5 | 0.200 |
+```bash
+git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
+uv run python examples/run_verifiers.py --openai --model gpt-4.1-mini \
+  --base-url https://api.openai.com/v1 --repo-root /tmp/nanorlm-verifiers
 ```
 
 ## Example Trace
 
-This tree came from a real local run of `pairwise_tournament` on `pair-000`:
-
-```text
-- [inspect] root query (query=For pair-000, what is the full code? Combine the left token and the right token., blocks=22)
-- [split] root split (groups=2, blocks=22)
-  - [recurse] root.0 (blocks=11, tokens=269)
-  - [split] root.0 split (groups=2, blocks=11)
-    - [recurse] root.0.0 (blocks=5, tokens=120)
-    - [inspect] root.0.0 leaf (tokens=120, blocks=5)
-  - [retain] root.0 policy=pairwise_tournament (before=1, after=1, budget=60)
-    - [recurse] root.0.1 (blocks=6, tokens=149)
-    - [inspect] root.0.1 leaf (tokens=149, blocks=6)
-  - [retain] root.0 policy=pairwise_tournament (before=2, after=2, budget=60)
-- [retain] root policy=pairwise_tournament (before=2, after=2, budget=60)
-  - [recurse] root.1 (blocks=11, tokens=276)
-  - [split] root.1 split (groups=2, blocks=11)
-    - [recurse] root.1.0 (blocks=5, tokens=126)
-    - [inspect] root.1.0 leaf (tokens=126, blocks=5)
-  - [retain] root.1 policy=pairwise_tournament (before=1, after=1, budget=60)
-    - [recurse] root.1.1 (blocks=6, tokens=150)
-    - [inspect] root.1.1 leaf (tokens=150, blocks=6)
-  - [retain] root.1 policy=pairwise_tournament (before=2, after=2, budget=60)
-- [retain] root policy=pairwise_tournament (before=4, after=3, budget=60)
-- [final_answer] compose answer (retained=3, answer_preview=amber orbit)
-```
-
-Each run also emits JSONL traces. The benchmark scripts write them to `outputs/<dataset>/`.
+Live runs emit per-example JSONL traces to `outputs/<dataset>/` and a compact text tree alongside. A static snapshot from an earlier run lives at [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt) — the branching / retain / leaf structure is the same today; the specific `answer_preview` depends on the backend.
 
 ## Current Scope
 
-This is a strong `v0.1`, not the entire July launch in one commit.
+This is `v0.1` after the empirical honesty pass — not the full v1.0 story.
 
 Implemented now:
 
-- minimal recursive inference engine
-- four retention policies
-- deterministic offline backend for tests and smoke demos
-- OpenAI-compatible backend for real runs
-- synthetic ablations and a curated `verifiers` dataset
+- minimal recursive inference engine with deterministic, seed-stable traces
+- four retention policies (keep_recent, summary_only, single_critic_topk, pairwise_tournament)
+- schema-opaque deterministic offline backend for tests and smoke demos
+- stdlib-only OpenAI-compatible backend for real runs
+- in-repo synthetic datasets (PairBench, NeedlePairs) for structural smoke tests
+- curated `Verifiers-20` codebase-QA dataset for real-model runs
 - JSONL traces plus a compact tree renderer
 
-Deliberately not implemented yet:
+Deliberately not implemented yet (on the v1.0 roadmap):
 
+- real-model headline numbers on established long-context benchmarks (RULER, BABILong)
+- principled retention math (Bradley-Terry + submodular coverage + info-gain recursion)
+- a model-driven RLM engine faithful to the "context-as-REPL" mechanism
+- companion paper / blog with Pareto figures
 - Docker sandbox execution
-- polished plotting or paper-ready figures
-- a full public `PairBench-100` artifact checked into the repo
-- stronger model-backed `Verifiers-20` numbers in the README
 
 ## Testing
 
@@ -237,6 +184,6 @@ uv run python -m unittest discover -s tests -v
 The test suite covers:
 
 - recursive execution and trace generation
-- memory-budget enforcement
-- policy-specific behavior
-- synthetic cases where pairwise retention beats a simpler baseline
+- memory-budget enforcement across all four policies
+- seed-stable determinism of engine + policy output
+- policy-specific selection behavior on controlled inputs

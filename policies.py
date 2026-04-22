@@ -131,35 +131,11 @@ class PairwiseTournamentPolicy(RetentionPolicy):
                     left.wins += 1
                     right.wins += 1
             ranked.sort(key=lambda item: (-item.wins, item.losses, -self._diversity_bonus(root_query, item), -item.score, -item.timestamp))
-        diversified = self._prefer_complementary_items(root_query, ranked)
-        return self._select_with_budget(diversified, budget)
+        return self._select_with_budget(ranked, budget)
 
     def _diversity_bonus(self, root_query: str, item: MemoryItem) -> float:
         tags = set(query_terms(item.provenance))
-        fact_kind = item.metadata.get("fact_kind")
-        if fact_kind:
-            tags.add(str(fact_kind).lower())
-        return float(len(tags & query_terms(root_query))) + (0.5 if fact_kind else 0.0)
-
-    def _prefer_complementary_items(self, root_query: str, ranked: Sequence[MemoryItem]) -> list[MemoryItem]:
-        target_pair = next((token for token in query_terms(root_query) if token.startswith("pair-")), "")
-        target_unique: list[MemoryItem] = []
-        other_unique: list[MemoryItem] = []
-        deferred: list[MemoryItem] = []
-        seen_slots: set[tuple[str, str]] = set()
-        for item in ranked:
-            pair_id = str(item.metadata.get("pair_id", ""))
-            fact_kind = str(item.metadata.get("fact_kind", ""))
-            slot = (pair_id, fact_kind)
-            if target_pair and pair_id == target_pair and fact_kind and slot not in seen_slots:
-                target_unique.append(item)
-                seen_slots.add(slot)
-            elif pair_id and fact_kind and slot not in seen_slots:
-                other_unique.append(item)
-                seen_slots.add(slot)
-            else:
-                deferred.append(item)
-        return target_unique + other_unique + deferred
+        return float(len(tags & query_terms(root_query)))
 
     def _select_with_budget(self, ranked: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
         kept: list[MemoryItem] = []
