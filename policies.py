@@ -134,7 +134,7 @@ class PairwiseTournamentPolicy(RetentionPolicy):
         return self._select_with_budget(ranked, budget)
 
     def _diversity_bonus(self, root_query: str, item: MemoryItem) -> float:
-        tags = set(query_terms(item.provenance))
+        tags = query_terms(item.summary)
         return float(len(tags & query_terms(root_query)))
 
     def _select_with_budget(self, ranked: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
