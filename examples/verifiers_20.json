@@ -1,0 +1,275 @@
+[
+  {
+    "name": "init-and-local-eval",
+    "query": "Which command initializes a fresh environment template, and which command runs a local evaluation of 10 examples with gpt-4.1-mini after installation?",
+    "answer": "Use `prime env init my-env`, then run `prime eval run my-env -m openai/gpt-4.1-mini -n 10`.",
+    "must_contain": [
+      "prime env init my-env",
+      "prime eval run my-env -m openai/gpt-4.1-mini -n 10"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/evaluation.md"
+    ]
+  },
+  {
+    "name": "default-endpoint-and-key",
+    "query": "What default API base URL and API key variable are used for evaluation model configuration?",
+    "answer": "The defaults are `https://api.pinference.ai/api/v1` and `PRIME_API_KEY`.",
+    "must_contain": [
+      "https://api.pinference.ai/api/v1",
+      "PRIME_API_KEY"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ]
+  },
+  {
+    "name": "anthropic-client-type",
+    "query": "If you want to call Anthropic directly, which client type should you use in the CLI and in ClientConfig?",
+    "answer": "Use `anthropic_messages`.",
+    "must_contain": [
+      "anthropic_messages"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ]
+  },
+  {
+    "name": "workspace-setup",
+    "query": "What tool does the quickstart require for package management, and what command sets up a new workspace lab?",
+    "answer": "The docs require `uv`, and the setup command is `prime lab setup`.",
+    "must_contain": [
+      "uv",
+      "prime lab setup"
+    ],
+    "provenance": [
+      "README.md",
+      "pyproject.toml"
+    ]
+  },
+  {
+    "name": "endpoint-registry-path",
+    "query": "What default file path is used for the endpoint registry in the quickstart and evaluation docs?",
+    "answer": "The default registry path is `./configs/endpoints.toml`.",
+    "must_contain": [
+      "./configs/endpoints.toml"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/evaluation.md"
+    ]
+  },
+  {
+    "name": "prime-credential-precedence",
+    "query": "Which two environment variables are checked first for default Prime credentials after login?",
+    "answer": "The two environment variables are `PRIME_API_KEY` and `PRIME_TEAM_ID`.",
+    "must_contain": [
+      "PRIME_API_KEY",
+      "PRIME_TEAM_ID"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/reference.md"
+    ]
+  },
+  {
+    "name": "tui-command-and-script",
+    "query": "Which end-user command opens the evaluation TUI, and which pyproject script entrypoint backs the dedicated TUI launcher?",
+    "answer": "Use `prime eval tui`; the script entrypoint is `vf-tui`.",
+    "must_contain": [
+      "prime eval tui",
+      "vf-tui"
+    ],
+    "provenance": [
+      "README.md",
+      "pyproject.toml"
+    ]
+  },
+  {
+    "name": "legacy-rl-positioning",
+    "query": "Which optional package name holds the legacy RL trainer, and how do the training docs describe its status?",
+    "answer": "The package is `verifiers-rl`, and the docs describe it as educational and experimental, not actively maintained.",
+    "must_contain": [
+      "verifiers-rl",
+      "educational",
+      "experimental"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "docs/training.md"
+    ]
+  },
+  {
+    "name": "openenv-build-path",
+    "query": "Which optional dependency group enables OpenEnv support, and what command builds the OpenEnv project image?",
+    "answer": "The optional dependency group is `openenv`, and the build command is `uv run vf-build my-openenv`.",
+    "must_contain": [
+      "openenv",
+      "uv run vf-build my-openenv"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "README.md"
+    ]
+  },
+  {
+    "name": "saved-result-files",
+    "query": "When results are saved, which two files are explicitly written to disk for evaluation and GEPA-style runs?",
+    "answer": "The outputs include `results.jsonl` and `metadata.json`.",
+    "must_contain": [
+      "results.jsonl",
+      "metadata.json"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/training.md"
+    ]
+  },
+  {
+    "name": "default-model-and-alias",
+    "query": "What is the default local evaluation model, and what example endpoint alias do the docs show for registry-based lookup?",
+    "answer": "The default model is `openai/gpt-4.1-mini`, and the example alias is `qwen3-235b-i`.",
+    "must_contain": [
+      "openai/gpt-4.1-mini",
+      "qwen3-235b-i"
+    ],
+    "provenance": [
+      "docs/evaluation.md"
+    ]
+  },
+  {
+    "name": "client-type-flag",
+    "query": "What is the default ClientConfig client type, and which CLI flag lets you override it during evaluation?",
+    "answer": "The default client type is `openai_chat_completions`, and the CLI flag is `--api-client-type`.",
+    "must_contain": [
+      "openai_chat_completions",
+      "--api-client-type"
+    ],
+    "provenance": [
+      "docs/reference.md",
+      "docs/evaluation.md"
+    ]
+  },
+  {
+    "name": "python-support-window",
+    "query": "What Python version range does the package declare, and what Python version does the ty environment target?",
+    "answer": "The package declares `>=3.10,<3.14`, and the ty environment uses `3.13`.",
+    "must_contain": [
+      ">=3.10,<3.14",
+      "3.13"
+    ],
+    "provenance": [
+      "pyproject.toml"
+    ]
+  },
+  {
+    "name": "gepa-output-and-config-dir",
+    "query": "Where do GEPA prompt optimization outputs land, and which top-level directory holds example eval configs in the workspace setup?",
+    "answer": "GEPA outputs are written to `environments/wiki-search/outputs/gepa/`, and eval configs live in `configs/eval/`.",
+    "must_contain": [
+      "environments/wiki-search/outputs/gepa/",
+      "configs/eval/"
+    ],
+    "provenance": [
+      "docs/training.md",
+      "README.md"
+    ]
+  },
+  {
+    "name": "extra-env-kwargs",
+    "query": "Which flag passes arguments straight to the environment constructor, and what example override do the docs show for maximum turns?",
+    "answer": "Use `--extra-env-kwargs`, for example `max_turns` via `-x '{\"max_turns\": 20}'`.",
+    "must_contain": [
+      "--extra-env-kwargs",
+      "max_turns"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ]
+  },
+  {
+    "name": "hosted-eval-flags",
+    "query": "Which hosted evaluation flags are called out explicitly in the docs as hosted-only examples?",
+    "answer": "The docs call out `--follow` and `--timeout-minutes` among the hosted-only flags.",
+    "must_contain": [
+      "--follow",
+      "--timeout-minutes"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "README.md"
+    ]
+  },
+  {
+    "name": "browser-support-deps",
+    "query": "Which dependencies are listed for browser support, and which release note mentions BrowserEnv integrations?",
+    "answer": "Browser support includes `stagehand>=3.0.0` and `aiohttp>=3.9.0`, and the README mentions BrowserEnv integrations.",
+    "must_contain": [
+      "stagehand>=3.0.0",
+      "aiohttp>=3.9.0",
+      "BrowserEnv"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "README.md"
+    ]
+  },
+  {
+    "name": "install-and-loader",
+    "query": "What command installs a local environment module, and what function must the module expose so evaluation can import it?",
+    "answer": "Install with `prime env install my-env`, and the module must expose `load_environment`.",
+    "must_contain": [
+      "prime env install my-env",
+      "load_environment"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/reference.md"
+    ]
+  },
+  {
+    "name": "timeout-and-retries",
+    "query": "What is the default client timeout in ClientConfig, what is the default max_retries there, and which CLI flag controls rollout retries?",
+    "answer": "ClientConfig uses `timeout: 3600.0` and `max_retries: 10`; the CLI flag is `--max-retries`.",
+    "must_contain": [
+      "3600.0",
+      "10",
+      "--max-retries"
+    ],
+    "provenance": [
+      "docs/reference.md",
+      "docs/evaluation.md"
+    ]
+  },
+  {
+    "name": "sdist-and-wheel",
+    "query": "Which paths are included in the source distribution, and which package is placed into the wheel build?",
+    "answer": "The source distribution includes `/verifiers` and `/tests`, and the wheel packages `verifiers`.",
+    "must_contain": [
+      "/verifiers",
+      "/tests",
+      "packages = [\"verifiers\"]"
+    ],
+    "provenance": [
+      "pyproject.toml"
+    ]
+  },
+  {
+    "name": "prime-eval-import-flow",
+    "query": "According to the evaluation docs, what function does `prime eval` call after importing the module, and how many examples and rollouts does it run by default?",
+    "answer": "`prime eval` calls `load_environment()` and runs 5 examples with 3 rollouts each by default.",
+    "must_contain": [
+      "load_environment",
+      "5 examples",
+      "3 rollouts"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "README.md"
+    ]
+  }
+]
