@@ -501,7 +501,6 @@ class RLM:
                 confidence=result.confidence,
                 metadata=result.metadata,
             )
-            item.score = self.backend.score_candidate(query, item)
             return [item]
 
         groups = self._split_blocks(blocks)
