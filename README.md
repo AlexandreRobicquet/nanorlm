@@ -4,6 +4,14 @@
 
 The design goal is simple: you should be able to read the whole core in one sitting, understand the control flow, and then start swapping retention policies or benchmarks without wading through a framework.
 
+## What We Are Building
+
+![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
+
+The whole repo is this loop: start with a root query over too much context, recurse until each shard is small enough to inspect, turn leaf inspections into explicit `MemoryItem`s, keep only what survives the token budget, then answer from retained evidence instead of the full context.
+
+If the retention policy drops a needed fact, the final answer loses it too. That is the central research surface in `nanoRLM`.
+
 ## What Is In The Repo
 
 - `nanorlm.py`: the core recursion loop, trace recorder, OpenAI-compatible transport, and deterministic offline backend
