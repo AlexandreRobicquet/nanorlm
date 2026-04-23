@@ -1,115 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="720" viewBox="0 0 1160 720">
-<rect width="1160" height="720" fill="#f7f4ec"/>
-<text x="40" y="48" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="30" font-weight="700" fill="#2a2f38">What nanoRLM Builds</text>
-<text x="40" y="78" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="400" fill="#5a6170">Recursive inference with explicit memory retention: recurse, inspect, retain under budget, then answer from kept evidence.</text>
-<rect x="40" y="108" width="336" height="564" rx="18" fill="#fffdf7" stroke="#d9d1c3" stroke-width="2"/>
-<rect x="58" y="124" width="292" height="34" rx="17" fill="#efe4c8" stroke="none" stroke-width="0"/>
-<text x="72" y="147" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">1. Recurse over context</text>
-<rect x="396" y="108" width="336" height="564" rx="18" fill="#fffdf7" stroke="#d9d1c3" stroke-width="2"/>
-<rect x="414" y="124" width="292" height="34" rx="17" fill="#dce9f1" stroke="none" stroke-width="0"/>
-<text x="428" y="147" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">2. Inspect leaves into memory</text>
-<rect x="752" y="108" width="368" height="564" rx="18" fill="#fffdf7" stroke="#d9d1c3" stroke-width="2"/>
-<rect x="770" y="124" width="292" height="34" rx="17" fill="#dff2e7" stroke="none" stroke-width="0"/>
-<text x="784" y="147" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">3. Retain under budget, answer from memory</text>
-<line x1="376" y1="390" x2="396" y2="390" stroke="#2a2f38" stroke-width="3"/>
-<polygon points="384,382 396,390 384,398" fill="#2a2f38"/>
-<line x1="732" y1="390" x2="752" y2="390" stroke="#2a2f38" stroke-width="3"/>
-<polygon points="740,382 752,390 740,398" fill="#2a2f38"/>
-<text x="58" y="180" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">input: root query + ContextBlock[]</text>
-<rect x="58" y="200" width="300" height="74" rx="16" fill="#fff8ea" stroke="#c79f52" stroke-width="2"/>
-<text x="72" y="224" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">root query</text>
-<text x="72" y="246" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">For pair-000, what is the full code?</text>
-<rect x="58" y="302" width="132" height="62" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="72" y="326" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">left.txt</text>
-<text x="72" y="348" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">PAIR_ID: pair-000</text>
-<text x="72" y="364" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">FACT_VALUE: amber</text>
-<rect x="58" y="390" width="132" height="62" rx="16" fill="#f4efe4" stroke="#d9d1c3" stroke-width="2"/>
-<text x="72" y="414" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">ops.log</text>
-<text x="72" y="436" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">deployment noise</text>
-<text x="72" y="452" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">no answer signal</text>
-<rect x="58" y="478" width="132" height="62" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="72" y="502" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">right.txt</text>
-<text x="72" y="524" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">PAIR_ID: pair-000</text>
-<text x="72" y="540" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">FACT_VALUE: orbit</text>
-<rect x="262" y="326" width="96" height="42" rx="14" fill="#fff8ea" stroke="#c79f52" stroke-width="2"/>
-<text x="310" y="352" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">depth 0</text>
-<line x1="310" y1="368" x2="310" y2="402" stroke="#2a2f38" stroke-width="3"/>
-<line x1="275" y1="402" x2="389" y2="402" stroke="#2a2f38" stroke-width="3"/>
-<line x1="275.0" y1="402" x2="275.0" y2="422" stroke="#2a2f38" stroke-width="3"/>
-<rect x="236" y="422" width="78" height="40" rx="14" fill="#fffdf7" stroke="#d5b184" stroke-width="2"/>
-<text x="275.0" y="446" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#2a2f38">chunk A</text>
-<line x1="389.0" y1="402" x2="389.0" y2="422" stroke="#2a2f38" stroke-width="3"/>
-<rect x="350" y="422" width="78" height="40" rx="14" fill="#fffdf7" stroke="#d5b184" stroke-width="2"/>
-<text x="389.0" y="446" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#2a2f38">chunk B</text>
-<rect x="228" y="538" width="52" height="36" rx="12" fill="#fffdf7" stroke="#2e6f95" stroke-width="2"/>
-<text x="254.0" y="561" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">A1</text>
-<rect x="288" y="538" width="52" height="36" rx="12" fill="#fffdf7" stroke="#2e6f95" stroke-width="2"/>
-<text x="314.0" y="561" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">A2</text>
-<rect x="350" y="538" width="52" height="36" rx="12" fill="#fffdf7" stroke="#2e6f95" stroke-width="2"/>
-<text x="376.0" y="561" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">B1</text>
-<rect x="410" y="538" width="52" height="36" rx="12" fill="#fffdf7" stroke="#2e6f95" stroke-width="2"/>
-<text x="436.0" y="561" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">B2</text>
-<line x1="275.0" y1="462" x2="275.0" y2="506" stroke="#2a2f38" stroke-width="3"/>
-<line x1="254" y1="506" x2="314" y2="506" stroke="#2a2f38" stroke-width="3"/>
-<line x1="254.0" y1="506" x2="254.0" y2="538" stroke="#2a2f38" stroke-width="3"/>
-<line x1="314.0" y1="506" x2="314.0" y2="538" stroke="#2a2f38" stroke-width="3"/>
-<line x1="389.0" y1="462" x2="389.0" y2="506" stroke="#2a2f38" stroke-width="3"/>
-<line x1="376" y1="506" x2="436" y2="506" stroke="#2a2f38" stroke-width="3"/>
-<line x1="376.0" y1="506" x2="376.0" y2="538" stroke="#2a2f38" stroke-width="3"/>
-<line x1="436.0" y1="506" x2="436.0" y2="538" stroke="#2a2f38" stroke-width="3"/>
-<text x="58" y="648" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">Recursion shrinks one noisy prompt into</text>
-<text x="58" y="666" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">small, inspectable leaves.</text>
-<text x="414" y="180" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">each leaf -&gt; MemoryItem</text>
-<rect x="414" y="204" width="300" height="84" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="428" y="228" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">A1 inspection</text>
-<text x="428" y="250" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">summary: pair-000 left = amber</text>
-<text x="428" y="266" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">provenance: left.txt</text>
-<text x="428" y="282" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">answer_candidate: amber</text>
-<rect x="414" y="296" width="300" height="68" rx="16" fill="#f5efe3" stroke="#d9d1c3" stroke-width="2"/>
-<text x="428" y="320" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">A2 inspection</text>
-<text x="428" y="342" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">summary: deploy checklist</text>
-<text x="428" y="358" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">weak overlap; low value</text>
-<rect x="414" y="388" width="300" height="84" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="428" y="412" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">B1 inspection</text>
-<text x="428" y="434" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">summary: pair-000 right = orbit</text>
-<text x="428" y="450" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">provenance: right.txt</text>
-<text x="428" y="466" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">answer_candidate: orbit</text>
-<rect x="414" y="480" width="300" height="68" rx="16" fill="#f5efe3" stroke="#d9d1c3" stroke-width="2"/>
-<text x="428" y="504" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">B2 inspection</text>
-<text x="428" y="526" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">summary: on-call rota</text>
-<text x="428" y="542" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">weak overlap; low value</text>
-<rect x="414" y="616" width="300" height="60" rx="14" fill="#edf4f8" stroke="#9ebfd4" stroke-width="2"/>
-<text x="428" y="639" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">Leaves are cheap to inspect because</text>
-<text x="428" y="657" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">each shard is already small.</text>
-<text x="770" y="180" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">policy: pairwise_tournament</text>
-<text x="770" y="200" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">root query decides what survives</text>
-<text x="770" y="222" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">memory_budget_tokens = 60</text>
-<rect x="770" y="234" width="220" height="16" rx="8" fill="#ece7db" stroke="none" stroke-width="0"/>
-<rect x="770" y="234" width="176" height="16" rx="8" fill="#1d8a5b" stroke="none" stroke-width="0"/>
-<text x="998" y="247" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" font-weight="400" fill="#5a6170">52 used</text>
-<rect x="770" y="270" width="156" height="62" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="784" y="294" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">keep</text>
-<text x="784" y="316" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">left = amber</text>
-<text x="784" y="332" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">complements right</text>
-<rect x="946" y="270" width="156" height="62" rx="16" fill="#eef8f1" stroke="#1d8a5b" stroke-width="2"/>
-<text x="960" y="294" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">keep</text>
-<text x="960" y="316" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">right = orbit</text>
-<text x="960" y="332" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">complements left</text>
-<rect x="770" y="354" width="156" height="62" rx="16" fill="#fbf4f1" stroke="#c34747" stroke-width="2" stroke-dasharray="7 6"/>
-<text x="784" y="378" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">drop</text>
-<text x="784" y="400" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">deploy checklist</text>
-<text x="784" y="416" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">weak / redundant</text>
-<rect x="946" y="354" width="156" height="62" rx="16" fill="#fbf4f1" stroke="#c34747" stroke-width="2" stroke-dasharray="7 6"/>
-<text x="960" y="378" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="700" fill="#2a2f38">drop</text>
-<text x="960" y="400" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">on-call rota</text>
-<text x="960" y="416" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#5a6170">weak / redundant</text>
-<rect x="770" y="454" width="332" height="148" rx="18" fill="#eef8f1" stroke="#1d8a5b" stroke-width="3"/>
-<text x="786" y="486" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">answer from kept_items</text>
-<text x="936" y="526" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="28" font-weight="700" fill="#2a2f38">amber orbit</text>
-<text x="786" y="552" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#2a2f38">left.txt -&gt; amber</text>
-<text x="786" y="580" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="400" fill="#2a2f38">right.txt -&gt; orbit</text>
-<rect x="770" y="616" width="332" height="60" rx="14" fill="#f3f8f5" stroke="#9bcdb1" stroke-width="2"/>
-<text x="782" y="639" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">If retention drops a needed fact,</text>
-<text x="782" y="657" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="14" font-weight="400" fill="#5a6170">the answer loses it too.</text>
-<text x="40" y="704" text-anchor="start" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="15" font-weight="400" fill="#5a6170">The whole repo is this loop in a small, inspectable form.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <rect width="920" height="420" fill="#f7f4ec"/>
+  <text x="36" y="48" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="28" font-weight="700" fill="#242933">nanoRLM in one picture</text>
+  <text x="36" y="76" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="15" fill="#666c78">read a big context recursively, keep a tiny memory, answer only from that memory</text>
+
+  <rect x="36" y="118" width="198" height="176" rx="20" fill="#fffdf7" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="60" y="152" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">too much context</text>
+  <text x="60" y="184" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">query: pair-000?</text>
+  <rect x="60" y="206" width="150" height="22" rx="11" fill="#e8f5ec" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="76" y="222" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#242933">left fact: amber</text>
+  <rect x="60" y="238" width="150" height="22" rx="11" fill="#f3ecdf" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="76" y="254" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#666c78">noise noise noise</text>
+  <rect x="60" y="270" width="150" height="22" rx="11" fill="#e8f5ec" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="76" y="286" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#242933">right fact: orbit</text>
+
+  <line x1="248" y1="206" x2="300" y2="206" stroke="#242933" stroke-width="3"/>
+  <polygon points="288,197 300,206 288,215" fill="#242933"/>
+
+  <rect x="314" y="118" width="202" height="176" rx="20" fill="#fffdf7" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="338" y="152" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">split + inspect</text>
+  <circle cx="416" cy="190" r="22" fill="#fff8ea" stroke="#c79f52" stroke-width="2"/>
+  <text x="416" y="196" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">root</text>
+  <line x1="416" y1="212" x2="416" y2="232" stroke="#242933" stroke-width="3"/>
+  <line x1="370" y1="232" x2="462" y2="232" stroke="#242933" stroke-width="3"/>
+  <line x1="370" y1="232" x2="370" y2="252" stroke="#242933" stroke-width="3"/>
+  <line x1="462" y1="232" x2="462" y2="252" stroke="#242933" stroke-width="3"/>
+  <rect x="342" y="252" width="56" height="32" rx="12" fill="#eaf5fb" stroke="#2e6f95" stroke-width="2"/>
+  <text x="370" y="273" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">leaf</text>
+  <rect x="434" y="252" width="56" height="32" rx="12" fill="#eaf5fb" stroke="#2e6f95" stroke-width="2"/>
+  <text x="462" y="273" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">leaf</text>
+
+  <line x1="532" y1="206" x2="584" y2="206" stroke="#242933" stroke-width="3"/>
+  <polygon points="572,197 584,206 572,215" fill="#242933"/>
+
+  <rect x="598" y="100" width="286" height="212" rx="24" fill="#eaf7ef" stroke="#1d8a5b" stroke-width="3"/>
+  <text x="622" y="136" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">tiny retained memory</text>
+  <text x="622" y="166" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">budget: 60 tokens</text>
+  <rect x="622" y="184" width="220" height="16" rx="8" fill="#d7cfc0"/>
+  <rect x="622" y="184" width="152" height="16" rx="8" fill="#1d8a5b"/>
+  <rect x="622" y="224" width="100" height="36" rx="14" fill="#fffdf7" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="672" y="247" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">amber</text>
+  <rect x="742" y="224" width="100" height="36" rx="14" fill="#fffdf7" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="792" y="247" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">orbit</text>
+  <text x="622" y="288" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">drop the nice-but-useless stuff</text>
+
+  <line x1="740" y1="312" x2="740" y2="350" stroke="#242933" stroke-width="3"/>
+  <polygon points="731,338 740,350 749,338" fill="#242933"/>
+  <rect x="588" y="350" width="304" height="42" rx="18" fill="#fffdf7" stroke="#242933" stroke-width="2"/>
+  <text x="740" y="377" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">answer = amber orbit</text>
 </svg>
