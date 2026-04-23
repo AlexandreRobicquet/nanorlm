@@ -5,7 +5,6 @@ import math
 import os
 import random
 import re
-import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field, replace
@@ -247,62 +246,36 @@ class HeuristicBackend:
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         snippets: list[tuple[float, str]] = []
-        metadata: dict[str, Any] = {}
         evidence: list[str] = []
-        marker_candidates: list[tuple[float, dict[str, str]]] = []
         for document in documents:
             matches = self._salient_lines(query, document.text)
-            document_score = matches[0][0] if matches else 0.0
             for score, line in matches[:2]:
                 snippets.append((score, f"{document.name}: {line}"))
                 evidence.append(f"{document.name}: {line}")
-            markers = self._extract_markers(document.text)
-            if markers:
-                pair_bonus = 0.0
-                pair_id = markers.get("pair_id")
-                if pair_id and pair_id.lower() in query.lower():
-                    pair_bonus += 6.0
-                marker_candidates.append((document_score + pair_bonus, markers))
         snippets.sort(key=lambda item: (-item[0], item[1]))
-        if marker_candidates:
-            marker_candidates.sort(key=lambda item: item[0], reverse=True)
-            metadata = dict(marker_candidates[0][1])
         summary_parts = [snippet for _, snippet in snippets[:3]]
         if not summary_parts:
             joined_names = ", ".join(document.name for document in documents[:3])
             summary_parts.append(f"{joined_names}: no strong lexical match, returning leading context")
         summary = " | ".join(summary_parts)
-        answer_candidate = metadata.get("answer", "")
-        if not answer_candidate and summary_parts:
-            answer_candidate = summary_parts[0].split(": ", 1)[-1]
+        answer_candidate = summary_parts[0].split(": ", 1)[-1] if summary_parts else ""
         confidence = min(0.95, 0.2 + 0.15 * len(summary_parts))
         usage = Usage(prompt_tokens=sum(document.tokens for document in documents), completion_tokens=estimate_tokens(summary), calls=1)
-        return InspectionResult(summary=summary, evidence=evidence[:6], answer_candidate=answer_candidate, confidence=confidence, metadata=metadata, usage=usage)
+        return InspectionResult(summary=summary, evidence=evidence[:6], answer_candidate=answer_candidate, confidence=confidence, metadata={}, usage=usage)
 
     def answer(self, query: str, memory: Sequence[MemoryItem]) -> AnswerResult:
-        pair_answer = self._solve_pair_query(query, memory)
-        if pair_answer:
-            answer = pair_answer
-        else:
-            ranked = sorted(memory, key=lambda item: (-self.score_candidate(query, item), -item.timestamp))
-            lines: list[str] = []
-            for item in ranked[:3]:
-                snippet = item.answer_candidate or item.summary
-                if snippet:
-                    lines.append(f"{item.provenance}: {snippet}")
-            answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
+        ranked = sorted(memory, key=lambda item: (-self.score_candidate(query, item), -item.timestamp))
+        lines: list[str] = []
+        for item in ranked[:3]:
+            snippet = item.answer_candidate or item.summary
+            if snippet:
+                lines.append(f"{item.provenance}: {snippet}")
+        answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
         usage = Usage(prompt_tokens=sum(item.tokens for item in memory), completion_tokens=estimate_tokens(answer), calls=1)
         return AnswerResult(answer=answer, confidence=0.65 if memory else 0.1, usage=usage)
 
     def score_candidate(self, query: str, item: MemoryItem) -> float:
         score = score_overlap(query, item.summary + " " + item.answer_candidate)
-        pair_id = item.metadata.get("pair_id")
-        if pair_id and pair_id.lower() in query.lower():
-            score += 5.0
-        if item.metadata.get("fact_kind"):
-            score += 1.0
-        if item.metadata.get("answer"):
-            score += 2.0
         if item.confidence:
             score += item.confidence
         return score
@@ -310,12 +283,6 @@ class HeuristicBackend:
     def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
         left_score = self.score_candidate(query, left)
         right_score = self.score_candidate(query, right)
-        if left.metadata.get("pair_id") == right.metadata.get("pair_id"):
-            if left.metadata.get("fact_kind") != right.metadata.get("fact_kind"):
-                if left.tokens < right.tokens:
-                    left_score += 0.25
-                elif right.tokens < left.tokens:
-                    right_score += 0.25
         if abs(left_score - right_score) < 0.1:
             if left.timestamp > right.timestamp:
                 return 1
@@ -332,54 +299,10 @@ class HeuristicBackend:
             if not clean:
                 continue
             overlap = len(query_set & query_terms(clean))
-            marker_bonus = 0.0
-            lower = clean.lower()
-            if "answer:" in lower:
-                marker_bonus += 3.0
-            if "fact_value" in lower or "fact_kind" in lower:
-                marker_bonus += 1.5
-            if "pair_id" in lower:
-                marker_bonus += 1.0
-            if "endpoint_id" in lower or "api_key_var" in lower or "api_base_url" in lower:
-                marker_bonus += 1.0
-            if overlap == 0 and marker_bonus == 0.0:
+            if overlap == 0:
                 continue
-            matches.append((float(overlap) + marker_bonus + len(clean) / 500.0, clean))
+            matches.append((float(overlap) + len(clean) / 500.0, clean))
         return sorted(matches, key=lambda item: (-item[0], item[1]))
-
-    def _extract_markers(self, text: str) -> dict[str, str]:
-        markers: dict[str, str] = {}
-        patterns = {
-            "pair_id": r"\bPAIR_ID\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "fact_kind": r"\bFACT_KIND\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "fact_value": r"\bFACT_VALUE\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "answer": r"\bANSWER\s*[:=]\s*(.+)",
-            "slot": r"\bSLOT\s*[:=]\s*([A-Za-z0-9._-]+)",
-        }
-        for key, pattern in patterns.items():
-            match = re.search(pattern, text, flags=re.MULTILINE)
-            if match:
-                markers[key] = match.group(1).strip()
-        return markers
-
-    def _solve_pair_query(self, query: str, memory: Sequence[MemoryItem]) -> str | None:
-        pair_match = re.search(r"(pair[-_ ]?\d+)", query, flags=re.IGNORECASE)
-        target_pair = pair_match.group(1).replace(" ", "-").lower() if pair_match else None
-        facts: dict[str, dict[str, str]] = {}
-        for item in memory:
-            pair_id = str(item.metadata.get("pair_id", "")).lower()
-            kind = str(item.metadata.get("fact_kind", "")).lower()
-            value = str(item.metadata.get("fact_value", ""))
-            if pair_id and kind and value:
-                facts.setdefault(pair_id, {})[kind] = value
-            answer = item.metadata.get("answer")
-            if answer and (not target_pair or target_pair == pair_id):
-                return str(answer)
-        if target_pair and target_pair in facts:
-            pair_facts = facts[target_pair]
-            if "left" in pair_facts and "right" in pair_facts:
-                return f"{pair_facts['left']} {pair_facts['right']}"
-        return None
 
 
 class OpenAIChatBackend:
@@ -573,21 +496,10 @@ class RLM:
                 raw_pointer=branch,
                 tokens=estimate_tokens(result.summary),
                 depth=depth,
-                timestamp=time.time() + step_counter[0],
+                timestamp=float(step_counter[0]),
                 answer_candidate=result.answer_candidate,
                 confidence=result.confidence,
                 metadata=result.metadata,
-                score=self.backend.score_candidate(query, MemoryItem(
-                    summary=result.summary,
-                    provenance=provenance,
-                    raw_pointer=branch,
-                    tokens=estimate_tokens(result.summary),
-                    depth=depth,
-                    timestamp=time.time() + step_counter[0],
-                    answer_candidate=result.answer_candidate,
-                    confidence=result.confidence,
-                    metadata=result.metadata,
-                )),
             )
             return [item]
 
