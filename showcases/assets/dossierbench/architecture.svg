@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <rect width="920" height="420" fill="#f7f4ec"/>
+  <text x="36" y="48" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="28" font-weight="700" fill="#242933">nanoRLM in one picture</text>
+  <text x="36" y="76" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="15" fill="#666c78">read a big context recursively, keep a tiny memory, answer only from that memory</text>
+
+  <rect x="36" y="118" width="198" height="176" rx="20" fill="#fffdf7" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="60" y="152" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">too much context</text>
+  <text x="60" y="184" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">query: pair-000?</text>
+  <rect x="60" y="206" width="150" height="22" rx="11" fill="#e8f5ec" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="76" y="222" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#242933">left fact: amber</text>
+  <rect x="60" y="238" width="150" height="22" rx="11" fill="#f3ecdf" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="76" y="254" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#666c78">noise noise noise</text>
+  <rect x="60" y="270" width="150" height="22" rx="11" fill="#e8f5ec" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="76" y="286" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="12" fill="#242933">right fact: orbit</text>
+
+  <line x1="248" y1="206" x2="300" y2="206" stroke="#242933" stroke-width="3"/>
+  <polygon points="288,197 300,206 288,215" fill="#242933"/>
+
+  <rect x="314" y="118" width="202" height="176" rx="20" fill="#fffdf7" stroke="#d7cfc0" stroke-width="2"/>
+  <text x="338" y="152" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">split + inspect</text>
+  <circle cx="416" cy="190" r="22" fill="#fff8ea" stroke="#c79f52" stroke-width="2"/>
+  <text x="416" y="196" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">root</text>
+  <line x1="416" y1="212" x2="416" y2="232" stroke="#242933" stroke-width="3"/>
+  <line x1="370" y1="232" x2="462" y2="232" stroke="#242933" stroke-width="3"/>
+  <line x1="370" y1="232" x2="370" y2="252" stroke="#242933" stroke-width="3"/>
+  <line x1="462" y1="232" x2="462" y2="252" stroke="#242933" stroke-width="3"/>
+  <rect x="342" y="252" width="56" height="32" rx="12" fill="#eaf5fb" stroke="#2e6f95" stroke-width="2"/>
+  <text x="370" y="273" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">leaf</text>
+  <rect x="434" y="252" width="56" height="32" rx="12" fill="#eaf5fb" stroke="#2e6f95" stroke-width="2"/>
+  <text x="462" y="273" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">leaf</text>
+
+  <line x1="532" y1="206" x2="584" y2="206" stroke="#242933" stroke-width="3"/>
+  <polygon points="572,197 584,206 572,215" fill="#242933"/>
+
+  <rect x="598" y="100" width="286" height="212" rx="24" fill="#eaf7ef" stroke="#1d8a5b" stroke-width="3"/>
+  <text x="622" y="136" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">tiny retained memory</text>
+  <text x="622" y="166" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">budget: 60 tokens</text>
+  <rect x="622" y="184" width="220" height="16" rx="8" fill="#d7cfc0"/>
+  <rect x="622" y="184" width="152" height="16" rx="8" fill="#1d8a5b"/>
+  <rect x="622" y="224" width="100" height="36" rx="14" fill="#fffdf7" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="672" y="247" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">amber</text>
+  <rect x="742" y="224" width="100" height="36" rx="14" fill="#fffdf7" stroke="#1d8a5b" stroke-width="2"/>
+  <text x="792" y="247" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" fill="#242933">orbit</text>
+  <text x="622" y="288" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="13" fill="#666c78">drop the nice-but-useless stuff</text>
+
+  <line x1="740" y1="312" x2="740" y2="350" stroke="#242933" stroke-width="3"/>
+  <polygon points="731,338 740,350 749,338" fill="#242933"/>
+  <rect x="588" y="350" width="304" height="42" rx="18" fill="#fffdf7" stroke="#242933" stroke-width="2"/>
+  <text x="740" y="377" text-anchor="middle" font-family="Menlo, ui-monospace, SFMono-Regular, monospace" font-size="16" font-weight="700" fill="#242933">answer = amber orbit</text>
+</svg>

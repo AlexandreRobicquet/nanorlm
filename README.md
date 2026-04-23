@@ -1,10 +1,22 @@
 # nanoRLM
 
-`nanoRLM` is a minimal, inference-only reference implementation of Recursive Language Models with pluggable memory-retention policies.
+`nanoRLM` is a tiny, inference-only playground for Recursive Language Models.
 
-The design goal is simple: you should be able to read the whole core in one sitting, understand the control flow, and then start swapping retention policies or benchmarks without wading through a framework.
+The whole thing is meant to fit in your head: split a big context, read the pieces, keep a small memory, then answer from that memory. Think `nanoGPT`, but for recursive inference instead of training a transformer.
 
-## What Is In The Repo
+This is not trying to be a framework. The goal is a small repo you can read in one sitting, hack on, and use to sanity-check retention policies without spelunking through a giant stack.
+
+## The Picture
+
+![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
+
+That's basically it. The interesting part is the bottleneck in the middle.
+
+You start with too much context. Recursion turns it into small leaf inspections. Each leaf produces a little `MemoryItem`. The retention policy has to decide what survives the token budget. The final answer only sees that retained memory.
+
+So if the policy drops the important clue, the model loses. If it keeps the right complementary clues, it can win with a tiny memory.
+
+## What's In Here
 
 - `nanorlm.py`: the core recursion loop, trace recorder, OpenAI-compatible transport, and deterministic offline backend
 - `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, and `pairwise_tournament`
@@ -13,11 +25,11 @@ The design goal is simple: you should be able to read the whole core in one sitt
 - `tests/`: unit tests for recursion, budget enforcement, and policy behavior
 - `AGENTS.example.md`, `CLAUDE.example.md`, `ROADMAP.example.md`: tracked templates for local gitignored assistant and planning files
 
-## Why This Exists
+## Why Bother?
 
-There are already serious RLM implementations inside larger research stacks. What is still missing is the `nanoGPT`-style artifact: something small enough to study line by line, but real enough to produce interesting traces and retention-policy results.
+There are already serious RLM implementations inside larger research stacks. This repo is going for a different vibe: small enough to study line by line, but real enough to produce traces, benchmarks, and retention-policy failures you can actually inspect.
 
-This repo leans into that gap:
+The bet is that recursive inference is easiest to understand when the code is almost boring:
 
 - one small OpenAI-compatible code path
 - one deterministic, schema-opaque offline backend for tests and smoke demos
