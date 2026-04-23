@@ -1,0 +1,427 @@
+[
+  {
+    "name": "init-and-local-eval",
+    "query": "Which command initializes a fresh environment template, and which command runs a local evaluation of 10 examples with gpt-4.1-mini after installation?",
+    "answer": "Use `prime env init my-env`, then run `prime eval run my-env -m openai/gpt-4.1-mini -n 10`.",
+    "must_contain": [
+      "prime env init my-env",
+      "prime eval run my-env -m openai/gpt-4.1-mini -n 10"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/evaluation.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "default-endpoint-and-key",
+    "query": "What default API base URL and API key variable are used for evaluation model configuration?",
+    "answer": "The defaults are `https://api.pinference.ai/api/v1` and `PRIME_API_KEY`.",
+    "must_contain": [
+      "https://api.pinference.ai/api/v1",
+      "PRIME_API_KEY"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "anthropic-client-type",
+    "query": "If you want to call Anthropic directly, which client type should you use in the CLI and in ClientConfig?",
+    "answer": "Use `anthropic_messages`.",
+    "must_contain": [
+      "anthropic_messages"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "workspace-setup",
+    "query": "What tool does the quickstart require for package management, and what command sets up a new workspace lab?",
+    "answer": "The docs require `uv`, and the setup command is `prime lab setup`.",
+    "must_contain": [
+      "uv",
+      "prime lab setup"
+    ],
+    "provenance": [
+      "README.md",
+      "pyproject.toml"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "endpoint-registry-path",
+    "query": "What default file path is used for the endpoint registry in the quickstart and evaluation docs?",
+    "answer": "The default registry path is `./configs/endpoints.toml`.",
+    "must_contain": [
+      "./configs/endpoints.toml"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/evaluation.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "prime-credential-precedence",
+    "query": "Which two environment variables are checked first for default Prime credentials after login?",
+    "answer": "The two environment variables are `PRIME_API_KEY` and `PRIME_TEAM_ID`.",
+    "must_contain": [
+      "PRIME_API_KEY",
+      "PRIME_TEAM_ID"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/reference.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "tui-command-and-script",
+    "query": "Which end-user command opens the evaluation TUI, and which pyproject script entrypoint backs the dedicated TUI launcher?",
+    "answer": "Use `prime eval tui`; the script entrypoint is `vf-tui`.",
+    "must_contain": [
+      "prime eval tui",
+      "vf-tui"
+    ],
+    "provenance": [
+      "README.md",
+      "pyproject.toml"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "legacy-rl-positioning",
+    "query": "Which optional package name holds the legacy RL trainer, and how do the training docs describe its status?",
+    "answer": "The package is `verifiers-rl`, and the docs describe it as educational and experimental, not actively maintained.",
+    "must_contain": [
+      "verifiers-rl",
+      "educational",
+      "experimental"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "docs/training.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "openenv-build-path",
+    "query": "Which optional dependency group enables OpenEnv support, and what command builds the OpenEnv project image?",
+    "answer": "The optional dependency group is `openenv`, and the build command is `uv run vf-build my-openenv`.",
+    "must_contain": [
+      "openenv",
+      "uv run vf-build my-openenv"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "README.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "saved-result-files",
+    "query": "When results are saved, which two files are explicitly written to disk for evaluation and GEPA-style runs?",
+    "answer": "The outputs include `results.jsonl` and `metadata.json`.",
+    "must_contain": [
+      "results.jsonl",
+      "metadata.json"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/training.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "default-model-and-alias",
+    "query": "What is the default local evaluation model, and what example endpoint alias do the docs show for registry-based lookup?",
+    "answer": "The default model is `openai/gpt-4.1-mini`, and the example alias is `qwen3-235b-i`.",
+    "must_contain": [
+      "openai/gpt-4.1-mini",
+      "qwen3-235b-i"
+    ],
+    "provenance": [
+      "docs/evaluation.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "client-type-flag",
+    "query": "What is the default ClientConfig client type, and which CLI flag lets you override it during evaluation?",
+    "answer": "The default client type is `openai_chat_completions`, and the CLI flag is `--api-client-type`.",
+    "must_contain": [
+      "openai_chat_completions",
+      "--api-client-type"
+    ],
+    "provenance": [
+      "docs/reference.md",
+      "docs/evaluation.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "python-support-window",
+    "query": "What Python version range does the package declare, and what Python version does the ty environment target?",
+    "answer": "The package declares `>=3.10,<3.14`, and the ty environment uses `3.13`.",
+    "must_contain": [
+      "3.10",
+      "3.13"
+    ],
+    "provenance": [
+      "pyproject.toml"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "gepa-output-and-config-dir",
+    "query": "Where do GEPA prompt optimization outputs land, and which top-level directory holds example eval configs in the workspace setup?",
+    "answer": "GEPA outputs are written to `environments/wiki-search/outputs/gepa/`, and eval configs live in `configs/eval/`.",
+    "must_contain": [
+      "environments/wiki-search/outputs/gepa/",
+      "configs/eval/"
+    ],
+    "provenance": [
+      "docs/training.md",
+      "README.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "extra-env-kwargs",
+    "query": "Which flag passes arguments straight to the environment constructor, and what example override do the docs show for maximum turns?",
+    "answer": "Use `--extra-env-kwargs`, for example `max_turns` via `-x '{\"max_turns\": 20}'`.",
+    "must_contain": [
+      "--extra-env-kwargs",
+      "max_turns"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/reference.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "hosted-eval-flags",
+    "query": "Which hosted evaluation flags are called out explicitly in the docs as hosted-only examples?",
+    "answer": "The docs call out `--follow` and `--timeout-minutes` among the hosted-only flags.",
+    "must_contain": [
+      "--follow",
+      "--timeout-minutes"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "README.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "browser-support-deps",
+    "query": "Which dependencies are listed for browser support, and which release note mentions BrowserEnv integrations?",
+    "answer": "Browser support includes `stagehand>=3.0.0` and `aiohttp>=3.9.0`, and the README mentions BrowserEnv integrations.",
+    "must_contain": [
+      "stagehand>=3.0.0",
+      "aiohttp>=3.9.0",
+      "BrowserEnv"
+    ],
+    "provenance": [
+      "pyproject.toml",
+      "README.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "install-and-loader",
+    "query": "What command installs a local environment module, and what function must the module expose so evaluation can import it?",
+    "answer": "Install with `prime env install my-env`, and the module must expose `load_environment`.",
+    "must_contain": [
+      "prime env install my-env",
+      "load_environment"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/reference.md"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "timeout-and-retries",
+    "query": "What is the default client timeout in ClientConfig, what is the default max_retries there, and which CLI flag controls rollout retries?",
+    "answer": "ClientConfig uses `timeout: 3600.0` and `max_retries: 10`; the CLI flag is `--max-retries`.",
+    "must_contain": [
+      "3600.0",
+      "10",
+      "--max-retries"
+    ],
+    "provenance": [
+      "docs/reference.md",
+      "docs/evaluation.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "sdist-and-wheel",
+    "query": "Which paths are included in the source distribution, and which package is placed into the wheel build?",
+    "answer": "The source distribution includes `/verifiers` and `/tests`, and the wheel packages `verifiers`.",
+    "must_contain": [
+      "/verifiers",
+      "/tests",
+      "packages = [\"verifiers\"]"
+    ],
+    "provenance": [
+      "pyproject.toml"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "prime-eval-import-flow",
+    "query": "According to the evaluation docs, what function does `prime eval` call after importing the module, and how many examples and rollouts does it run by default?",
+    "answer": "`prime eval` calls `load_environment()` and runs 5 examples with 3 rollouts each by default.",
+    "must_contain": [
+      "load_environment",
+      "5 examples",
+      "3 rollouts"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "README.md"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "autoscaling-and-set-concurrency",
+    "query": "How does evaluation compute environment concurrency automatically, and what direct runtime call do the docs show for overriding it?",
+    "answer": "It derives concurrency from `max_concurrent` or `num_examples * rollouts_per_example` and passes it into `Environment.set_concurrency()`; the direct override shown is `env.set_concurrency(256)`.",
+    "must_contain": [
+      "max_concurrent",
+      "set_concurrency",
+      "env.set_concurrency(256)"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "docs/environments.md"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "endpoint-id-and-replicas",
+    "query": "When can eval configs use `endpoint_id`, and how do you define equivalent replicas for the same endpoint?",
+    "answer": "`endpoint_id` is only supported with TOML endpoint registries, and equivalent replicas are multiple `[[endpoint]]` entries with the same `endpoint_id`.",
+    "must_contain": [
+      "endpoint_id",
+      "TOML",
+      "[[endpoint]]"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "verifiers/scripts/eval.py"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "num-workers-auto",
+    "query": "What CLI flag controls env server worker processes, what default does it use, and how is the automatic value defined?",
+    "answer": "The flag is `--num-workers`, the default is `auto`, and `auto` means concurrency divided by 256 with a minimum of 1 worker.",
+    "must_contain": [
+      "--num-workers",
+      "auto",
+      "minimum 1"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "verifiers/scripts/eval.py"
+    ],
+    "task_class": "config-resolution"
+  },
+  {
+    "name": "resume-path-validation",
+    "query": "What two files must a resume directory contain, and which code path rejects an invalid resume path?",
+    "answer": "A valid resume directory must contain `results.jsonl` and `metadata.json`, and `verifiers/scripts/eval.py` rejects bad inputs with `Resume path ... is not a valid evaluation results path`.",
+    "must_contain": [
+      "results.jsonl",
+      "metadata.json",
+      "valid evaluation results path"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "verifiers/scripts/eval.py"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "ensure-keys-load-environment",
+    "query": "What helper should an environment call early in `load_environment()` to validate external API keys, and what local shell command do the docs show for setting a missing key?",
+    "answer": "Use `vf.ensure_keys()` early in `load_environment()`, and the local shell example is `export OPENAI_API_KEY=...`.",
+    "must_contain": [
+      "vf.ensure_keys",
+      "load_environment",
+      "export OPENAI_API_KEY"
+    ],
+    "provenance": [
+      "docs/environments.md",
+      "docs/reference.md"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "browserenv-modes-and-extra",
+    "query": "Which two BrowserEnv modes are called out in the environments docs, and which optional extra installs the browser dependencies?",
+    "answer": "BrowserEnv is documented with `DOM` and `CUA` modes, and the browser dependencies come from `verifiers[browser]`.",
+    "must_contain": [
+      "DOM",
+      "CUA",
+      "verifiers[browser]"
+    ],
+    "provenance": [
+      "docs/environments.md",
+      "tests/test_browser_env.py"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "openenv-build-command",
+    "query": "What extra enables OpenEnv support, and what command should you run before evaluation or training to build the bundled project image?",
+    "answer": "Use `verifiers[openenv]`, then run `prime env build <env-id>` before evaluation or training.",
+    "must_contain": [
+      "verifiers[openenv]",
+      "prime env build <env-id>"
+    ],
+    "provenance": [
+      "docs/environments.md",
+      "pyproject.toml"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "sandbox-taskset-validate",
+    "query": "Which class documents bulk validation with resume plus retry-on-InfraError, and what method signature is called out for that workflow?",
+    "answer": "The docs call out `SandboxTaskSet`, using `validate(n, concurrency, out_path=, max_retries=, resume=)` for bulk validation with resume and retry behavior.",
+    "must_contain": [
+      "SandboxTaskSet",
+      "validate(n, concurrency, out_path=, max_retries=, resume=)"
+    ],
+    "provenance": [
+      "docs/environments.md"
+    ],
+    "task_class": "implementation-location"
+  },
+  {
+    "name": "multi-endpoint-summary-string",
+    "query": "Which test verifies the multi-endpoint display summary, and what exact string should it render for two endpoints under gpt-5-mini?",
+    "answer": "`tests/test_eval_display.py` verifies it with `test_format_client_target_uses_endpoint_id_summary_for_multi_endpoint`, and the rendered string is `endpoint_id=gpt-5-mini (2 endpoints)`.",
+    "must_contain": [
+      "test_format_client_target_uses_endpoint_id_summary_for_multi_endpoint",
+      "endpoint_id=gpt-5-mini (2 endpoints)"
+    ],
+    "provenance": [
+      "tests/test_eval_display.py",
+      "docs/evaluation.md"
+    ],
+    "task_class": "implementation-location"
+  }
+]

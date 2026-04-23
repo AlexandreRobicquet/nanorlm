@@ -1,127 +1,75 @@
 # nanoRLM
 
-`nanoRLM` is a tiny, inference-only playground for Recursive Language Models.
+`nanoRLM` is a small, inference-only reference implementation of Recursive Language Models with pluggable retention policies and a query-conditioned `pairwise_tournament` memory selector.
 
-The whole thing is meant to fit in your head: split a big context, read the pieces, keep a small memory, then answer from that memory. Think `nanoGPT`, but for recursive inference instead of training a transformer.
+The goal is not to be a framework. The goal is to be the repo you can read in one sitting and still get real recursive traces, real benchmark bundles, and real retention-policy ablations out of it.
 
-This is not trying to be a framework. The goal is a small repo you can read in one sitting, hack on, and use to sanity-check retention policies without spelunking through a giant stack.
-
-## The Picture
+## What We Are Building
 
 ![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
 
-That's basically it. The interesting part is the bottleneck in the middle.
+The whole repo is this loop: start with a root query over too much context, recurse until each shard is small enough to inspect, turn leaf inspections into explicit `MemoryItem`s, keep only what survives the token budget, then answer from retained evidence instead of the full context.
 
-You start with too much context. Recursion turns it into small leaf inspections. Each leaf produces a little `MemoryItem`. The retention policy has to decide what survives the token budget. The final answer only sees that retained memory.
+If the retention policy drops a needed fact, the final answer loses it too. That is the central research surface in `nanoRLM`.
 
-So if the policy drops the important clue, the model loses. If it keeps the right complementary clues, it can win with a tiny memory.
+## Thesis
 
-## What's In Here
+Modern long-context systems still fail in a very specific way: they look at everything, but they do not reliably keep the right intermediate evidence under pressure.
 
-- `nanorlm.py`: the core recursion loop, trace recorder, OpenAI-compatible transport, and deterministic offline backend
-- `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, and `pairwise_tournament`
-- `bench.py`: synthetic ablations plus a curated `Verifiers-20` loader
-- `examples/`: runnable scripts and the `verifiers_20.json` question set
-- `tests/`: unit tests for recursion, budget enforcement, and policy behavior
-- `AGENTS.example.md`, `CLAUDE.example.md`, `ROADMAP.example.md`: tracked templates for local gitignored assistant and planning files
+`nanoRLM` focuses on that exact gap:
 
-## Why Bother?
+- a tiny recursive inference loop with one small provider seam
+- a deterministic offline backend for tests and smoke demos
+- two tiny network backends: OpenAI-compatible and Anthropic Messages
+- a minimal memory interface with swappable retention policies
+- a novel `pairwise_tournament` policy that tries to preserve complementary evidence instead of just top-scoring snippets
 
-There are already serious RLM implementations inside larger research stacks. This repo is going for a different vibe: small enough to study line by line, but real enough to produce traces, benchmarks, and retention-policy failures you can actually inspect.
+## Quickstart With `uv`
 
-The bet is that recursive inference is easiest to understand when the code is almost boring:
+This repo is meant to stay easy to run from a fresh machine with `uv`.
 
-- one small OpenAI-compatible code path
-- one deterministic, schema-opaque offline backend for tests and smoke demos
-- four side-by-side retention policies, including a pairwise-critic tournament — and a clear roadmap to a principled Bradley-Terry + submodular retention framework
-
-## Local Working Files
-
-`AGENTS.md`, `CLAUDE.md`, and `ROADMAP.md` are intentionally gitignored. The repo tracks `*.example.md` versions instead so contributors can keep local agent guidance and planning notes without publishing them.
-
-To start from the shared templates:
-
-```bash
-cp AGENTS.example.md AGENTS.md
-cp CLAUDE.example.md CLAUDE.md
-cp ROADMAP.example.md ROADMAP.md
-```
-
-## Quickstart
+If you are learning the repo day to day, use this flow first:
 
 ```bash
 uv sync
+uv run python --version
 uv run python -m unittest discover -s tests -v
-uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-uv run python bench.py --dataset needlepairs --limit 10 --budget 60 --depth 2
+uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 ```
 
-To run the curated repo-QA demo over Prime Intellect's `verifiers` repository:
+The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
 
-```bash
-git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-uv run python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
-```
+For the repo-specific mental model, exact smoke commands, and a short cheat sheet, see [UV.md](UV.md).
 
-To swap in a real OpenAI-compatible model:
-
-```bash
-export OPENAI_API_KEY=...
-uv run python examples/run_verifiers.py \
-  --openai \
-  --model gpt-4.1-mini \
-  --base-url https://api.openai.com/v1 \
-  --repo-root /tmp/nanorlm-verifiers
-```
-
-For a local OpenAI-compatible endpoint such as Ollama:
-
-```bash
-uv run python examples/run_verifiers.py \
-  --openai \
-  --model qwen3:14b \
-  --base-url http://localhost:11434/v1 \
-  --repo-root /tmp/nanorlm-verifiers
-```
-
-## Core API
+## Tiny Example
 
 ```python
 from nanorlm import ContextBlock, RLM, RLMConfig
 
 context = [
-    ContextBlock(name="notes/a.md", text="The rendezvous was scheduled at the east pier."),
-    ContextBlock(name="notes/b.md", text="The passphrase for the east pier is 'quiet morning'."),
-    ContextBlock(name="notes/c.md", text="Unrelated: lunch is at noon in the cafeteria."),
+    ContextBlock(name="left.txt", text="PAIR_ID: pair-000\nFACT_KIND: left\nFACT_VALUE: amber"),
+    ContextBlock(name="right.txt", text="PAIR_ID: pair-000\nFACT_KIND: right\nFACT_VALUE: orbit"),
 ]
 
 config = RLMConfig(
     model="demo/heuristic",
-    base_url="http://localhost:11434/v1",
-    max_depth=2,
+    provider="heuristic",
+    max_depth=4,
     memory_budget_tokens=60,
     retention_policy="pairwise_tournament",
     seed=0,
 )
 
-result = RLM(config).completion("What is the passphrase for the east pier?", context)
+result = RLM(config).completion(
+    "For pair-000, what is the full code? Combine the left token and the right token.",
+    context,
+)
+
 print(result.answer)
 print(result.trace.tree)
 ```
 
-The `demo/heuristic` backend is a deterministic, lexical-overlap scorer — useful for understanding the control flow and exercising policies, but not for real reasoning. Point `base_url` at an OpenAI-compatible endpoint (with an API key) and any of the policies will dispatch through `OpenAIChatBackend` instead.
-
-`RLMConfig` exposes the public control surface:
-
-- `model`
-- `base_url`
-- `api_key`
-- `max_depth`
-- `max_steps`
-- `memory_budget_tokens`
-- `retention_policy`
-- `sandbox`
-- `seed`
+`provider` selects `heuristic`, `openai_compatible`, `anthropic`, or `auto`. `base_url` is optional and defaults to the right endpoint for the chosen network provider.
 
 `RLM(config).completion(query, context)` returns an `RLMResult` with:
 
@@ -130,85 +78,178 @@ The `demo/heuristic` backend is a deterministic, lexical-overlap scorer — usef
 - `usage`
 - `cost_estimate`
 - `kept_items`
-
-## Retention Policies
-
-- `keep_recent`: blunt recency baseline
-- `summary_only`: aggressively compresses memory and drops structured metadata
-- `single_critic_topk`: scores each candidate independently with the critic, keeps top-k under budget
-- `pairwise_tournament`: runs a lightweight multi-round pairwise tournament via the critic, ranks by wins/score/timestamp, then fills the budget greedily
-
-The memory item schema is intentionally simple:
-
-- `summary`
-- `provenance`
-- `raw_pointer`
-- `tokens`
-- `depth`
-- `timestamp`
-
-The implementation also keeps optional `answer_candidate`, `confidence`, and lightweight metadata when a backend can extract it.
+- `retention_stats`
+- `provenance_hits`
+- `drop_reasons`
+- `per_step_budget`
 
 ## Benchmarks
 
-> **Empirical status — honesty pass.** An earlier revision of this repo reported headline accuracy numbers on the synthetic `PairBench` / `NeedlePairs` datasets. Those numbers were produced against a heuristic offline backend that co-evolved with the benchmark schema: the "deterministic" backend had hard-coded regex extraction for `PAIR_ID` / `FACT_KIND` / `FACT_VALUE` markers and a literal pair-reassembly oracle, and one of the retention policies also special-cased the same metadata keys. Those tricks have been removed. The heuristic backend is now schema-opaque: it does pure lexical overlap, ranks by critic score, and composes an answer from retained summaries — no oracle, no structural shortcuts.
->
-> Honest numbers on real long-context benchmarks (RULER, BABILong, RepoQA-20) with real models (one API, one local) are the milestone-5 deliverable on the v1.0 roadmap. Until then, the repo should be read as a **mechanism reference**, not a performance claim.
+The repo now emits a stable report bundle:
 
-### PairBench, NeedlePairs (in-repo synthetic datasets)
+- `summary.json`
+- `per_case.jsonl`
+- `curves.json`
+- `trace_examples/`
 
-```bash
-uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-uv run python bench.py --dataset needlepairs --limit 10 --budget 60 --depth 2
-```
+Current local dossier run (`12` cases, budget `80`, depth `4`):
 
-These now serve as **smoke tests and trace demos only** — they exercise the split / recurse / retain / answer loop end-to-end without relying on a model backend. Accuracy against the deterministic heuristic backend is near zero on both, as expected: assembling "left + right" facts across document fragments requires actual language reasoning, not regex.
+| policy | answer | prov | compact | avg toks |
+| --- | ---: | ---: | ---: | ---: |
+| direct_full_context | 0.667 | 1.000 | 0.552 | 35.8 |
+| keep_recent | 0.000 | 0.222 | 0.144 | 68.5 |
+| summary_only | 0.000 | 0.444 | 0.066 | 74.8 |
+| single_critic_topk | 0.083 | 0.222 | 0.134 | 69.2 |
+| pairwise_tournament | 0.333 | 0.583 | 0.162 | 67.1 |
 
-### Verifiers-20 (curated real-repo codebase QA)
+On the dossier showcase, the important comparison is the controlled ablation: at budget `80` / depth `4`, `pairwise_tournament` beats `single_critic_topk`, and the same win persists across seeds in the test suite.
 
-`examples/verifiers_20.json` is a hand-curated set of 20 QA pairs over `PrimeIntellect-ai/verifiers`, each tagged with `must_contain` strings and `provenance` files. This is the only dataset in the repo aimed at real-model evaluation; the heuristic backend is not expected to score well on it.
+![Retained trace](showcases/assets/dossierbench/trace_card.svg)
+
+## Showcases
+
+### 1. Codebase QA
+
+`examples/verifiers_30.json` is a curated `Verifiers-30` benchmark over `PrimeIntellect-ai/verifiers`, organized across:
+
+- `defaults-flags`
+- `config-resolution`
+- `implementation-location`
+
+Run it with:
 
 ```bash
 git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-uv run python examples/run_verifiers.py --openai --model gpt-4.1-mini \
-  --base-url https://api.openai.com/v1 --repo-root /tmp/nanorlm-verifiers
+python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
 ```
 
-## Example Trace
+The deterministic backend is only a smoke path here. The flagship use is to point the same engine at a real OpenAI-compatible model:
 
-Live runs emit per-example JSONL traces to `outputs/<dataset>/` and a compact text tree alongside. A static snapshot from an earlier run lives at [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt) — the branching / retain / leaf structure is the same today; the specific `answer_preview` depends on the backend.
+```bash
+export OPENAI_API_KEY=...
+python examples/run_verifiers.py \
+  --provider openai-compatible \
+  --model gpt-4.1-mini \
+  --base-url https://api.openai.com/v1 \
+  --repo-root /tmp/nanorlm-verifiers
+```
 
-## Current Scope
+For a local OpenAI-compatible endpoint such as Ollama:
 
-This is `v0.1` after the empirical honesty pass — not the full v1.0 story.
+```bash
+python examples/run_verifiers.py \
+  --provider openai-compatible \
+  --model qwen3:14b \
+  --base-url http://localhost:11434/v1 \
+  --repo-root /tmp/nanorlm-verifiers
+```
 
-Implemented now:
+For native Claude through Anthropic:
 
-- minimal recursive inference engine with deterministic, seed-stable traces
-- four retention policies (keep_recent, summary_only, single_critic_topk, pairwise_tournament)
-- schema-opaque deterministic offline backend for tests and smoke demos
-- stdlib-only OpenAI-compatible backend for real runs
-- in-repo synthetic datasets (PairBench, NeedlePairs) for structural smoke tests
-- curated `Verifiers-20` codebase-QA dataset for real-model runs
-- JSONL traces plus a compact tree renderer
+```bash
+export ANTHROPIC_API_KEY=...
+python examples/run_verifiers.py \
+  --provider anthropic \
+  --model <your-claude-model> \
+  --repo-root /tmp/nanorlm-verifiers
+```
 
-Deliberately not implemented yet (on the v1.0 roadmap):
+Portability limits:
 
-- real-model headline numbers on established long-context benchmarks (RULER, BABILong)
-- principled retention math (Bradley-Terry + submodular coverage + info-gain recursion)
-- a model-driven RLM engine faithful to the "context-as-REPL" mechanism
-- companion paper / blog with Pareto figures
-- Docker sandbox execution
+- `any local LLM` here means any local model served behind an OpenAI-compatible `chat/completions` endpoint such as Ollama, `vLLM`, `llama.cpp` server, `LM Studio`, or `LocalAI`
+- native Claude works through the Anthropic Messages API
+- bespoke local runtime APIs are intentionally out of scope
+
+### 2. Long-Horizon Dossiers
+
+`examples/run_dossiers.py` is the “sexy” retention demo: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
+
+```bash
+python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
+```
+
+This is the cleanest local story for the retention thesis.
+
+### 3. Grounded Planning
+
+`examples/run_planning.py` turns retained evidence into a read-only patch plan with ordered steps, citations, and explicit unknowns.
+
+```bash
+python examples/run_planning.py \
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 10 \
+  --budget 140 \
+  --depth 2
+```
+
+The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` under `showcases/outputs/planning/`.
+
+### 4. PairBench And NeedlePairs
+
+For the most minimal synthetic demonstrations:
+
+```bash
+python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
+python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
+```
+
+These are useful for quick policy sanity checks and test-friendly regressions.
+
+## Generate Assets
+
+Run a benchmark, then turn its saved report bundle into launch-ready figures:
+
+```bash
+python showcases/generate_assets.py --report-dir outputs/dossierbench
+```
+
+This writes:
+
+- `benchmark_snapshot.md`
+- `architecture.svg`
+- `policy_curve.svg`
+- `trace_card.svg`
+
+The showcase workflow is documented in [showcases/README.md](showcases/README.md).
+
+## Repo Layout
+
+- `nanorlm.py`: recursion loop, trace recorder, OpenAI-compatible backend, Anthropic backend, deterministic backend
+- `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, `pairwise_tournament`
+- `bench.py`: datasets, evaluation harness, curve generation, report bundle writer
+- `examples/`: minimal runnable demos
+- `showcases/`: launch-facing demos, planning suite, asset generation
+- `tests/`: recursion, policy, report-bundle, smoke-fixture, and planning tests
 
 ## Testing
 
+If you want the repo-safe `uv` version of each command, prefix it as `uv run python ...`.
+
 ```bash
-uv run python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
+python -m py_compile nanorlm.py policies.py bench.py
+python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 ```
 
-The test suite covers:
+A GitHub Actions smoke workflow runs the same core checks on pushes and pull requests.
 
-- recursive execution and trace generation
-- memory-budget enforcement across all four policies
-- seed-stable determinism of engine + policy output
-- policy-specific selection behavior on controlled inputs
+## Current Scope
+
+Implemented now:
+
+- small recursive inference engine with stable public API
+- four retention policies
+- provider portability across heuristic, OpenAI-compatible, and Anthropic backends
+- richer `RLMResult` metadata for retention analysis
+- synthetic `PairBench`, `NeedlePairs`, and dossier benchmarks
+- curated `Verifiers-30` repo-QA benchmark
+- grounded planning showcase
+- JSONL/tree traces and asset generation from saved reports
+
+Still intentionally out of scope for this phase:
+
+- training infrastructure
+- framework-style agent abstractions
+- Docker sandbox execution
+- fully autonomous coding loops
