@@ -9,3 +9,8 @@ __pycache__/
 outputs/
 examples/outputs/
 .local/
+
+# local planning and assistant guidance
+AGENTS.md
+CLAUDE.md
+ROADMAP.md

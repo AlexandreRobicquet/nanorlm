@@ -11,6 +11,7 @@ The design goal is simple: you should be able to read the whole core in one sitt
 - `bench.py`: synthetic ablations plus a curated `Verifiers-20` loader
 - `examples/`: runnable scripts and the `verifiers_20.json` question set
 - `tests/`: unit tests for recursion, budget enforcement, and policy behavior
+- `AGENTS.example.md`, `CLAUDE.example.md`, `ROADMAP.example.md`: tracked templates for local gitignored assistant and planning files
 
 ## Why This Exists
 
@@ -21,6 +22,18 @@ This repo leans into that gap:
 - one small OpenAI-compatible code path
 - one deterministic, schema-opaque offline backend for tests and smoke demos
 - four side-by-side retention policies, including a pairwise-critic tournament — and a clear roadmap to a principled Bradley-Terry + submodular retention framework
+
+## Local Working Files
+
+`AGENTS.md`, `CLAUDE.md`, and `ROADMAP.md` are intentionally gitignored. The repo tracks `*.example.md` versions instead so contributors can keep local agent guidance and planning notes without publishing them.
+
+To start from the shared templates:
+
+```bash
+cp AGENTS.example.md AGENTS.md
+cp CLAUDE.example.md CLAUDE.md
+cp ROADMAP.example.md ROADMAP.md
+```
 
 ## Quickstart
 
