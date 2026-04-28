@@ -21,7 +21,30 @@ from bench import (
     run_dataset,
     write_report_bundle,
 )
-from nanorlm import ContextBlock, HeuristicBackend, RLM, RLMConfig
+from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig, Usage
+
+
+class NoScoreBackend(HeuristicBackend):
+    def __init__(self) -> None:
+        super().__init__(seed=0)
+        self.score_calls = 0
+
+    def inspect(self, query: str, documents: list[ContextBlock], depth: int, branch: str) -> InspectionResult:  # type: ignore[override]
+        return InspectionResult(
+            summary="compact evidence",
+            evidence=[],
+            answer_candidate="compact evidence",
+            confidence=0.5,
+            metadata={},
+            usage=Usage(calls=1),
+        )
+
+    def answer(self, query: str, memory):  # type: ignore[override]
+        return AnswerResult(answer="compact evidence", confidence=0.5, usage=Usage(calls=1))
+
+    def score_candidate(self, query: str, item):  # type: ignore[override]
+        self.score_calls += 1
+        raise AssertionError("score_candidate should not run during leaf creation for keep_recent")
 
 
 class NanoRLMTests(unittest.TestCase):
@@ -85,6 +108,44 @@ class NanoRLMTests(unittest.TestCase):
             blocks = extract_anchor_blocks(path, ["needle line"], window=1)
             self.assertTrue(blocks)
             self.assertIn("needle line", blocks[0].text)
+
+    def test_keep_recent_does_not_score_leaf_items_eagerly(self) -> None:
+        backend = NoScoreBackend()
+        engine = RLM(
+            RLMConfig(
+                model="demo/heuristic",
+                base_url="http://localhost:11434/v1",
+                max_depth=4,
+                memory_budget_tokens=80,
+                retention_policy="keep_recent",
+                seed=0,
+            ),
+            backend=backend,
+        )
+        result = engine.completion(
+            "What changed?",
+            [ContextBlock(name="note-a.txt", text="alpha"), ContextBlock(name="note-b.txt", text="beta")],
+        )
+        self.assertEqual(result.answer, "compact evidence")
+        self.assertEqual(backend.score_calls, 0)
+
+    def test_small_multi_block_context_stays_leaf(self) -> None:
+        engine = RLM(
+            RLMConfig(
+                model="demo/heuristic",
+                base_url="http://localhost:11434/v1",
+                max_depth=4,
+                memory_budget_tokens=80,
+                retention_policy="keep_recent",
+                seed=0,
+            ),
+            backend=HeuristicBackend(seed=0),
+        )
+        result = engine.completion(
+            "What changed?",
+            [ContextBlock(name="note-a.txt", text="alpha"), ContextBlock(name="note-b.txt", text="beta")],
+        )
+        self.assertNotIn("[split]", result.trace.tree)
 
     def test_report_bundle_writes_schema_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

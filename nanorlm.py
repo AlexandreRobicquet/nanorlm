@@ -159,9 +159,11 @@ def resolve_provider(config: "RLMConfig") -> Literal["heuristic", "openai_compat
         return provider  # type: ignore[return-value]
     if config.model.startswith("demo/"):
         return "heuristic"
-    base_url = (config.base_url or "").lower()
-    if "anthropic.com" in base_url:
-        return "anthropic"
+    base_url = (config.base_url or "").strip().lower()
+    if base_url:
+        if "anthropic.com" in base_url:
+            return "anthropic"
+        return "openai_compatible"
     if config.model.lower().startswith("claude"):
         return "anthropic"
     return "openai_compatible"
@@ -951,27 +953,19 @@ class RLM:
                     for block in blocks
                 }
             )
+            timestamp = time.time() + step_counter[0]
+            metadata = {**result.metadata, "source_paths": source_paths, "block_names": [block.name for block in blocks]}
             item = MemoryItem(
                 summary=result.summary,
                 provenance=provenance,
                 raw_pointer=branch,
                 tokens=estimate_tokens(result.summary),
                 depth=depth,
-                timestamp=time.time() + step_counter[0],
+                timestamp=timestamp,
                 answer_candidate=result.answer_candidate,
                 confidence=result.confidence,
-                metadata={**result.metadata, "source_paths": source_paths, "block_names": [block.name for block in blocks]},
-                score=self.backend.score_candidate(query, MemoryItem(
-                    summary=result.summary,
-                    provenance=provenance,
-                    raw_pointer=branch,
-                    tokens=estimate_tokens(result.summary),
-                    depth=depth,
-                    timestamp=time.time() + step_counter[0],
-                    answer_candidate=result.answer_candidate,
-                    confidence=result.confidence,
-                    metadata={**result.metadata, "source_paths": source_paths, "block_names": [block.name for block in blocks]},
-                )),
+                metadata=metadata,
+                score=0.0,
             )
             return [item]
 
@@ -1030,7 +1024,8 @@ class RLM:
             return True
         if len(blocks) <= 1:
             return True
-        return False
+        total_tokens = sum(block.tokens for block in blocks)
+        return total_tokens <= max(64, self.config.memory_budget_tokens // 2)
 
     def _split_blocks(self, blocks: Sequence[ContextBlock]) -> list[list[ContextBlock]]:
         midpoint = max(1, len(blocks) // 2)

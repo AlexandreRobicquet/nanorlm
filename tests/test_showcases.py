@@ -38,6 +38,7 @@ class ShowcaseTests(unittest.TestCase):
             self.assertEqual(summary["tasks"], 1)
             self.assertTrue(summary["results"][0]["steps"])
             self.assertTrue(summary["results"][0]["citations"])
+            self.assertIn("uv run python -m unittest", summary["results"][0]["steps"][-1])
             self.assertTrue((Path(tmpdir) / "summary.json").exists())
             self.assertTrue((Path(tmpdir) / "plans" / "mini-plan.md").exists())
 

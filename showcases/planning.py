@@ -137,13 +137,22 @@ def _score_keywords(text: str, keywords: Sequence[str]) -> tuple[float, list[str
     return round(len(hits) / len(keywords), 3), hits
 
 
+def _unittest_module_target(path: str) -> str:
+    target = Path(path)
+    if target.suffix == ".py":
+        target = target.with_suffix("")
+    return ".".join(part for part in target.parts if part not in ("", "."))
+
+
 def _validation_command(test_files: Sequence[str], impl_files: Sequence[str], task: PlanningTask) -> str:
     if test_files:
-        return f"uv run pytest {' '.join(test_files[:2])}"
+        targets = " ".join(_unittest_module_target(path) for path in test_files[:2])
+        return f"uv run python -m unittest {targets}"
     if impl_files:
-        target = Path(impl_files[0]).stem.replace("_", "-")
-        return f"uv run pytest tests/ -k {target}"
-    return f"uv run pytest tests/ -k {task.name.replace('-', '_')}"
+        target = Path(impl_files[0]).stem.replace("-", "_")
+        return f"uv run python -m unittest discover -s tests -p '*{target}*.py'"
+    target = task.name.replace("-", "_")
+    return f"uv run python -m unittest discover -s tests -p '*{target}*.py'"
 
 
 def synthesize_plan(task: PlanningTask, result: RLMResult) -> GroundedPlan:

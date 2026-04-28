@@ -83,6 +83,10 @@ class BackendSelectionTests(unittest.TestCase):
             RLM(RLMConfig(model="qwen3:14b", base_url="http://localhost:11434/v1")).backend,
             OpenAICompatibleBackend,
         )
+        self.assertIsInstance(
+            RLM(RLMConfig(model="claude-3-5-sonnet", base_url="http://localhost:11434/v1")).backend,
+            OpenAICompatibleBackend,
+        )
 
 
 class BackendTransportTests(unittest.TestCase):
