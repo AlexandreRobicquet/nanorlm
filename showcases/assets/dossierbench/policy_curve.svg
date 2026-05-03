@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+<rect width="100%" height="100%" fill="#f7f4ec"/>
+<text x="70" y="28" font-family="Menlo, monospace" font-size="22" fill="#2a2f38">Budget Curve (answer_accuracy, depth=4)</text>
+<line x1="70" y1="320.0" x2="830" y2="320.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="325.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">0.0</text>
+<line x1="70" y1="264.0" x2="830" y2="264.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="269.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">0.2</text>
+<line x1="70" y1="208.0" x2="830" y2="208.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="213.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">0.4</text>
+<line x1="70" y1="152.0" x2="830" y2="152.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="157.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">0.6</text>
+<line x1="70" y1="96.0" x2="830" y2="96.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="101.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">0.8</text>
+<line x1="70" y1="40.0" x2="830" y2="40.0" stroke="#ddd7c9" stroke-width="1"/>
+<text x="58" y="45.0" text-anchor="end" font-family="Menlo, monospace" font-size="12" fill="#5a6170">1.0</text>
+<line x1="70" y1="40" x2="70" y2="320" stroke="#2a2f38" stroke-width="2"/>
+<line x1="70" y1="320" x2="830" y2="320" stroke="#2a2f38" stroke-width="2"/>
+<text x="70.0" y="344" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="#5a6170">60</text>
+<text x="450.0" y="344" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="#5a6170">80</text>
+<text x="830.0" y="344" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="#5a6170">100</text>
+<path d="M70.0,288.9 L450.0,203.2 L830.0,141.1" fill="none" stroke="#1d8a5b" stroke-width="4"/>
+<circle cx="70.0" cy="288.9" r="4.5" fill="#1d8a5b"/>
+<circle cx="450.0" cy="203.2" r="4.5" fill="#1d8a5b"/>
+<circle cx="830.0" cy="141.1" r="4.5" fill="#1d8a5b"/>
+<path d="M70.0,304.6 L450.0,281.1 L830.0,257.8" fill="none" stroke="#2e6f95" stroke-width="4"/>
+<circle cx="70.0" cy="304.6" r="4.5" fill="#2e6f95"/>
+<circle cx="450.0" cy="281.1" r="4.5" fill="#2e6f95"/>
+<circle cx="830.0" cy="257.8" r="4.5" fill="#2e6f95"/>
+<rect x="70" y="350" width="20" height="8" rx="4" fill="#1d8a5b"/>
+<text x="98" y="359" font-family="Menlo, monospace" font-size="12" fill="#2a2f38">pairwise_tournament</text>
+<rect x="240" y="350" width="20" height="8" rx="4" fill="#2e6f95"/>
+<text x="268" y="359" font-family="Menlo, monospace" font-size="12" fill="#2a2f38">single_critic_topk</text>
+</svg>

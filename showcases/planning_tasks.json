@@ -1,0 +1,253 @@
+[
+  {
+    "name": "endpoint-id-validation",
+    "problem": "A user set both `endpoint_id` and `model` in an eval config and the failure mode needs to be clearer. Propose the minimal patch plan and cite the files that justify it.",
+    "evidence_files": [
+      "verifiers/scripts/eval.py",
+      "tests/test_eval_cli.py",
+      "docs/evaluation.md"
+    ],
+    "anchors": [
+      "Cannot set both 'endpoint_id' and 'model'",
+      "test_cli_endpoint_id_requires_toml_endpoints_path",
+      "endpoint_id"
+    ],
+    "expected_files": [
+      "verifiers/scripts/eval.py",
+      "tests/test_eval_cli.py",
+      "docs/evaluation.md"
+    ],
+    "expected_keywords": [
+      "validation",
+      "error message",
+      "test",
+      "docs"
+    ]
+  },
+  {
+    "name": "resume-metadata-mismatch",
+    "problem": "Resume handling should stay strict when saved metadata no longer matches the current run. Propose the minimal patch plan and cite the evidence.",
+    "evidence_files": [
+      "verifiers/utils/save_utils.py",
+      "tests/test_save_utils.py",
+      "docs/evaluation.md"
+    ],
+    "anchors": [
+      "validate_resume_metadata",
+      "test_validate_resume_metadata_raises_on_mismatch",
+      "Configuration compatibility"
+    ],
+    "expected_files": [
+      "verifiers/utils/save_utils.py",
+      "tests/test_save_utils.py",
+      "docs/evaluation.md"
+    ],
+    "expected_keywords": [
+      "resume",
+      "metadata",
+      "mismatch",
+      "test"
+    ]
+  },
+  {
+    "name": "concurrency-autoscaling",
+    "problem": "Executor autoscaling needs a minimal patch plan that keeps docs and implementation aligned. Propose the ordered steps and cite the files that matter.",
+    "evidence_files": [
+      "verifiers/envs/environment.py",
+      "docs/evaluation.md",
+      "docs/environments.md"
+    ],
+    "anchors": [
+      "def set_concurrency",
+      "Environment.set_concurrency()",
+      "env.set_concurrency(256)"
+    ],
+    "expected_files": [
+      "verifiers/envs/environment.py",
+      "docs/evaluation.md",
+      "docs/environments.md"
+    ],
+    "expected_keywords": [
+      "concurrency",
+      "executor",
+      "test",
+      "docs"
+    ]
+  },
+  {
+    "name": "browserenv-required-keys",
+    "problem": "BrowserEnv onboarding should make required keys and mode behavior clearer. Propose the smallest grounded patch plan and cite the supporting files.",
+    "evidence_files": [
+      "verifiers/envs/integrations/browser_env/README.md",
+      "tests/test_browser_env.py",
+      "docs/environments.md"
+    ],
+    "anchors": [
+      "BrowserEnv",
+      "DOM mode",
+      "CUA mode",
+      "vf.ensure_keys"
+    ],
+    "expected_files": [
+      "verifiers/envs/integrations/browser_env/README.md",
+      "tests/test_browser_env.py",
+      "docs/environments.md"
+    ],
+    "expected_keywords": [
+      "browser",
+      "keys",
+      "modes",
+      "docs"
+    ]
+  },
+  {
+    "name": "multi-endpoint-display",
+    "problem": "The eval UI should stay clear when one endpoint alias expands to multiple backing endpoints. Propose the minimal patch plan and cite the evidence.",
+    "evidence_files": [
+      "verifiers/utils/eval_display.py",
+      "tests/test_eval_display.py",
+      "docs/evaluation.md"
+    ],
+    "anchors": [
+      "endpoint_id={config.endpoint_id}",
+      "test_format_client_target_uses_endpoint_id_summary_for_multi_endpoint",
+      "equivalent replicas"
+    ],
+    "expected_files": [
+      "verifiers/utils/eval_display.py",
+      "tests/test_eval_display.py",
+      "docs/evaluation.md"
+    ],
+    "expected_keywords": [
+      "endpoint",
+      "display",
+      "summary",
+      "test"
+    ]
+  },
+  {
+    "name": "openenv-init-template",
+    "problem": "OpenEnv project scaffolding should stay consistent across init templates, integration docs, and environment guidance. Propose the smallest patch plan and cite files.",
+    "evidence_files": [
+      "verifiers/scripts/init.py",
+      "verifiers/envs/integrations/README.md",
+      "docs/environments.md"
+    ],
+    "anchors": [
+      "--openenv",
+      "verifiers[openenv]",
+      "prime env build"
+    ],
+    "expected_files": [
+      "verifiers/scripts/init.py",
+      "verifiers/envs/integrations/README.md",
+      "docs/environments.md"
+    ],
+    "expected_keywords": [
+      "openenv",
+      "template",
+      "docs",
+      "build"
+    ]
+  },
+  {
+    "name": "tui-surface",
+    "problem": "The TUI entrypoint and developer docs should stay aligned as the tree browser evolves. Propose the minimal patch plan and cite the files to touch.",
+    "evidence_files": [
+      "verifiers/cli/tui.py",
+      "verifiers/scripts/tui.py",
+      "docs/development.md"
+    ],
+    "anchors": [
+      "prime eval tui",
+      "Terminal UI for browsing evals",
+      "def main"
+    ],
+    "expected_files": [
+      "verifiers/cli/tui.py",
+      "verifiers/scripts/tui.py",
+      "docs/development.md"
+    ],
+    "expected_keywords": [
+      "tui",
+      "browser",
+      "docs",
+      "entrypoint"
+    ]
+  },
+  {
+    "name": "ensure-keys-surface",
+    "problem": "Key validation behavior should be easy to discover from both code and docs. Propose the minimal patch plan and cite the files that justify it.",
+    "evidence_files": [
+      "verifiers/utils/config_utils.py",
+      "docs/environments.md",
+      "docs/reference.md"
+    ],
+    "anchors": [
+      "def ensure_keys",
+      "vf.ensure_keys",
+      "MissingKeyError"
+    ],
+    "expected_files": [
+      "verifiers/utils/config_utils.py",
+      "docs/environments.md",
+      "docs/reference.md"
+    ],
+    "expected_keywords": [
+      "keys",
+      "validation",
+      "docs",
+      "error"
+    ]
+  },
+  {
+    "name": "sandbox-taskset-validation",
+    "problem": "Composable sandbox task validation should stay well-scoped and clearly documented. Propose a minimal patch plan and cite the evidence files.",
+    "evidence_files": [
+      "verifiers/envs/experimental/composable/task.py",
+      "verifiers/envs/experimental/composable/README.md",
+      "docs/environments.md"
+    ],
+    "anchors": [
+      "SandboxTaskSet",
+      "validate(",
+      "resume"
+    ],
+    "expected_files": [
+      "verifiers/envs/experimental/composable/task.py",
+      "verifiers/envs/experimental/composable/README.md",
+      "docs/environments.md"
+    ],
+    "expected_keywords": [
+      "sandbox",
+      "taskset",
+      "validate",
+      "docs"
+    ]
+  },
+  {
+    "name": "endpoint-registry-loading",
+    "problem": "Endpoint registry loading should remain coherent across parsing code, tests, and docs. Propose the minimal patch plan and cite the supporting files.",
+    "evidence_files": [
+      "verifiers/utils/eval_utils.py",
+      "tests/test_endpoint_registry.py",
+      "docs/evaluation.md"
+    ],
+    "anchors": [
+      "endpoint_id",
+      "test_load_endpoints_toml_groups_variants_by_endpoint_id",
+      "[[endpoint]]"
+    ],
+    "expected_files": [
+      "verifiers/utils/eval_utils.py",
+      "tests/test_endpoint_registry.py",
+      "docs/evaluation.md"
+    ],
+    "expected_keywords": [
+      "endpoint",
+      "registry",
+      "test",
+      "docs"
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "report_dir": "outputs/dossierbench",
+  "assets_dir": "showcases/assets/dossierbench",
+  "files": [
+    "architecture.svg",
+    "benchmark_snapshot.md",
+    "manifest.json",
+    "policy_curve.svg",
+    "trace_card.svg"
+  ]
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "mini-init-and-eval",
+    "query": "Which command initializes a fresh environment template, and which command runs a local evaluation of 10 examples with gpt-4.1-mini?",
+    "answer": "Use `prime env init mini-env`, then run `prime eval run mini-env -m openai/gpt-4.1-mini -n 10`.",
+    "must_contain": [
+      "prime env init mini-env",
+      "prime eval run mini-env -m openai/gpt-4.1-mini -n 10"
+    ],
+    "provenance": [
+      "README.md",
+      "docs/evaluation.md"
+    ],
+    "task_class": "defaults-flags"
+  },
+  {
+    "name": "mini-endpoint-and-resume",
+    "query": "When is `endpoint_id` supported, and which two files must a valid resume directory contain?",
+    "answer": "`endpoint_id` is only supported with TOML endpoint registries, and a valid resume directory must contain `results.jsonl` and `metadata.json`.",
+    "must_contain": [
+      "endpoint_id",
+      "TOML",
+      "results.jsonl",
+      "metadata.json"
+    ],
+    "provenance": [
+      "docs/evaluation.md",
+      "verifiers/scripts/eval.py"
+    ],
+    "task_class": "config-resolution"
+  }
+]

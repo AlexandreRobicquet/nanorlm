@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from bench import build_needlepairs, policy_sweep
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from bench import build_needlepairs, format_table, generate_curves, policy_sweep, write_report_bundle
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the NeedlePairs demo benchmark.")
-    parser.add_argument("--limit", type=int, default=5)
-    parser.add_argument("--budget", type=int, default=120)
-    parser.add_argument("--depth", type=int, default=2)
+    parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--budget", type=int, default=60)
+    parser.add_argument("--depth", type=int, default=3)
     parser.add_argument("--output-dir", type=str, default="examples/outputs/needlepairs")
     args = parser.parse_args()
 
@@ -23,13 +28,26 @@ def main() -> None:
         budget=args.budget,
         max_depth=args.depth,
         output_dir=output_dir,
+        dataset_name="needlepairs",
     )
-    print("| policy | examples | accuracy |")
-    print("| --- | ---: | ---: |")
-    for row in summaries:
-        print(f"| {row['policy']} | {row['examples']} | {row['accuracy']:.3f} |")
+    curves = generate_curves(
+        "needlepairs",
+        lambda seed: build_needlepairs(n=args.limit, seed=seed),
+        policies=["keep_recent", "single_critic_topk", "pairwise_tournament"],
+        budgets=[args.budget, 80],
+        depths=[2, args.depth],
+        seeds=[0, 1, 2],
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "summary.json").write_text(json.dumps(summaries, indent=2))
+    write_report_bundle(
+        output_dir,
+        dataset_name="needlepairs",
+        summaries=summaries,
+        curves=curves,
+        command=f"python examples/run_needlepairs.py --limit {args.limit} --budget {args.budget} --depth {args.depth}",
+    )
+    print(format_table(summaries))
+    (output_dir / "summary.pretty.json").write_text(json.dumps(summaries, indent=2))
 
 
 if __name__ == "__main__":
