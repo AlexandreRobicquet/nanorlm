@@ -77,6 +77,10 @@ def memory_signature(item: "MemoryItem") -> tuple[str, str, str]:
     return (item.raw_pointer, item.provenance, item.summary)
 
 
+def memory_identity(item: "MemoryItem") -> tuple[str, str, float]:
+    return (item.raw_pointer, item.provenance, item.timestamp)
+
+
 def item_facts(item: "MemoryItem") -> dict[str, str]:
     facts = item.metadata.get("facts", {})
     if isinstance(facts, dict):
@@ -819,7 +823,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
 
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         base_url = (self.config.base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
-        url = f"{base_url}/v1/messages"
+        url = f"{base_url}/messages" if base_url.endswith("/v1") else f"{base_url}/v1/messages"
         payload = {
             "model": self.config.model,
             "system": system_prompt,
@@ -979,8 +983,8 @@ class RLM:
             before = len(memory)
             before_items = list(memory)
             memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
-            kept_signatures = {memory_signature(item) for item in memory}
-            dropped = [item for item in before_items if memory_signature(item) not in kept_signatures]
+            kept_ids = {memory_identity(item) for item in memory}
+            dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
             step_budget = {
                 "step": step_counter[0],
                 "depth": depth,

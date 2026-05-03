@@ -147,6 +147,29 @@ class NanoRLMTests(unittest.TestCase):
         )
         self.assertNotIn("[split]", result.trace.tree)
 
+    def test_summary_only_does_not_report_rewritten_items_as_dropped(self) -> None:
+        long_line = "alpha " * 60
+        engine = RLM(
+            RLMConfig(
+                model="demo/heuristic",
+                base_url="http://localhost:11434/v1",
+                max_depth=2,
+                memory_budget_tokens=200,
+                retention_policy="summary_only",
+                seed=0,
+            ),
+            backend=HeuristicBackend(seed=0),
+        )
+        result = engine.completion(
+            "What changed?",
+            [
+                ContextBlock(name="left.txt", text=long_line + "left"),
+                ContextBlock(name="right.txt", text=long_line + "right"),
+            ],
+        )
+        self.assertEqual(result.retention_stats["total_dropped_items"], 0)
+        self.assertEqual(result.per_step_budget[-1]["before_count"], result.per_step_budget[-1]["after_count"])
+
     def test_report_bundle_writes_schema_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             examples = build_pairbench(n=4, seed=0)

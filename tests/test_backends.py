@@ -170,6 +170,22 @@ class BackendTransportTests(unittest.TestCase):
         self.assertEqual(first_body["system"].split(".")[0], "You are a recursive language model worker")
         self.assertEqual(first_body["messages"][0]["role"], "user")
 
+    def test_anthropic_base_url_with_v1_suffix_does_not_duplicate_version_path(self) -> None:
+        backend = AnthropicMessagesBackend(
+            RLMConfig(
+                model="claude-3-5-sonnet",
+                provider="anthropic",
+                base_url="https://api.anthropic.com/v1",
+                api_key="test-anthropic-key",
+            )
+        )
+        requests, fake_urlopen = self._capture_requests([anthropic_payload("alpha.txt: beta")])
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            answer = backend.answer("What happened?", [memory_item()])
+
+        self.assertEqual(answer.answer, "alpha.txt: beta")
+        self.assertEqual(requests[0].full_url, "https://api.anthropic.com/v1/messages")
+
     def test_json_repair_recovers_once(self) -> None:
         backend = OpenAICompatibleBackend(
             RLMConfig(
