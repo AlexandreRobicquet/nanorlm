@@ -14,8 +14,10 @@ from policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTop
 
 class DummyJudge:
     def score_candidate(self, query: str, item: MemoryItem) -> float:
-        score = 1.0 if item.metadata.get("pair_id") == "pair-000" else 0.0
-        if item.metadata.get("fact_kind") == "right":
+        score = 0.0
+        if "cache" in item.summary:
+            score += 1.5
+        if "owner" in item.summary:
             score += 0.5
         return score
 
@@ -27,27 +29,27 @@ class DummyJudge:
         return 1 if left_score > right_score else -1
 
 
-def item(timestamp: float, pair_id: str, fact_kind: str, tokens: int = 12) -> MemoryItem:
+def item(timestamp: float, summary: str, provenance: str, tokens: int = 12) -> MemoryItem:
     return MemoryItem(
-        summary=f"{pair_id} {fact_kind}",
-        provenance=f"{pair_id}/{fact_kind}",
-        raw_pointer=f"{pair_id}/{fact_kind}",
+        summary=summary,
+        provenance=provenance,
+        raw_pointer=provenance,
         tokens=tokens,
         depth=1,
         timestamp=timestamp,
-        metadata={"pair_id": pair_id, "fact_kind": fact_kind},
+        metadata={},
     )
 
 
 class PolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.candidates = [
-            item(1.0, "pair-000", "left"),
-            item(2.0, "pair-000", "right"),
-            item(3.0, "pair-111", "left"),
-            item(4.0, "pair-111", "right"),
+            item(1.0, "root cause is stale cache", "incidents/cache.txt"),
+            item(2.0, "owner is infra", "incidents/owner.txt"),
+            item(3.0, "unrelated notes", "notes/misc.txt"),
+            item(4.0, "cache fix is reload", "incidents/fix.txt"),
         ]
-        self.query = "What is the code for pair-000? Combine left and right."
+        self.query = "What is the rollout blocker and cache fix?"
 
     def test_keep_recent_respects_budget(self) -> None:
         kept = KeepRecentPolicy().select(self.query, self.candidates, budget=24)
@@ -59,7 +61,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_single_critic_prefers_higher_scoring_candidates(self) -> None:
         kept = SingleCriticTopKPolicy(judge=DummyJudge()).select(self.query, self.candidates, budget=24)
-        self.assertTrue(any(candidate.metadata["pair_id"] == "pair-000" for candidate in kept))
+        self.assertTrue(any("cache" in candidate.summary for candidate in kept))
 
     def test_pairwise_respects_budget(self) -> None:
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
@@ -68,7 +70,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_pairwise_prefers_higher_scored_candidates(self) -> None:
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
-        self.assertTrue(any(candidate.metadata["pair_id"] == "pair-000" for candidate in kept))
+        self.assertTrue(any("cache" in candidate.summary for candidate in kept))
 
 
 if __name__ == "__main__":

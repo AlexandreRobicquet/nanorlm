@@ -4,7 +4,7 @@ import random
 from dataclasses import replace
 from typing import Protocol, Sequence
 
-from nanorlm import MemoryItem, estimate_tokens, extract_target_id, item_facts, item_target_id, query_fact_priority, query_terms, truncate_words
+from nanorlm import MemoryItem, estimate_tokens, query_terms, truncate_words
 
 
 class Judge(Protocol):
@@ -131,57 +131,25 @@ class PairwiseTournamentPolicy(RetentionPolicy):
                     left.wins += 1
                     right.wins += 1
             ranked.sort(key=lambda item: (-item.wins, item.losses, -self._diversity_bonus(root_query, item), -item.score, -item.timestamp))
-        diversified = self._prefer_complementary_items(root_query, ranked)
+        diversified = self._prefer_complementary_items(ranked)
         return self._select_with_budget(diversified, budget)
 
     def _diversity_bonus(self, root_query: str, item: MemoryItem) -> float:
         tags = set(query_terms(item.provenance))
-        fact_kind = item.metadata.get("fact_kind")
-        if fact_kind:
-            tags.add(str(fact_kind).lower())
-        return float(len(tags & query_terms(root_query))) + (0.5 if fact_kind else 0.0)
+        return float(len(tags & query_terms(root_query)))
 
-    def _prefer_complementary_items(self, root_query: str, ranked: Sequence[MemoryItem]) -> list[MemoryItem]:
-        target_pair = extract_target_id(root_query) or ""
-        target_unique: list[MemoryItem] = []
-        other_unique: list[MemoryItem] = []
+    def _prefer_complementary_items(self, ranked: Sequence[MemoryItem]) -> list[MemoryItem]:
+        preferred: list[MemoryItem] = []
         deferred: list[MemoryItem] = []
-        seen_slots: set[tuple[str, str]] = set()
+        seen: set[tuple[str, str]] = set()
         for item in ranked:
-            pair_id = item_target_id(item)
-            fact_kind = str(item.metadata.get("fact_kind", ""))
-            slot = (pair_id, fact_kind)
-            if target_pair and pair_id == target_pair and fact_kind and slot not in seen_slots:
-                target_unique.append(item)
-                seen_slots.add(slot)
-            elif target_pair and pair_id == target_pair and item_facts(item):
-                target_unique.append(item)
-            elif pair_id and fact_kind and slot not in seen_slots:
-                other_unique.append(item)
-                seen_slots.add(slot)
+            key = (item.provenance, item.summary)
+            if key not in seen:
+                preferred.append(item)
+                seen.add(key)
             else:
                 deferred.append(item)
-        target_unique.sort(
-            key=lambda item: (
-                query_fact_priority(root_query, item),
-                len(item_facts(item)),
-                item.wins,
-                item.score,
-                item.timestamp,
-            ),
-            reverse=True,
-        )
-        other_unique.sort(
-            key=lambda item: (
-                query_fact_priority(root_query, item),
-                len(item_facts(item)),
-                item.wins,
-                item.score,
-                item.timestamp,
-            ),
-            reverse=True,
-        )
-        return target_unique + other_unique + deferred
+        return preferred + deferred
 
     def _select_with_budget(self, ranked: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
         kept: list[MemoryItem] = []
