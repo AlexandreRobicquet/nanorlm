@@ -51,70 +51,14 @@ def slugify(text: str) -> str:
     return clean or "item"
 
 
-def extract_target_id(text: str) -> str | None:
-    match = re.search(r"\b((?:pair|case|incident|migration|release|plan)[-_ ]?\d+)\b", text, flags=re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).replace(" ", "-").lower()
-
-
-def item_target_id(item: "MemoryItem") -> str:
-    for key in ("pair_id", "case_id"):
-        value = str(item.metadata.get(key, "")).strip().lower()
-        if value:
-            return value
-    return ""
-
-
 def item_source_paths(item: "MemoryItem") -> list[str]:
     paths = item.metadata.get("source_paths", [])
     if isinstance(paths, list):
         return [str(path) for path in paths]
     return []
 
-
-def memory_signature(item: "MemoryItem") -> tuple[str, str, str]:
-    return (item.raw_pointer, item.provenance, item.summary)
-
-
 def memory_identity(item: "MemoryItem") -> tuple[str, str, float]:
     return (item.raw_pointer, item.provenance, item.timestamp)
-
-
-def item_facts(item: "MemoryItem") -> dict[str, str]:
-    facts = item.metadata.get("facts", {})
-    if isinstance(facts, dict):
-        return {
-            str(key).lower(): str(value)
-            for key, value in facts.items()
-            if str(key).strip() and str(value).strip()
-        }
-    fact_kind = str(item.metadata.get("fact_kind", "")).strip().lower()
-    fact_value = str(item.metadata.get("fact_value", "")).strip()
-    if fact_kind and fact_value:
-        return {fact_kind: fact_value}
-    return {}
-
-
-def query_fact_priority(query: str, item: "MemoryItem") -> float:
-    query_lower = query.lower()
-    priority = 0.0
-    for fact_kind in item_facts(item):
-        if fact_kind == "root_cause" and ("root cause" in query_lower or "blocker" in query_lower or "blocks" in query_lower):
-            priority += 3.0
-        elif fact_kind == "file" and "file" in query_lower:
-            priority += 3.0
-        elif fact_kind == "fix" and ("fix" in query_lower or "change" in query_lower or "made first" in query_lower):
-            priority += 3.0
-        elif fact_kind == "owner" and ("who" in query_lower or "owner" in query_lower):
-            priority += 3.0
-        elif fact_kind == "service" and ("service" in query_lower or "system" in query_lower):
-            priority += 2.0
-        elif fact_kind == "left" and "left" in query_lower:
-            priority += 2.0
-        elif fact_kind == "right" and "right" in query_lower:
-            priority += 2.0
-    return priority
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -409,82 +353,38 @@ class HeuristicBackend:
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         snippets: list[tuple[float, str]] = []
-        metadata: dict[str, Any] = {}
         evidence: list[str] = []
-        marker_groups: dict[str, dict[str, Any]] = {}
-        query_target = extract_target_id(query)
         for document in documents:
             matches = self._salient_lines(query, document.text)
-            document_score = matches[0][0] if matches else 0.0
             for score, line in matches[:2]:
                 snippets.append((score, f"{document.name}: {line}"))
                 evidence.append(f"{document.name}: {line}")
-            markers = self._extract_markers(document.text)
-            if markers:
-                marker_target = (markers.get("pair_id") or markers.get("case_id") or document.name).strip().lower()
-                target_bonus = 0.0
-                if query_target and marker_target == query_target:
-                    target_bonus += 8.0
-                group = marker_groups.setdefault(marker_target, {"score": 0.0, "markers": []})
-                group["score"] += document_score + target_bonus
-                group["markers"].append(markers)
         snippets.sort(key=lambda item: (-item[0], item[1]))
-        if marker_groups:
-            ranked_groups = sorted(
-                marker_groups.items(),
-                key=lambda item: (
-                    item[0] == (query_target or ""),
-                    item[1]["score"],
-                    len(self._merge_marker_group(item[1]["markers"]).get("facts", {})),
-                ),
-                reverse=True,
-            )
-            metadata = self._merge_marker_group(ranked_groups[0][1]["markers"])
         summary_parts = [snippet for _, snippet in snippets[:3]]
         if not summary_parts:
             joined_names = ", ".join(document.name for document in documents[:3])
             summary_parts.append(f"{joined_names}: no strong lexical match, returning leading context")
         summary = " | ".join(summary_parts)
-        answer_candidate = metadata.get("answer", "")
-        facts = metadata.get("facts", {})
-        if not answer_candidate and isinstance(facts, dict) and facts:
-            answer_candidate = self._answer_candidate_from_facts(facts)
-        if not answer_candidate and summary_parts:
+        answer_candidate = ""
+        if summary_parts:
             answer_candidate = summary_parts[0].split(": ", 1)[-1]
         confidence = min(0.95, 0.2 + 0.15 * len(summary_parts))
         usage = Usage(prompt_tokens=sum(document.tokens for document in documents), completion_tokens=estimate_tokens(summary), calls=1)
-        return InspectionResult(summary=summary, evidence=evidence[:6], answer_candidate=answer_candidate, confidence=confidence, metadata=metadata, usage=usage)
+        return InspectionResult(summary=summary, evidence=evidence[:6], answer_candidate=answer_candidate, confidence=confidence, metadata={}, usage=usage)
 
     def answer(self, query: str, memory: Sequence[MemoryItem]) -> AnswerResult:
-        pair_answer = self._solve_pair_query(query, memory)
-        if pair_answer:
-            answer = pair_answer
-        else:
-            ranked = sorted(memory, key=lambda item: (-self.score_candidate(query, item), -item.timestamp))
-            lines: list[str] = []
-            for item in ranked[:3]:
-                snippet = item.answer_candidate or item.summary
-                if snippet:
-                    lines.append(f"{item.provenance}: {snippet}")
-            answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
+        ranked = sorted(memory, key=lambda item: (-self.score_candidate(query, item), -item.timestamp))
+        lines: list[str] = []
+        for item in ranked[:3]:
+            snippet = item.answer_candidate or item.summary
+            if snippet:
+                lines.append(f"{item.provenance}: {snippet}")
+        answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
         usage = Usage(prompt_tokens=sum(item.tokens for item in memory), completion_tokens=estimate_tokens(answer), calls=1)
         return AnswerResult(answer=answer, confidence=0.65 if memory else 0.1, usage=usage)
 
     def score_candidate(self, query: str, item: MemoryItem) -> float:
         score = score_overlap(query, item.summary + " " + item.answer_candidate)
-        target_id = item_target_id(item)
-        query_target = extract_target_id(query)
-        if target_id and query_target and target_id == query_target:
-            score += 8.0
-        facts = item_facts(item)
-        if facts:
-            score += min(4.0, 1.25 * len(facts))
-            if target_id and query_target and target_id == query_target:
-                score += 0.5 * len(facts)
-        if item.metadata.get("fact_kind"):
-            score += 1.0
-        if item.metadata.get("answer"):
-            score += 2.0
         if item.confidence:
             score += item.confidence
         return score
@@ -492,32 +392,6 @@ class HeuristicBackend:
     def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
         left_score = self.score_candidate(query, left)
         right_score = self.score_candidate(query, right)
-        query_target = extract_target_id(query)
-        left_target = item_target_id(left)
-        right_target = item_target_id(right)
-        left_facts = item_facts(left)
-        right_facts = item_facts(right)
-        if query_target:
-            if left_target == query_target and right_target != query_target:
-                left_score += 6.0
-            elif right_target == query_target and left_target != query_target:
-                right_score += 6.0
-            elif left_target == query_target and right_target == query_target:
-                left_score += 0.4 * len(left_facts)
-                right_score += 0.4 * len(right_facts)
-        left_score += 1.5 * query_fact_priority(query, left)
-        right_score += 1.5 * query_fact_priority(query, right)
-        if item_target_id(left) and item_target_id(left) == item_target_id(right):
-            if left.metadata.get("fact_kind") != right.metadata.get("fact_kind"):
-                if left.tokens < right.tokens:
-                    left_score += 0.25
-                elif right.tokens < left.tokens:
-                    right_score += 0.25
-            if len(left_facts) != len(right_facts):
-                if len(left_facts) > len(right_facts):
-                    left_score += 0.5
-                else:
-                    right_score += 0.5
         if abs(left_score - right_score) < 0.1:
             if left.timestamp > right.timestamp:
                 return 1
@@ -525,51 +399,6 @@ class HeuristicBackend:
                 return -1
             return 0
         return 1 if left_score > right_score else -1
-
-    def _merge_marker_group(self, markers_list: Sequence[dict[str, str]]) -> dict[str, Any]:
-        merged: dict[str, Any] = {}
-        facts: dict[str, str] = {}
-        unknowns: list[str] = []
-        for markers in markers_list:
-            for key in ("pair_id", "case_id", "slot"):
-                value = str(markers.get(key, "")).strip()
-                if value and key not in merged:
-                    merged[key] = value
-            fact_kind = str(markers.get("fact_kind", "")).strip().lower()
-            fact_value = str(markers.get("fact_value", "")).strip()
-            if fact_kind and fact_value and fact_kind not in facts:
-                facts[fact_kind] = fact_value
-            answer = str(markers.get("answer", "")).strip()
-            if answer:
-                merged["answer"] = answer
-            unknown = str(markers.get("unknown", "")).strip()
-            if unknown:
-                unknowns.append(unknown)
-        if facts:
-            merged["facts"] = facts
-            if len(facts) == 1:
-                fact_kind, fact_value = next(iter(facts.items()))
-                merged["fact_kind"] = fact_kind
-                merged["fact_value"] = fact_value
-        if unknowns:
-            merged["unknowns"] = unknowns
-        return merged
-
-    def _answer_candidate_from_facts(self, facts: dict[str, str]) -> str:
-        if "left" in facts and "right" in facts:
-            return f"{facts['left']} {facts['right']}"
-        if "service" in facts and "root_cause" in facts:
-            response = f"{facts['service']}: {facts['root_cause']}"
-            if "fix" in facts:
-                response += f" | fix: {facts['fix']}"
-            if "file" in facts:
-                response += f" | file: {facts['file']}"
-            return response
-        ordered_keys = ["root_cause", "fix", "file", "owner", "deadline", "risk"]
-        ordered_values = [facts[key] for key in ordered_keys if key in facts]
-        if ordered_values:
-            return " | ".join(ordered_values)
-        return " | ".join(facts.values())
 
     def _salient_lines(self, query: str, text: str) -> list[tuple[float, str]]:
         query_set = query_terms(query)
@@ -579,69 +408,10 @@ class HeuristicBackend:
             if not clean:
                 continue
             overlap = len(query_set & query_terms(clean))
-            marker_bonus = 0.0
-            lower = clean.lower()
-            if "answer:" in lower:
-                marker_bonus += 3.0
-            if "fact_value" in lower or "fact_kind" in lower:
-                marker_bonus += 1.5
-            if "pair_id" in lower:
-                marker_bonus += 1.0
-            if "endpoint_id" in lower or "api_key_var" in lower or "api_base_url" in lower:
-                marker_bonus += 1.0
-            if overlap == 0 and marker_bonus == 0.0:
+            if overlap == 0:
                 continue
-            matches.append((float(overlap) + marker_bonus + len(clean) / 500.0, clean))
+            matches.append((float(overlap) + len(clean) / 500.0, clean))
         return sorted(matches, key=lambda item: (-item[0], item[1]))
-
-    def _extract_markers(self, text: str) -> dict[str, str]:
-        markers: dict[str, str] = {}
-        patterns = {
-            "pair_id": r"\bPAIR_ID\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "case_id": r"\bCASE_ID\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "fact_kind": r"\bFACT_KIND\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "fact_value": r"\bFACT_VALUE\s*[:=]\s*(.+)",
-            "answer": r"\bANSWER\s*[:=]\s*(.+)",
-            "slot": r"\bSLOT\s*[:=]\s*([A-Za-z0-9._-]+)",
-            "unknown": r"\bUNKNOWN\s*[:=]\s*(.+)",
-        }
-        for key, pattern in patterns.items():
-            match = re.search(pattern, text, flags=re.MULTILINE)
-            if match:
-                markers[key] = match.group(1).strip()
-        return markers
-
-    def _solve_pair_query(self, query: str, memory: Sequence[MemoryItem]) -> str | None:
-        target_case = extract_target_id(query)
-        facts: dict[str, dict[str, str]] = {}
-        for item in memory:
-            pair_id = item_target_id(item)
-            kind = str(item.metadata.get("fact_kind", "")).lower()
-            value = str(item.metadata.get("fact_value", ""))
-            if pair_id and kind and value:
-                facts.setdefault(pair_id, {})[kind] = value
-            for fact_kind, fact_value in item_facts(item).items():
-                if pair_id:
-                    facts.setdefault(pair_id, {})[fact_kind] = fact_value
-            answer = item.metadata.get("answer")
-            if answer and (not target_case or target_case == pair_id):
-                return str(answer)
-        if target_case and target_case in facts:
-            pair_facts = facts[target_case]
-            if "left" in pair_facts and "right" in pair_facts:
-                return f"{pair_facts['left']} {pair_facts['right']}"
-            if "service" in pair_facts and "root_cause" in pair_facts:
-                response = f"{pair_facts['service']}: {pair_facts['root_cause']}"
-                if "fix" in pair_facts:
-                    response += f" | fix: {pair_facts['fix']}"
-                if "file" in pair_facts:
-                    response += f" | file: {pair_facts['file']}"
-                return response
-            ordered_keys = ["root_cause", "fix", "file", "owner", "deadline", "risk"]
-            ordered_values = [pair_facts[key] for key in ordered_keys if key in pair_facts]
-            if ordered_values:
-                return " | ".join(ordered_values)
-        return None
 
 
 class StructuredOutputBackend:
@@ -1008,7 +778,6 @@ class RLM:
                         "provenance": item.provenance,
                         "summary": truncate_words(item.summary, 18),
                         "tokens": item.tokens,
-                        "target_id": item_target_id(item),
                     }
                 )
             recorder.emit(

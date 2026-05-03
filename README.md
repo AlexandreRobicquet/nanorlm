@@ -1,8 +1,8 @@
 # nanoRLM
 
-`nanoRLM` is a small, inference-only reference implementation of Recursive Language Models with pluggable retention policies and a query-conditioned `pairwise_tournament` memory selector.
+`nanoRLM` is a small, inference-only reference implementation for recursive long-context inspection with pluggable retention policies.
 
-The goal is not to be a framework. The goal is to be the repo you can read in one sitting and still get real recursive traces, real benchmark bundles, and real retention-policy ablations out of it.
+The goal is not to be a framework. The goal is to be the repo you can read in one sitting and still get real recursive traces, provider-portable runs, and reproducible report bundles out of it.
 
 ## What We Are Building
 
@@ -22,7 +22,7 @@ Modern long-context systems still fail in a very specific way: they look at ever
 - a deterministic offline backend for tests and smoke demos
 - two tiny network backends: OpenAI-compatible and Anthropic Messages
 - a minimal memory interface with swappable retention policies
-- a novel `pairwise_tournament` policy that tries to preserve complementary evidence instead of just top-scoring snippets
+- a tournament-style `pairwise_tournament` policy that tries to preserve complementary evidence instead of just top-scoring snippets
 
 ## Quickstart With `uv`
 
@@ -34,7 +34,8 @@ If you are learning the repo day to day, use this flow first:
 uv sync
 uv run python --version
 uv run python -m unittest discover -s tests -v
-uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
+uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4
 ```
 
 The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
@@ -47,8 +48,9 @@ For the repo-specific mental model, exact smoke commands, and a short cheat shee
 from nanorlm import ContextBlock, RLM, RLMConfig
 
 context = [
-    ContextBlock(name="left.txt", text="PAIR_ID: pair-000\nFACT_KIND: left\nFACT_VALUE: amber"),
-    ContextBlock(name="right.txt", text="PAIR_ID: pair-000\nFACT_KIND: right\nFACT_VALUE: orbit"),
+    ContextBlock(name="incident-a.txt", text="The API gateway rollout is blocked by a stale endpoint registry cache."),
+    ContextBlock(name="incident-b.txt", text="Reloading the registry and invalidating the cache unblocks the rollout."),
+    ContextBlock(name="incident-c.txt", text="The infra team owns the fix and plans the patch after the next deploy window."),
 ]
 
 config = RLMConfig(
@@ -61,7 +63,7 @@ config = RLMConfig(
 )
 
 result = RLM(config).completion(
-    "For pair-000, what is the full code? Combine the left token and the right token.",
+    "What is blocking the rollout, and what change fixes it?",
     context,
 )
 
@@ -83,26 +85,29 @@ print(result.trace.tree)
 - `drop_reasons`
 - `per_step_budget`
 
-## Benchmarks
+## Evidence Status
 
-The repo now emits a stable report bundle:
+The repo already emits a stable report bundle:
 
 - `summary.json`
 - `per_case.jsonl`
 - `curves.json`
 - `trace_examples/`
 
-Current local dossier run (`12` cases, budget `80`, depth `4`):
+That makes the current artifact useful for:
 
-| policy | answer | prov | compact | avg toks |
-| --- | ---: | ---: | ---: | ---: |
-| direct_full_context | 0.667 | 1.000 | 0.552 | 35.8 |
-| keep_recent | 0.000 | 0.222 | 0.144 | 68.5 |
-| summary_only | 0.000 | 0.444 | 0.066 | 74.8 |
-| single_critic_topk | 0.083 | 0.222 | 0.134 | 69.2 |
-| pairwise_tournament | 0.333 | 0.583 | 0.162 | 67.1 |
+- provider-portable recursive runs over the same engine
+- readable recursive traces and retained-memory inspection
+- `Verifiers-30` codebase-QA runs with real model backends
+- dossier and planning showcases that demonstrate how retention changes what evidence survives
 
-On the dossier showcase, the important comparison is the controlled ablation: at budget `80` / depth `4`, `pairwise_tournament` beats `single_critic_topk`, and the same win persists across seeds in the test suite.
+What it does **not** claim yet:
+
+- real-model headline results on established long-context benchmarks such as `RULER` or `BABILong`
+- a paper-faithful model-directed RLM runtime
+- public benchmark evidence that `pairwise_tournament` is generally superior beyond the repo's internal smoke and regression fixtures
+
+`examples/benchmark_snapshot.md` is intentionally a deterministic smoke snapshot, not a public benchmark leaderboard.
 
 ![Retained trace](showcases/assets/dossierbench/trace_card.svg)
 
@@ -120,14 +125,14 @@ Run it with:
 
 ```bash
 git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
+uv run python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
 ```
 
 The deterministic backend is only a smoke path here. The flagship use is to point the same engine at a real OpenAI-compatible model:
 
 ```bash
 export OPENAI_API_KEY=...
-python examples/run_verifiers.py \
+uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model gpt-4.1-mini \
   --base-url https://api.openai.com/v1 \
@@ -137,7 +142,7 @@ python examples/run_verifiers.py \
 For a local OpenAI-compatible endpoint such as Ollama:
 
 ```bash
-python examples/run_verifiers.py \
+uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model qwen3:14b \
   --base-url http://localhost:11434/v1 \
@@ -148,7 +153,7 @@ For native Claude through Anthropic:
 
 ```bash
 export ANTHROPIC_API_KEY=...
-python examples/run_verifiers.py \
+uv run python examples/run_verifiers.py \
   --provider anthropic \
   --model <your-claude-model> \
   --repo-root /tmp/nanorlm-verifiers
@@ -162,20 +167,20 @@ Portability limits:
 
 ### 2. Long-Horizon Dossiers
 
-`examples/run_dossiers.py` is the “sexy” retention demo: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
+`examples/run_dossiers.py` is the main retention showcase: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
 
 ```bash
-python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
+uv run python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
 ```
 
-This is the cleanest local story for the retention thesis.
+Treat dossier results as an internal synthetic regression surface, not as headline evidence of general long-context performance.
 
 ### 3. Grounded Planning
 
 `examples/run_planning.py` turns retained evidence into a read-only patch plan with ordered steps, citations, and explicit unknowns.
 
 ```bash
-python examples/run_planning.py \
+uv run python examples/run_planning.py \
   --repo-root /tmp/nanorlm-verifiers \
   --limit 10 \
   --budget 140 \
@@ -186,21 +191,21 @@ The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` 
 
 ### 4. PairBench And NeedlePairs
 
-For the most minimal synthetic demonstrations:
+For the smallest synthetic sanity checks:
 
 ```bash
-python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
+uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
+uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
 ```
 
-These are useful for quick policy sanity checks and test-friendly regressions.
+These are useful for quick smoke tests, trace demos, and test-friendly regressions. They are not the public empirical story for the repo.
 
 ## Generate Assets
 
 Run a benchmark, then turn its saved report bundle into launch-ready figures:
 
 ```bash
-python showcases/generate_assets.py --report-dir outputs/dossierbench
+uv run python showcases/generate_assets.py --report-dir outputs/dossierbench
 ```
 
 This writes:
@@ -226,10 +231,10 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 If you want the repo-safe `uv` version of each command, prefix it as `uv run python ...`.
 
 ```bash
-python -m unittest discover -s tests -v
-python -m py_compile nanorlm.py policies.py bench.py
-python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
-python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
+uv run python -m unittest discover -s tests -v
+uv run python -m py_compile nanorlm.py policies.py bench.py
+uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 ```
 
 A GitHub Actions smoke workflow runs the same core checks on pushes and pull requests.
@@ -242,7 +247,7 @@ Implemented now:
 - four retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends
 - richer `RLMResult` metadata for retention analysis
-- synthetic `PairBench`, `NeedlePairs`, and dossier benchmarks
+- synthetic `PairBench`, `NeedlePairs`, and dossier fixtures for smoke and regression use
 - curated `Verifiers-30` repo-QA benchmark
 - grounded planning showcase
 - JSONL/tree traces and asset generation from saved reports
