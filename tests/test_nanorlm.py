@@ -10,10 +10,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from bench import (
+    build_dataset,
     build_dossierbench,
     build_pairbench,
     extract_anchor_blocks,
     generate_curves,
+    load_external_jsonl,
     load_verifiers_smoke,
     policy_sweep,
     run_dataset,
@@ -206,6 +208,43 @@ class NanoRLMTests(unittest.TestCase):
             dataset_name="verifiers_smoke",
         )
         self.assertEqual(summary["examples"], 2)
+
+    def test_external_jsonl_fixture_loads_and_runs(self) -> None:
+        fixture_path = Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"
+        examples = load_external_jsonl(fixture_path)
+        self.assertEqual(len(examples), 2)
+        self.assertEqual(examples[0].name, "ruler-mini-001")
+        self.assertEqual(examples[0].must_contain, ["orchid"])
+        self.assertEqual(examples[0].context[0].name, "ruler-mini-001/context.txt")
+        self.assertEqual(examples[0].metadata["source_row"]["context_length"], "tiny")
+        summary = run_dataset(
+            examples,
+            "pairwise_tournament",
+            budget=80,
+            max_depth=2,
+            dataset_name="external_jsonl",
+        )
+        self.assertEqual(summary["examples"], 2)
+
+    def test_external_jsonl_accepts_input_and_outputs_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "external.jsonl"
+            path.write_text(
+                '{"query":"Which code belongs to delta?",'
+                '"input":"The code for delta is ember.",'
+                '"outputs":["ember"],'
+                '"benchmark":"alias-smoke"}\n'
+            )
+            examples = load_external_jsonl(path)
+        self.assertEqual(examples[0].name, "external-1")
+        self.assertEqual(examples[0].answer, "ember")
+        self.assertEqual(examples[0].must_contain, ["ember"])
+        self.assertEqual(examples[0].context[0].text, "The code for delta is ember.")
+        self.assertEqual(examples[0].metadata["source_row"], {"benchmark": "alias-smoke"})
+
+    def test_external_jsonl_requires_dataset_path(self) -> None:
+        with self.assertRaisesRegex(ValueError, "--dataset-path is required"):
+            build_dataset("external_jsonl", limit=2, seed=0, repo_root="tests/fixtures/verifiers-mini")
 
 
 if __name__ == "__main__":

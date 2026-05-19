@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.jsonl
+!tests/fixtures/*.jsonl
 *.log
 outputs/
 examples/outputs/

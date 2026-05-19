@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -46,4 +46,4 @@ jobs:
         run: uv run python -m unittest discover -s tests -v
 
       - name: Verify core files compile
-        run: uv run python -m py_compile nanorlm.py policies.py bench.py examples/run_needlepairs.py examples/run_verifiers.py
+        run: uv run python -m py_compile nanorlm.py policies.py bench.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
