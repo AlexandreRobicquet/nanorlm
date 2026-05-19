@@ -23,6 +23,7 @@ from nanorlm import (
 
 ROOT = Path(__file__).resolve().parent
 CLI_PROVIDER_CHOICES = ["heuristic", "openai-compatible", "anthropic"]
+DATASET_CHOICES = ["pairbench", "needlepairs", "dossierbench", "verifiers_30", "verifiers_smoke", "external_jsonl"]
 DEFAULT_POLICIES = [
     "direct_full_context",
     "keep_recent",
@@ -435,6 +436,142 @@ def load_verifiers_smoke(repo_root: str | Path, dataset_path: str | Path | None 
     )
 
 
+EXTERNAL_JSONL_MAPPED_KEYS = {
+    "name",
+    "query",
+    "context",
+    "input",
+    "answer",
+    "expected",
+    "output",
+    "outputs",
+    "must_contain",
+    "expected_provenance",
+    "provenance",
+    "task_class",
+    "metadata",
+}
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def _external_answer_payload(row: dict[str, Any], line_number: int) -> Any:
+    for key in ["answer", "expected", "output"]:
+        if key in row:
+            return row[key]
+    outputs = row.get("outputs")
+    if isinstance(outputs, list):
+        if outputs:
+            return outputs[0]
+        raise ValueError(f"external_jsonl line {line_number} has empty outputs")
+    if outputs is not None:
+        return outputs
+    raise ValueError(f"external_jsonl line {line_number} is missing answer, expected, output, or outputs")
+
+
+def _external_context_blocks(example_name: str, payload: Any, line_number: int) -> list[ContextBlock]:
+    if isinstance(payload, str):
+        return [
+            ContextBlock(
+                name=f"{example_name}/context.txt",
+                text=payload,
+                metadata={"source": "external_jsonl", "line": line_number},
+            )
+        ]
+    if isinstance(payload, list):
+        blocks: list[ContextBlock] = []
+        for index, item in enumerate(payload, start=1):
+            fallback_name = f"{example_name}/context-{index}.txt"
+            if isinstance(item, str):
+                blocks.append(
+                    ContextBlock(
+                        name=fallback_name,
+                        text=item,
+                        metadata={"source": "external_jsonl", "line": line_number},
+                    )
+                )
+            elif isinstance(item, dict):
+                metadata = dict(item.get("metadata", {})) if isinstance(item.get("metadata", {}), dict) else {}
+                metadata.update({"source": "external_jsonl", "line": line_number})
+                blocks.append(
+                    ContextBlock(
+                        name=str(item.get("name", fallback_name)),
+                        text=str(item.get("text", "")),
+                        metadata=metadata,
+                    )
+                )
+            else:
+                raise ValueError(f"external_jsonl line {line_number} context item {index} must be a string or object")
+        if blocks:
+            return blocks
+    raise ValueError(f"external_jsonl line {line_number} context must be a string or non-empty list")
+
+
+def _external_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(row.get("metadata", {})) if isinstance(row.get("metadata", {}), dict) else {}
+    extras = {key: value for key, value in row.items() if key not in EXTERNAL_JSONL_MAPPED_KEYS}
+    if extras:
+        existing_source_row = metadata.get("source_row")
+        if isinstance(existing_source_row, dict):
+            metadata["source_row"] = {**existing_source_row, **extras}
+        else:
+            metadata["source_row"] = extras
+    return metadata
+
+
+def load_external_jsonl(path: str | Path) -> list[BenchmarkExample]:
+    dataset_path = Path(path)
+    if not dataset_path.exists():
+        raise ValueError(f"external_jsonl dataset path does not exist: {dataset_path}")
+    if not dataset_path.is_file():
+        raise ValueError(f"external_jsonl dataset path is not a file: {dataset_path}")
+    examples: list[BenchmarkExample] = []
+    with dataset_path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"external_jsonl line {line_number} is not valid JSON: {exc.msg}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"external_jsonl line {line_number} must be a JSON object")
+            query = row.get("query")
+            if query is None:
+                raise ValueError(f"external_jsonl line {line_number} is missing query")
+            answer_payload = _external_answer_payload(row, line_number)
+            answer_parts = [part.strip() for part in _as_string_list(answer_payload) if part.strip()]
+            if not answer_parts:
+                raise ValueError(f"external_jsonl line {line_number} has empty answer payload")
+            answer = " | ".join(answer_parts)
+            context_payload = row.get("context", row.get("input"))
+            if context_payload is None:
+                raise ValueError(f"external_jsonl line {line_number} is missing context or input")
+            name = str(row.get("name", f"external-{line_number}"))
+            must_contain = _as_string_list(row.get("must_contain")) or answer_parts
+            expected_provenance = _as_string_list(row.get("expected_provenance", row.get("provenance")))
+            examples.append(
+                BenchmarkExample(
+                    name=name,
+                    query=str(query),
+                    context=_external_context_blocks(name, context_payload, line_number),
+                    answer=answer,
+                    must_contain=must_contain,
+                    expected_provenance=expected_provenance,
+                    task_class=str(row.get("task_class", "external")),
+                    metadata=_external_metadata(row),
+                )
+            )
+    return examples
+
+
 def resolve_provider_arg(provider: str, use_openai_backend: bool | None) -> str:
     if use_openai_backend is None:
         return provider
@@ -701,6 +838,7 @@ def build_dataset(
     limit: int,
     seed: int,
     repo_root: str,
+    dataset_path: str | Path | None = None,
 ) -> list[BenchmarkExample]:
     if dataset_name == "pairbench":
         return build_pairbench(n=limit, seed=seed)
@@ -712,6 +850,10 @@ def build_dataset(
         return load_verifiers_30(repo_root, seed=seed)[:limit]
     if dataset_name == "verifiers_smoke":
         return load_verifiers_smoke(repo_root, seed=seed)[:limit]
+    if dataset_name == "external_jsonl":
+        if dataset_path is None:
+            raise ValueError("--dataset-path is required when --dataset external_jsonl")
+        return load_external_jsonl(dataset_path)[:limit]
     raise ValueError(f"unknown dataset: {dataset_name}")
 
 
@@ -743,9 +885,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run nanoRLM synthetic or repo-backed benchmarks.")
     parser.add_argument(
         "--dataset",
-        choices=["pairbench", "needlepairs", "dossierbench", "verifiers_30", "verifiers_smoke"],
+        choices=DATASET_CHOICES,
         default="pairbench",
     )
+    parser.add_argument("--dataset-path", type=str, default="")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--budget", type=int, default=120)
     parser.add_argument("--depth", type=int, default=2)
@@ -769,7 +912,16 @@ def main() -> None:
 
     provider = resolve_provider_choice(args.provider, args.openai)
     policies = parse_csv_strings(args.policies)
-    examples = build_dataset(args.dataset, limit=args.limit, seed=0, repo_root=args.repo_root)
+    try:
+        examples = build_dataset(
+            args.dataset,
+            limit=args.limit,
+            seed=0,
+            repo_root=args.repo_root,
+            dataset_path=args.dataset_path or None,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     summaries = policy_sweep(
         examples,
         policies,
@@ -789,7 +941,13 @@ def main() -> None:
     curve_seeds = parse_csv_ints(args.curve_seeds) if args.curve_seeds else [0]
     curves = generate_curves(
         args.dataset,
-        lambda seed: build_dataset(args.dataset, limit=args.limit, seed=seed, repo_root=args.repo_root),
+        lambda seed: build_dataset(
+            args.dataset,
+            limit=args.limit,
+            seed=seed,
+            repo_root=args.repo_root,
+            dataset_path=args.dataset_path or None,
+        ),
         policies=policies,
         budgets=curve_budgets,
         depths=curve_depths,
@@ -811,6 +969,7 @@ def main() -> None:
                 f"--budget {args.budget}",
                 f"--depth {args.depth}",
                 f"--provider {args.provider}",
+                f"--dataset-path {args.dataset_path}" if args.dataset_path else "",
                 f"--base-url {args.base_url}" if args.base_url else "",
             ])]),
         )

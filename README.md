@@ -200,6 +200,21 @@ uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
 
 These are useful for quick smoke tests, trace demos, and test-friendly regressions. They are not the public empirical story for the repo.
 
+### 5. External Benchmark JSONL
+
+`external_jsonl` is an adapter for externally generated long-context benchmark exports, including RULER-style JSONL rows. It lets the same nanoRLM harness run over established benchmark data without vendoring benchmark datasets into this repo.
+
+```bash
+uv run python bench.py \
+  --dataset external_jsonl \
+  --dataset-path /tmp/ruler-or-other-long-context-export.jsonl \
+  --limit 4 \
+  --budget 80 \
+  --depth 2
+```
+
+This is adapter support, not a published benchmark result. Any README metrics from external data should include the exact generation source, command, model, and output bundle.
+
 ## Generate Assets
 
 Run a benchmark, then turn its saved report bundle into launch-ready figures:
@@ -232,7 +247,7 @@ If you want the repo-safe `uv` version of each command, prefix it as `uv run pyt
 
 ```bash
 uv run python -m unittest discover -s tests -v
-uv run python -m py_compile nanorlm.py policies.py bench.py
+uv run python -m py_compile nanorlm.py policies.py bench.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 ```
@@ -249,6 +264,7 @@ Implemented now:
 - richer `RLMResult` metadata for retention analysis
 - synthetic `PairBench`, `NeedlePairs`, and dossier fixtures for smoke and regression use
 - curated `Verifiers-30` repo-QA benchmark
+- external JSONL adapter for established benchmark exports
 - grounded planning showcase
 - JSONL/tree traces and asset generation from saved reports
 

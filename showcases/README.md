@@ -30,6 +30,19 @@ python bench.py \
   --output-dir outputs/dossierbench
 ```
 
+External benchmark JSONL adapter:
+
+```bash
+uv run python bench.py \
+  --dataset external_jsonl \
+  --dataset-path /tmp/ruler-or-other-long-context-export.jsonl \
+  --limit 4 \
+  --budget 80 \
+  --depth 2
+```
+
+This runs externally generated benchmark rows through nanoRLM. It does not vendor benchmark data or turn adapter smoke output into headline evidence.
+
 Grounded planning showcase:
 
 ```bash
