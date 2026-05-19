@@ -466,8 +466,10 @@ def _external_answer_payload(row: dict[str, Any], line_number: int) -> Any:
         if key in row:
             return row[key]
     outputs = row.get("outputs")
-    if isinstance(outputs, list) and outputs:
-        return outputs[0]
+    if isinstance(outputs, list):
+        if outputs:
+            return outputs[0]
+        raise ValueError(f"external_jsonl line {line_number} has empty outputs")
     if outputs is not None:
         return outputs
     raise ValueError(f"external_jsonl line {line_number} is missing answer, expected, output, or outputs")
@@ -525,41 +527,48 @@ def _external_metadata(row: dict[str, Any]) -> dict[str, Any]:
 
 def load_external_jsonl(path: str | Path) -> list[BenchmarkExample]:
     dataset_path = Path(path)
+    if not dataset_path.exists():
+        raise ValueError(f"external_jsonl dataset path does not exist: {dataset_path}")
+    if not dataset_path.is_file():
+        raise ValueError(f"external_jsonl dataset path is not a file: {dataset_path}")
     examples: list[BenchmarkExample] = []
-    for line_number, raw_line in enumerate(dataset_path.read_text().splitlines(), start=1):
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"external_jsonl line {line_number} is not valid JSON: {exc.msg}") from exc
-        if not isinstance(row, dict):
-            raise ValueError(f"external_jsonl line {line_number} must be a JSON object")
-        query = row.get("query")
-        if query is None:
-            raise ValueError(f"external_jsonl line {line_number} is missing query")
-        answer_payload = _external_answer_payload(row, line_number)
-        answer_parts = _as_string_list(answer_payload)
-        answer = " | ".join(answer_parts)
-        context_payload = row.get("context", row.get("input"))
-        if context_payload is None:
-            raise ValueError(f"external_jsonl line {line_number} is missing context or input")
-        name = str(row.get("name", f"external-{line_number}"))
-        must_contain = _as_string_list(row.get("must_contain")) or answer_parts
-        expected_provenance = _as_string_list(row.get("expected_provenance", row.get("provenance")))
-        examples.append(
-            BenchmarkExample(
-                name=name,
-                query=str(query),
-                context=_external_context_blocks(name, context_payload, line_number),
-                answer=answer,
-                must_contain=must_contain,
-                expected_provenance=expected_provenance,
-                task_class=str(row.get("task_class", "external")),
-                metadata=_external_metadata(row),
+    with dataset_path.open(encoding="utf-8") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"external_jsonl line {line_number} is not valid JSON: {exc.msg}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"external_jsonl line {line_number} must be a JSON object")
+            query = row.get("query")
+            if query is None:
+                raise ValueError(f"external_jsonl line {line_number} is missing query")
+            answer_payload = _external_answer_payload(row, line_number)
+            answer_parts = [part.strip() for part in _as_string_list(answer_payload) if part.strip()]
+            if not answer_parts:
+                raise ValueError(f"external_jsonl line {line_number} has empty answer payload")
+            answer = " | ".join(answer_parts)
+            context_payload = row.get("context", row.get("input"))
+            if context_payload is None:
+                raise ValueError(f"external_jsonl line {line_number} is missing context or input")
+            name = str(row.get("name", f"external-{line_number}"))
+            must_contain = _as_string_list(row.get("must_contain")) or answer_parts
+            expected_provenance = _as_string_list(row.get("expected_provenance", row.get("provenance")))
+            examples.append(
+                BenchmarkExample(
+                    name=name,
+                    query=str(query),
+                    context=_external_context_blocks(name, context_payload, line_number),
+                    answer=answer,
+                    must_contain=must_contain,
+                    expected_provenance=expected_provenance,
+                    task_class=str(row.get("task_class", "external")),
+                    metadata=_external_metadata(row),
+                )
             )
-        )
     return examples
 
 

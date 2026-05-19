@@ -246,6 +246,29 @@ class NanoRLMTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--dataset-path is required"):
             build_dataset("external_jsonl", limit=2, seed=0, repo_root="tests/fixtures/verifiers-mini")
 
+    def test_external_jsonl_rejects_empty_answer_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "external.jsonl"
+            path.write_text('{"query":"What is the answer?","input":"No answer here.","outputs":[]}\n')
+            with self.assertRaisesRegex(ValueError, "empty outputs"):
+                load_external_jsonl(path)
+
+            path.write_text('{"query":"What is the answer?","input":"No answer here.","answer":"   "}\n')
+            with self.assertRaisesRegex(ValueError, "empty answer payload"):
+                load_external_jsonl(path)
+
+    def test_external_jsonl_missing_file_is_clean_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_path = Path(tmpdir) / "missing.jsonl"
+            with self.assertRaisesRegex(ValueError, "dataset path does not exist"):
+                build_dataset(
+                    "external_jsonl",
+                    limit=2,
+                    seed=0,
+                    repo_root="tests/fixtures/verifiers-mini",
+                    dataset_path=missing_path,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
