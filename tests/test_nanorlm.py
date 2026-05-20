@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -22,6 +23,7 @@ from bench import (
     write_report_bundle,
 )
 from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig, Usage
+from scripts.prepare_ruler_external_jsonl import convert_row
 
 
 class NoScoreBackend(HeuristicBackend):
@@ -268,6 +270,39 @@ class NanoRLMTests(unittest.TestCase):
                     repo_root="tests/fixtures/verifiers-mini",
                     dataset_path=missing_path,
                 )
+
+    def test_run_dataset_cost_cap_marks_partial_summary(self) -> None:
+        examples = build_pairbench(n=2, seed=0)
+        with patch("nanorlm.RLM._estimate_cost", return_value=0.02):
+            summary = run_dataset(
+                examples,
+                "pairwise_tournament",
+                budget=80,
+                max_depth=2,
+                max_estimated_cost=0.02,
+                dataset_name="pairbench",
+            )
+        self.assertFalse(summary["completed"])
+        self.assertEqual(summary["stop_reason"], "cost_cap")
+        self.assertEqual(summary["examples"], 1)
+        self.assertEqual(summary["last_completed_case"], "pair-000")
+        self.assertEqual(summary["total_cost_estimate"], 0.02)
+
+    def test_ruler_conversion_maps_external_jsonl_shape(self) -> None:
+        row = {
+            "id": "niah-4k-001",
+            "input": "Needle key alpha has value orchid.",
+            "question": "What value belongs to alpha?",
+            "outputs": ["orchid"],
+            "task": "niah_single_1",
+            "context_length": 4096,
+        }
+        converted = convert_row(row, source_path=Path("/tmp/ruler.jsonl"), index=1)
+        self.assertEqual(converted["name"], "niah-4k-001")
+        self.assertEqual(converted["query"], "What value belongs to alpha?")
+        self.assertEqual(converted["must_contain"], ["orchid"])
+        self.assertEqual(converted["task_class"], "ruler/niah_single_1")
+        self.assertEqual(converted["metadata"]["context_length"], 4096)
 
 
 if __name__ == "__main__":

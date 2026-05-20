@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -106,6 +107,7 @@ class BackendTransportTests(unittest.TestCase):
                 provider="openai_compatible",
                 base_url="https://api.openai.com/v1",
                 api_key="test-openai-key",
+                max_output_tokens=321,
             )
         )
         requests, fake_urlopen = self._capture_requests(
@@ -133,6 +135,58 @@ class BackendTransportTests(unittest.TestCase):
         self.assertEqual(first.get_header("Authorization"), "Bearer test-openai-key")
         self.assertEqual(first_body["messages"][0]["role"], "system")
         self.assertEqual(first_body["messages"][1]["role"], "user")
+        self.assertEqual(first_body["max_completion_tokens"], 321)
+
+    def test_openai_compatible_cache_hit_avoids_second_http_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OpenAICompatibleBackend(
+                RLMConfig(
+                    model="gpt-4.1-mini",
+                    provider="openai_compatible",
+                    base_url="https://api.openai.com/v1",
+                    api_key="test-openai-key",
+                    cache_dir=tmpdir,
+                )
+            )
+            requests, fake_urlopen = self._capture_requests([openai_payload("alpha.txt: beta")])
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                first = backend.answer("What happened?", [memory_item()])
+                second = backend.answer("What happened?", [memory_item()])
+
+            self.assertEqual(first.answer, "alpha.txt: beta")
+            self.assertEqual(second.answer, "alpha.txt: beta")
+            self.assertEqual(second.usage.calls, 0)
+            self.assertEqual(len(requests), 1)
+            cache_files = list(Path(tmpdir).glob("*.json"))
+            self.assertEqual(len(cache_files), 1)
+            cache_payload = json.loads(cache_files[0].read_text())
+            self.assertNotIn("test-openai-key", json.dumps(cache_payload))
+
+    def test_openai_compatible_cache_key_includes_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first_backend = OpenAICompatibleBackend(
+                RLMConfig(
+                    model="gpt-4.1-mini",
+                    provider="openai_compatible",
+                    base_url="https://api.openai.com/v1",
+                    cache_dir=tmpdir,
+                )
+            )
+            second_backend = OpenAICompatibleBackend(
+                RLMConfig(
+                    model="gpt-5.4-mini",
+                    provider="openai_compatible",
+                    base_url="https://api.openai.com/v1",
+                    cache_dir=tmpdir,
+                )
+            )
+            requests, fake_urlopen = self._capture_requests([openai_payload("one"), openai_payload("two")])
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                first_backend.answer("What happened?", [memory_item()])
+                second_backend.answer("What happened?", [memory_item()])
+
+            self.assertEqual(len(requests), 2)
+            self.assertEqual(len(list(Path(tmpdir).glob("*.json"))), 2)
 
     def test_anthropic_contracts(self) -> None:
         backend = AnthropicMessagesBackend(

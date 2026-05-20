@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import random
@@ -274,6 +275,8 @@ class RLMConfig:
     provider: Literal["auto", "heuristic", "openai_compatible", "anthropic"] = "auto"
     base_url: str | None = None
     api_key: str | None = None
+    cache_dir: str | None = None
+    max_output_tokens: int = 1024
     max_depth: int = 1
     max_steps: int = 64
     memory_budget_tokens: int = 320
@@ -553,6 +556,49 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
 
     provider_name = "openai_compatible"
 
+    def _cache_key(self, url: str, payload: dict[str, Any]) -> str:
+        cache_payload = {
+            "provider": self.provider_name,
+            "url": url,
+            "model": self.config.model,
+            "payload": payload,
+        }
+        blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _read_cache(self, key: str) -> dict[str, Any] | None:
+        if not self.config.cache_dir:
+            return None
+        path = Path(self.config.cache_dir) / f"{key}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
+
+    def _write_cache(self, key: str, payload: dict[str, Any], content: str, usage: Usage) -> None:
+        if not self.config.cache_dir:
+            return
+        cache_dir = Path(self.config.cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_payload = {
+            "provider": self.provider_name,
+            "model": self.config.model,
+            "created_at": time.time(),
+            "request": {
+                "messages": payload.get("messages", []),
+                "temperature": payload.get("temperature"),
+                "max_completion_tokens": payload.get("max_completion_tokens"),
+            },
+            "response": {
+                "content": content,
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "calls": usage.calls,
+                },
+            },
+        }
+        (cache_dir / f"{key}.json").write_text(json.dumps(cache_payload, indent=2, sort_keys=True))
+
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         base_url = (self.config.base_url or OPENAI_COMPATIBLE_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/chat/completions"
@@ -563,7 +609,21 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.0,
+            "max_completion_tokens": self.config.max_output_tokens,
         }
+        cache_key = self._cache_key(url, payload)
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            cached_response = cached.get("response", {})
+            usage_payload = cached_response.get("usage", {})
+            return {
+                "content": str(cached_response.get("content", "")),
+                "usage": Usage(
+                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
+                    calls=0,
+                ),
+            }
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
@@ -584,6 +644,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("completion_tokens", 0)),
             calls=1,
         )
+        self._write_cache(cache_key, payload, content, usage)
         return {"content": content, "usage": usage}
 
 
@@ -598,7 +659,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
             "model": self.config.model,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
-            "max_tokens": 1024,
+            "max_tokens": self.config.max_output_tokens,
             "temperature": 0.0,
         }
         body = json.dumps(payload).encode("utf-8")
@@ -812,6 +873,7 @@ class RLM:
         if provider != "openai_compatible" or is_local_base_url(resolved_base_url(self.config, provider)):
             return 0.0
         price_table = {
+            "gpt-5.4-mini": (0.00000075, 0.0000045),
             "gpt-5-mini": (0.00000025, 0.000002),
             "gpt-4.1-mini": (0.0000004, 0.0000016),
             "gpt-4.1": (0.000002, 0.000008),

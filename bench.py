@@ -588,6 +588,8 @@ def run_policy_case(
     model: str,
     base_url: str | None,
     api_key: str | None,
+    cache_dir: str | None,
+    max_output_tokens: int,
     seed: int,
 ) -> RLMResult:
     config = RLMConfig(
@@ -595,6 +597,8 @@ def run_policy_case(
         provider=provider,
         base_url=base_url,
         api_key=api_key,
+        cache_dir=cache_dir,
+        max_output_tokens=max_output_tokens,
         max_depth=0 if policy == "direct_full_context" else max_depth,
         max_steps=256,
         memory_budget_tokens=budget,
@@ -615,6 +619,9 @@ def run_dataset(
     model: str = "demo/heuristic",
     base_url: str | None = None,
     api_key: str | None = None,
+    cache_dir: str | Path | None = None,
+    max_output_tokens: int = 1024,
+    max_estimated_cost: float | None = None,
     output_dir: str | Path | None = None,
     use_openai_backend: bool | None = None,
     seed: int = 0,
@@ -622,11 +629,16 @@ def run_dataset(
 ) -> dict[str, Any]:
     provider = resolve_provider_arg(provider, use_openai_backend)
     results: list[dict[str, Any]] = []
+    stop_reason: str | None = None
+    cumulative_cost = 0.0
     trace_root: Path | None = None
     if output_dir is not None:
         trace_root = Path(output_dir) / "trace_examples" / policy
         trace_root.mkdir(parents=True, exist_ok=True)
     for example in examples:
+        if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
+            stop_reason = "cost_cap"
+            break
         started = time.perf_counter()
         result = run_policy_case(
             example,
@@ -637,9 +649,12 @@ def run_dataset(
             model=model,
             base_url=base_url,
             api_key=api_key,
+            cache_dir=str(cache_dir) if cache_dir is not None else None,
+            max_output_tokens=max_output_tokens,
             seed=seed,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
+        cumulative_cost = round(cumulative_cost + result.cost_estimate, 6)
         answer_accuracy = score_answer(result.answer, example.must_contain)
         provenance_score, provenance_hits = score_provenance(result, example.expected_provenance)
         retained_tokens = sum(item.tokens for item in result.kept_items)
@@ -667,6 +682,7 @@ def run_dataset(
                 "calls": result.usage.calls,
             },
             "cost_estimate": result.cost_estimate,
+            "cumulative_cost_estimate": cumulative_cost,
             "latency_ms": elapsed_ms,
             "retention_stats": result.retention_stats,
             "drop_reasons": result.drop_reasons,
@@ -684,7 +700,8 @@ def run_dataset(
     summary = {
         "dataset": dataset_name,
         "policy": policy,
-        "examples": len(examples),
+        "examples": len(results),
+        "requested_examples": len(examples),
         "accuracy": mean("answer_accuracy"),
         "answer_accuracy": mean("answer_accuracy"),
         "provenance_score": mean("provenance_score"),
@@ -692,6 +709,11 @@ def run_dataset(
         "avg_retained_tokens": mean("retained_tokens"),
         "avg_latency_ms": mean("latency_ms"),
         "avg_cost_estimate": round(statistics.fmean(float(row["cost_estimate"]) for row in results), 6) if results else 0.0,
+        "total_cost_estimate": round(sum(float(row["cost_estimate"]) for row in results), 6),
+        "max_estimated_cost": max_estimated_cost,
+        "completed": stop_reason is None,
+        "stop_reason": stop_reason,
+        "last_completed_case": results[-1]["name"] if results else None,
         "results": results,
     }
     return summary
@@ -708,6 +730,9 @@ def policy_sweep(
     model: str = "demo/heuristic",
     base_url: str | None = None,
     api_key: str | None = None,
+    cache_dir: str | Path | None = None,
+    max_output_tokens: int = 1024,
+    max_estimated_cost: float | None = None,
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
@@ -723,6 +748,9 @@ def policy_sweep(
             model=model,
             base_url=base_url,
             api_key=api_key,
+            cache_dir=cache_dir,
+            max_output_tokens=max_output_tokens,
+            max_estimated_cost=max_estimated_cost,
             use_openai_backend=use_openai_backend,
             seed=seed,
             dataset_name=dataset_name,
@@ -743,6 +771,8 @@ def generate_curves(
     model: str = "demo/heuristic",
     base_url: str | None = None,
     api_key: str | None = None,
+    cache_dir: str | Path | None = None,
+    max_output_tokens: int = 1024,
 ) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for seed in seeds:
@@ -759,6 +789,8 @@ def generate_curves(
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
+                    cache_dir=cache_dir,
+                    max_output_tokens=max_output_tokens,
                     seed=seed,
                     dataset_name=dataset_name,
                 )
@@ -902,6 +934,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--provider", choices=CLI_PROVIDER_CHOICES, default="heuristic")
     parser.add_argument("--base-url", type=str, default="")
     parser.add_argument("--api-key", type=str, default="")
+    parser.add_argument("--cache-dir", type=str, default="")
+    parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument("--max-output-tokens", type=int, default=1024)
+    parser.add_argument("--max-estimated-cost", type=float, default=20.0)
     parser.add_argument("--openai", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -912,6 +948,8 @@ def main() -> None:
 
     provider = resolve_provider_choice(args.provider, args.openai)
     policies = parse_csv_strings(args.policies)
+    cache_dir = None if args.no_cache else args.cache_dir or None
+    max_estimated_cost = args.max_estimated_cost if provider == "openai_compatible" else None
     try:
         examples = build_dataset(
             args.dataset,
@@ -932,6 +970,9 @@ def main() -> None:
         model=args.model,
         base_url=args.base_url or None,
         api_key=args.api_key or None,
+        cache_dir=cache_dir,
+        max_output_tokens=args.max_output_tokens,
+        max_estimated_cost=max_estimated_cost,
         dataset_name=args.dataset,
     )
     print(format_table(summaries))
@@ -956,6 +997,8 @@ def main() -> None:
         model=args.model,
         base_url=args.base_url or None,
         api_key=args.api_key or None,
+        cache_dir=cache_dir,
+        max_output_tokens=args.max_output_tokens,
     )
     if args.output_dir:
         write_report_bundle(
@@ -971,6 +1014,9 @@ def main() -> None:
                 f"--provider {args.provider}",
                 f"--dataset-path {args.dataset_path}" if args.dataset_path else "",
                 f"--base-url {args.base_url}" if args.base_url else "",
+                f"--cache-dir {args.cache_dir}" if cache_dir else "",
+                f"--max-output-tokens {args.max_output_tokens}",
+                f"--max-estimated-cost {args.max_estimated_cost}" if provider == "openai_compatible" else "",
             ])]),
         )
 

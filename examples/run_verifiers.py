@@ -32,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", type=str, default="gpt-4.1-mini")
     parser.add_argument("--base-url", type=str, default="")
     parser.add_argument("--api-key", type=str, default="")
+    parser.add_argument("--cache-dir", type=str, default="")
+    parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument("--max-output-tokens", type=int, default=1024)
+    parser.add_argument("--max-estimated-cost", type=float, default=20.0)
     parser.add_argument("--openai", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -43,6 +47,8 @@ def main() -> None:
     provider = resolve_provider_choice(args.provider, args.openai)
     examples = load_verifiers_30(args.repo_root)[: args.limit]
     output_dir = Path(args.output_dir)
+    cache_dir = None if args.no_cache else args.cache_dir or None
+    max_estimated_cost = args.max_estimated_cost if provider == "openai_compatible" else None
     if provider != "heuristic":
         summary = run_dataset(
             examples,
@@ -54,7 +60,30 @@ def main() -> None:
             model=args.model,
             base_url=args.base_url or None,
             api_key=args.api_key or None,
+            cache_dir=cache_dir,
+            max_output_tokens=args.max_output_tokens,
+            max_estimated_cost=max_estimated_cost,
             dataset_name="verifiers_30",
+        )
+        curves = {
+            "dataset": "verifiers_30",
+            "budgets": [args.budget],
+            "depths": [args.depth],
+            "seeds": [0],
+            "points": [],
+            "aggregates": [],
+        }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_report_bundle(
+            output_dir,
+            dataset_name="verifiers_30",
+            summaries=[summary],
+            curves=curves,
+            command=(
+                "python examples/run_verifiers.py "
+                f"--limit {args.limit} --budget {args.budget} --depth {args.depth} --provider {args.provider} "
+                f"--model {args.model}"
+            ),
         )
         print(json.dumps(summary, indent=2))
         return
