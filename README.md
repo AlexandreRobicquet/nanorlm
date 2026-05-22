@@ -215,6 +215,37 @@ uv run python bench.py \
 
 This is adapter support, not a published benchmark result. Any README metrics from external data should include the exact generation source, command, model, and output bundle.
 
+For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape:
+
+```bash
+uv run python scripts/prepare_ruler_external_jsonl.py \
+  --input /tmp/ruler-generated.jsonl \
+  --output /tmp/nanorlm-ruler-small.jsonl \
+  --limit 12
+```
+
+For a bounded OpenAI-compatible real-model run, use a cache directory plus a cost cap:
+
+```bash
+uv run python bench.py \
+  --dataset external_jsonl \
+  --dataset-path /tmp/nanorlm-ruler-small.jsonl \
+  --limit 12 \
+  --policies direct_full_context,keep_recent,pairwise_tournament \
+  --budget 120 \
+  --depth 3 \
+  --provider openai-compatible \
+  --model gpt-5.4-mini \
+  --base-url https://api.openai.com/v1 \
+  --cache-dir outputs/cache/openai-gpt-5.4-mini \
+  --max-estimated-cost 20 \
+  --output-dir outputs/real-runs/openai-ruler-small
+```
+
+Network-provider report bundles avoid hidden second-pass API calls: their `curves.json` is derived from the already completed summaries rather than re-running the sweep.
+
+A small OpenAI-backed RULER-derived snapshot is tracked at [`examples/real_runs/openai_ruler_small/benchmark_snapshot.md`](examples/real_runs/openai_ruler_small/benchmark_snapshot.md). It is a mechanics and reproducibility artifact, not a headline benchmark claim.
+
 ## Generate Assets
 
 Run a benchmark, then turn its saved report bundle into launch-ready figures:
@@ -247,9 +278,10 @@ If you want the repo-safe `uv` version of each command, prefix it as `uv run pyt
 
 ```bash
 uv run python -m unittest discover -s tests -v
-uv run python -m py_compile nanorlm.py policies.py bench.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
+uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 ```
 
 A GitHub Actions smoke workflow runs the same core checks on pushes and pull requests.

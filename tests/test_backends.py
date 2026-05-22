@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import tempfile
+import urllib.error
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -128,6 +130,10 @@ class BackendTransportTests(unittest.TestCase):
         self.assertEqual(answer.answer, "alpha.txt: beta")
         self.assertEqual(score, 6.5)
         self.assertEqual(winner, -1)
+        judge_usage = backend.drain_usage()
+        self.assertEqual(judge_usage.prompt_tokens, 6)
+        self.assertEqual(judge_usage.completion_tokens, 4)
+        self.assertEqual(judge_usage.calls, 2)
         self.assertEqual(len(requests), 4)
         first = requests[0]
         first_body = json.loads(first.data.decode("utf-8"))
@@ -187,6 +193,53 @@ class BackendTransportTests(unittest.TestCase):
 
             self.assertEqual(len(requests), 2)
             self.assertEqual(len(list(Path(tmpdir).glob("*.json"))), 2)
+
+    def test_openai_compatible_retries_rate_limit_response(self) -> None:
+        backend = OpenAICompatibleBackend(
+            RLMConfig(
+                model="gpt-5.4-mini",
+                provider="openai_compatible",
+                base_url="https://api.openai.com/v1",
+                api_key="test-openai-key",
+            )
+        )
+        requests = []
+
+        def fake_urlopen(request, timeout: int = 120):  # type: ignore[no-untyped-def]
+            requests.append(request)
+            if len(requests) == 1:
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    429,
+                    "Too Many Requests",
+                    {"Retry-After": "0.01"},
+                    io.BytesIO(b'{"error":{"message":"rate limit"}}'),
+                )
+            return FakeHTTPResponse(openai_payload("alpha.txt: beta"))
+
+        with (
+            patch("urllib.request.urlopen", side_effect=fake_urlopen),
+            patch("nanorlm.time.sleep") as sleep,
+        ):
+            answer = backend.answer("What happened?", [memory_item()])
+
+        self.assertEqual(answer.answer, "alpha.txt: beta")
+        self.assertEqual(len(requests), 2)
+        sleep.assert_called_once_with(0.01)
+
+    def test_openai_compatible_retry_delay_uses_rate_limit_message(self) -> None:
+        backend = OpenAICompatibleBackend(
+            RLMConfig(model="gpt-5.4-mini", provider="openai_compatible", base_url="https://api.openai.com/v1")
+        )
+        error = urllib.error.HTTPError(
+            "https://api.openai.com/v1/chat/completions",
+            429,
+            "Too Many Requests",
+            {},
+            io.BytesIO(b""),
+        )
+        delay = backend._retry_delay(error, 0, 'Please try again in 20s.')
+        self.assertEqual(delay, 20.0)
 
     def test_anthropic_contracts(self) -> None:
         backend = AnthropicMessagesBackend(

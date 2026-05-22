@@ -422,6 +422,15 @@ class StructuredOutputBackend:
 
     def __init__(self, config: RLMConfig) -> None:
         self.config = config
+        self._auxiliary_usage = Usage()
+
+    def drain_usage(self) -> Usage:
+        usage = self._auxiliary_usage
+        self._auxiliary_usage = Usage()
+        return usage
+
+    def _record_auxiliary_usage(self, usage: Usage) -> None:
+        self._auxiliary_usage.add(usage.prompt_tokens, usage.completion_tokens, usage.calls)
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         joined = "\n\n".join(f"### {document.name}\n{document.text}" for document in documents)
@@ -469,7 +478,7 @@ class StructuredOutputBackend:
         return AnswerResult(answer=payload["content"], confidence=0.8, usage=payload["usage"])
 
     def score_candidate(self, query: str, item: MemoryItem) -> float:
-        data, _ = self._chat_json(
+        data, usage = self._chat_json(
             "score_candidate",
             "Return strict JSON with a single numeric field named score in [0, 10].",
             (
@@ -479,10 +488,11 @@ class StructuredOutputBackend:
             ),
             required_keys=["score"],
         )
+        self._record_auxiliary_usage(usage)
         return float(data.get("score", 0.0))
 
     def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
-        data, _ = self._chat_json(
+        data, usage = self._chat_json(
             "compare_candidates",
             "Return strict JSON with winner set to left, right, or tie.",
             (
@@ -493,6 +503,7 @@ class StructuredOutputBackend:
             ),
             required_keys=["winner"],
         )
+        self._record_auxiliary_usage(usage)
         winner = str(data.get("winner", "tie")).lower()
         if winner == "left":
             return 1
@@ -555,6 +566,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
     """Tiny OpenAI-compatible client that only depends on the stdlib."""
 
     provider_name = "openai_compatible"
+    retryable_status_codes = {429, 500, 502, 503, 504}
 
     def _cache_key(self, url: str, payload: dict[str, Any]) -> str:
         cache_payload = {
@@ -599,6 +611,18 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         }
         (cache_dir / f"{key}.json").write_text(json.dumps(cache_payload, indent=2, sort_keys=True))
 
+    def _retry_delay(self, exc: urllib.error.HTTPError, attempt: int, detail: str = "") -> float:
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return min(120.0, max(0.0, float(retry_after)))
+            except ValueError:
+                pass
+        detail_match = re.search(r"try again in ([0-9.]+)s", detail, flags=re.IGNORECASE)
+        if detail_match:
+            return min(120.0, max(0.0, float(detail_match.group(1))))
+        return min(120.0, 5.0 * (2**attempt))
+
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         base_url = (self.config.base_url or OPENAI_COMPATIBLE_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/chat/completions"
@@ -629,14 +653,20 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"OpenAI-compatible request failed: {exc.code} {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Could not reach {url}: {exc.reason}") from exc
+        max_attempts = 6
+        for attempt in range(max_attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    raw = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                if exc.code in self.retryable_status_codes and attempt < max_attempts - 1:
+                    time.sleep(self._retry_delay(exc, attempt, detail))
+                    continue
+                raise RuntimeError(f"OpenAI-compatible request failed: {exc.code} {detail}") from exc
+            except urllib.error.URLError as exc:
+                raise RuntimeError(f"Could not reach {url}: {exc.reason}") from exc
         content = extract_text_content(raw["choices"][0]["message"]["content"])
         usage_payload = raw.get("usage", {})
         usage = Usage(
@@ -814,6 +844,10 @@ class RLM:
             before = len(memory)
             before_items = list(memory)
             memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
+            drain_usage = getattr(self.backend, "drain_usage", None)
+            if callable(drain_usage):
+                extra_usage = drain_usage()
+                usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
             kept_ids = {memory_identity(item) for item in memory}
             dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
             step_budget = {

@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from bench import (
     CLI_PROVIDER_CHOICES,
+    curves_from_summaries,
     format_table,
     generate_curves,
     load_verifiers_30,
@@ -65,14 +66,7 @@ def main() -> None:
             max_estimated_cost=max_estimated_cost,
             dataset_name="verifiers_30",
         )
-        curves = {
-            "dataset": "verifiers_30",
-            "budgets": [args.budget],
-            "depths": [args.depth],
-            "seeds": [0],
-            "points": [],
-            "aggregates": [],
-        }
+        curves = curves_from_summaries("verifiers_30", [summary], budget=args.budget, depth=args.depth)
         output_dir.mkdir(parents=True, exist_ok=True)
         write_report_bundle(
             output_dir,
@@ -81,8 +75,11 @@ def main() -> None:
             curves=curves,
             command=(
                 "python examples/run_verifiers.py "
-                f"--limit {args.limit} --budget {args.budget} --depth {args.depth} --provider {args.provider} "
-                f"--model {args.model}"
+                f"--repo-root {args.repo_root} --limit {args.limit} --budget {args.budget} --depth {args.depth} "
+                f"--provider {args.provider} --model {args.model}"
+                f"{' --base-url ' + args.base_url if args.base_url else ''}"
+                f"{' --cache-dir ' + args.cache_dir if cache_dir else ''}"
+                f" --max-output-tokens {args.max_output_tokens} --max-estimated-cost {args.max_estimated_cost}"
             ),
         )
         print(json.dumps(summary, indent=2))

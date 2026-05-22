@@ -88,6 +88,8 @@ class SingleCriticTopKPolicy(RetentionPolicy):
         self.judge = judge
 
     def select(self, root_query: str, candidates: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
+        if sum(item.tokens for item in candidates) <= budget:
+            return _fit_budget(candidates, budget, reserve_recent=True)
         ranked = sorted(
             (replace(item, score=self.judge.score_candidate(root_query, item)) for item in candidates),
             key=lambda item: (-item.score, item.depth, -item.timestamp),
@@ -106,6 +108,8 @@ class PairwiseTournamentPolicy(RetentionPolicy):
     def select(self, root_query: str, candidates: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
         if not candidates:
             return []
+        if sum(item.tokens for item in candidates) <= budget:
+            return _fit_budget(candidates, budget, reserve_recent=True)
         ranked = [
             replace(item, score=self.judge.score_candidate(root_query, item), wins=0, losses=0)
             for item in candidates

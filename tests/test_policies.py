@@ -29,6 +29,20 @@ class DummyJudge:
         return 1 if left_score > right_score else -1
 
 
+class CountingJudge(DummyJudge):
+    def __init__(self) -> None:
+        self.score_calls = 0
+        self.compare_calls = 0
+
+    def score_candidate(self, query: str, item: MemoryItem) -> float:
+        self.score_calls += 1
+        return super().score_candidate(query, item)
+
+    def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
+        self.compare_calls += 1
+        return super().compare_candidates(query, left, right)
+
+
 def item(timestamp: float, summary: str, provenance: str, tokens: int = 12) -> MemoryItem:
     return MemoryItem(
         summary=summary,
@@ -71,6 +85,19 @@ class PolicyTests(unittest.TestCase):
     def test_pairwise_prefers_higher_scored_candidates(self) -> None:
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
         self.assertTrue(any("cache" in candidate.summary for candidate in kept))
+
+    def test_critic_policies_skip_judge_when_candidates_fit_budget(self) -> None:
+        single_judge = CountingJudge()
+        pairwise_judge = CountingJudge()
+
+        single = SingleCriticTopKPolicy(judge=single_judge).select(self.query, self.candidates, budget=100)
+        pairwise = PairwiseTournamentPolicy(judge=pairwise_judge, seed=0).select(self.query, self.candidates, budget=100)
+
+        self.assertEqual(len(single), len(self.candidates))
+        self.assertEqual(len(pairwise), len(self.candidates))
+        self.assertEqual(single_judge.score_calls, 0)
+        self.assertEqual(pairwise_judge.score_calls, 0)
+        self.assertEqual(pairwise_judge.compare_calls, 0)
 
 
 if __name__ == "__main__":

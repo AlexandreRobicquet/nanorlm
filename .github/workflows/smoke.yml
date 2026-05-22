@@ -15,7 +15,7 @@ jobs:
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Bytecode check
-        run: python -m py_compile nanorlm.py policies.py bench.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+        run: python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
       - name: PairBench smoke
         run: python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
       - name: Verifiers smoke fixture

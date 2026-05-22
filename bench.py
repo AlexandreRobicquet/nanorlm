@@ -839,6 +839,61 @@ def generate_curves(
     }
 
 
+def curves_from_summaries(
+    dataset_name: str,
+    summaries: Sequence[dict[str, Any]],
+    *,
+    budget: int,
+    depth: int,
+    seed: int = 0,
+) -> dict[str, Any]:
+    points = [
+        {
+            "dataset": dataset_name,
+            "seed": seed,
+            "depth": depth,
+            "budget": budget,
+            "policy": summary["policy"],
+            "answer_accuracy": summary["answer_accuracy"],
+            "provenance_score": summary["provenance_score"],
+            "compactness": summary["compactness"],
+            "avg_retained_tokens": summary["avg_retained_tokens"],
+            "avg_latency_ms": summary["avg_latency_ms"],
+            "avg_cost_estimate": summary["avg_cost_estimate"],
+            "total_cost_estimate": summary["total_cost_estimate"],
+            "completed": summary["completed"],
+            "stop_reason": summary["stop_reason"],
+        }
+        for summary in summaries
+    ]
+    aggregates = [
+        {
+            "policy": point["policy"],
+            "budget": budget,
+            "depth": depth,
+            "answer_accuracy": point["answer_accuracy"],
+            "provenance_score": point["provenance_score"],
+            "compactness": point["compactness"],
+            "avg_retained_tokens": point["avg_retained_tokens"],
+            "avg_latency_ms": point["avg_latency_ms"],
+            "avg_cost_estimate": point["avg_cost_estimate"],
+            "total_cost_estimate": point["total_cost_estimate"],
+            "completed": point["completed"],
+            "stop_reason": point["stop_reason"],
+            "seeds": 1,
+        }
+        for point in points
+    ]
+    return {
+        "dataset": dataset_name,
+        "budgets": [budget],
+        "depths": [depth],
+        "seeds": [seed],
+        "points": points,
+        "aggregates": sorted(aggregates, key=lambda row: (row["depth"], row["budget"], row["policy"])),
+    }
+
+
 def write_report_bundle(
     output_dir: str | Path,
     *,
@@ -977,29 +1032,32 @@ def main() -> None:
     )
     print(format_table(summaries))
 
-    curve_budgets = parse_csv_ints(args.curve_budgets) if args.curve_budgets else [args.budget]
-    curve_depths = parse_csv_ints(args.curve_depths) if args.curve_depths else [args.depth]
-    curve_seeds = parse_csv_ints(args.curve_seeds) if args.curve_seeds else [0]
-    curves = generate_curves(
-        args.dataset,
-        lambda seed: build_dataset(
+    if provider == "heuristic":
+        curve_budgets = parse_csv_ints(args.curve_budgets) if args.curve_budgets else [args.budget]
+        curve_depths = parse_csv_ints(args.curve_depths) if args.curve_depths else [args.depth]
+        curve_seeds = parse_csv_ints(args.curve_seeds) if args.curve_seeds else [0]
+        curves = generate_curves(
             args.dataset,
-            limit=args.limit,
-            seed=seed,
-            repo_root=args.repo_root,
-            dataset_path=args.dataset_path or None,
-        ),
-        policies=policies,
-        budgets=curve_budgets,
-        depths=curve_depths,
-        seeds=curve_seeds,
-        provider=provider,
-        model=args.model,
-        base_url=args.base_url or None,
-        api_key=args.api_key or None,
-        cache_dir=cache_dir,
-        max_output_tokens=args.max_output_tokens,
-    )
+            lambda seed: build_dataset(
+                args.dataset,
+                limit=args.limit,
+                seed=seed,
+                repo_root=args.repo_root,
+                dataset_path=args.dataset_path or None,
+            ),
+            policies=policies,
+            budgets=curve_budgets,
+            depths=curve_depths,
+            seeds=curve_seeds,
+            provider=provider,
+            model=args.model,
+            base_url=args.base_url or None,
+            api_key=args.api_key or None,
+            cache_dir=cache_dir,
+            max_output_tokens=args.max_output_tokens,
+        )
+    else:
+        curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
     if args.output_dir:
         write_report_bundle(
             args.output_dir,
