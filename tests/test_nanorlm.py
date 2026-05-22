@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import bench
 from bench import (
     build_dataset,
     build_dossierbench,
     build_pairbench,
+    curves_from_summaries,
     extract_anchor_blocks,
     generate_curves,
     load_external_jsonl,
@@ -22,6 +27,7 @@ from bench import (
     write_report_bundle,
 )
 from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig, Usage
+from scripts.prepare_ruler_external_jsonl import convert_row
 
 
 class NoScoreBackend(HeuristicBackend):
@@ -196,6 +202,79 @@ class NanoRLMTests(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "curves.json").exists())
             self.assertTrue((Path(tmpdir) / "trace_examples" / "pairwise_tournament").exists())
 
+    def test_non_heuristic_cli_report_uses_existing_summaries_for_curves(self) -> None:
+        fixture_path = Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"
+        fake_summary = {
+            "dataset": "external_jsonl",
+            "policy": "direct_full_context",
+            "examples": 1,
+            "requested_examples": 1,
+            "accuracy": 1.0,
+            "answer_accuracy": 1.0,
+            "provenance_score": 0.0,
+            "compactness": 0.5,
+            "avg_retained_tokens": 10.0,
+            "avg_latency_ms": 1.0,
+            "avg_cost_estimate": 0.001,
+            "total_cost_estimate": 0.001,
+            "max_estimated_cost": 20.0,
+            "completed": True,
+            "stop_reason": None,
+            "last_completed_case": "ruler-mini-001",
+            "results": [],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            argv = [
+                "bench.py",
+                "--dataset",
+                "external_jsonl",
+                "--dataset-path",
+                str(fixture_path),
+                "--limit",
+                "1",
+                "--policies",
+                "direct_full_context",
+                "--provider",
+                "openai-compatible",
+                "--model",
+                "gpt-5.4-mini",
+                "--output-dir",
+                tmpdir,
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch("bench.policy_sweep", return_value=[fake_summary]),
+                patch("bench.generate_curves", side_effect=AssertionError("network curve rerun")),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                bench.main()
+            curves = (Path(tmpdir) / "curves.json").read_text()
+        self.assertIn("direct_full_context", curves)
+
+    def test_curves_from_summaries_preserves_cost_and_completion_state(self) -> None:
+        curves = curves_from_summaries(
+            "external_jsonl",
+            [
+                {
+                    "policy": "pairwise_tournament",
+                    "answer_accuracy": 0.5,
+                    "provenance_score": 0.0,
+                    "compactness": 0.25,
+                    "avg_retained_tokens": 42.0,
+                    "avg_latency_ms": 100.0,
+                    "avg_cost_estimate": 0.002,
+                    "total_cost_estimate": 0.004,
+                    "completed": False,
+                    "stop_reason": "cost_cap",
+                }
+            ],
+            budget=80,
+            depth=2,
+        )
+        self.assertEqual(curves["aggregates"][0]["total_cost_estimate"], 0.004)
+        self.assertFalse(curves["aggregates"][0]["completed"])
+        self.assertEqual(curves["aggregates"][0]["stop_reason"], "cost_cap")
+
     def test_verifiers_smoke_fixture_loads_and_runs(self) -> None:
         repo_root = Path(__file__).resolve().parent / "fixtures" / "verifiers-mini"
         examples = load_verifiers_smoke(repo_root)
@@ -268,6 +347,61 @@ class NanoRLMTests(unittest.TestCase):
                     repo_root="tests/fixtures/verifiers-mini",
                     dataset_path=missing_path,
                 )
+
+    def test_run_dataset_cost_cap_marks_partial_summary(self) -> None:
+        examples = build_pairbench(n=2, seed=0)
+        with patch("nanorlm.RLM._estimate_cost", return_value=0.02):
+            summary = run_dataset(
+                examples,
+                "pairwise_tournament",
+                budget=80,
+                max_depth=2,
+                max_estimated_cost=0.02,
+                dataset_name="pairbench",
+            )
+        self.assertFalse(summary["completed"])
+        self.assertEqual(summary["stop_reason"], "cost_cap")
+        self.assertEqual(summary["examples"], 1)
+        self.assertEqual(summary["last_completed_case"], "pair-000")
+        self.assertEqual(summary["total_cost_estimate"], 0.02)
+
+    def test_ruler_conversion_maps_external_jsonl_shape(self) -> None:
+        row = {
+            "id": "niah-4k-001",
+            "input": "Needle key alpha has value orchid.",
+            "question": "What value belongs to alpha?",
+            "outputs": ["orchid"],
+            "task": "niah_single_1",
+            "context_length": 4096,
+        }
+        converted = convert_row(row, source_path=Path("/tmp/ruler.jsonl"), index=1)
+        self.assertEqual(converted["name"], "niah-4k-001")
+        self.assertEqual(converted["query"], "What value belongs to alpha?")
+        self.assertEqual(converted["must_contain"], ["orchid"])
+        self.assertEqual(converted["task_class"], "ruler/niah_single_1")
+        self.assertEqual(converted["metadata"]["context_length"], 4096)
+        self.assertEqual(converted["context"][0]["name"], "niah-4k-001/context-001.txt")
+
+    def test_ruler_conversion_infers_task_query_and_unique_index_name(self) -> None:
+        row = {
+            "index": 2,
+            "input": (
+                "Fewshot.\n"
+                "Question: Find all variables assigned 11111 in the text above. Answer: OLD\n"
+                "Real context.\n"
+                "Question: Find all variables assigned 12345 in the text above."
+            ),
+            "outputs": ["ABCDE"],
+            "length": 8192,
+        }
+        converted = convert_row(row, source_path=Path("/tmp/ruler/8192/vt/validation.jsonl"), index=3)
+        self.assertEqual(converted["name"], "vt-8192-2")
+        self.assertEqual(converted["query"], "Find all variables assigned 12345 in the text above.")
+        self.assertEqual(converted["task_class"], "ruler/vt")
+        self.assertEqual(converted["metadata"]["task_name"], "vt")
+        self.assertEqual(converted["metadata"]["context_length"], 8192)
+        self.assertGreaterEqual(len(converted["context"]), 1)
+        self.assertEqual(converted["context"][0]["metadata"]["source_index"], 3)
 
 
 if __name__ == "__main__":

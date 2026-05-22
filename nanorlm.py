@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import random
@@ -274,6 +275,8 @@ class RLMConfig:
     provider: Literal["auto", "heuristic", "openai_compatible", "anthropic"] = "auto"
     base_url: str | None = None
     api_key: str | None = None
+    cache_dir: str | None = None
+    max_output_tokens: int = 1024
     max_depth: int = 1
     max_steps: int = 64
     memory_budget_tokens: int = 320
@@ -419,6 +422,15 @@ class StructuredOutputBackend:
 
     def __init__(self, config: RLMConfig) -> None:
         self.config = config
+        self._auxiliary_usage = Usage()
+
+    def drain_usage(self) -> Usage:
+        usage = self._auxiliary_usage
+        self._auxiliary_usage = Usage()
+        return usage
+
+    def _record_auxiliary_usage(self, usage: Usage) -> None:
+        self._auxiliary_usage.add(usage.prompt_tokens, usage.completion_tokens, usage.calls)
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         joined = "\n\n".join(f"### {document.name}\n{document.text}" for document in documents)
@@ -466,7 +478,7 @@ class StructuredOutputBackend:
         return AnswerResult(answer=payload["content"], confidence=0.8, usage=payload["usage"])
 
     def score_candidate(self, query: str, item: MemoryItem) -> float:
-        data, _ = self._chat_json(
+        data, usage = self._chat_json(
             "score_candidate",
             "Return strict JSON with a single numeric field named score in [0, 10].",
             (
@@ -476,10 +488,11 @@ class StructuredOutputBackend:
             ),
             required_keys=["score"],
         )
+        self._record_auxiliary_usage(usage)
         return float(data.get("score", 0.0))
 
     def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
-        data, _ = self._chat_json(
+        data, usage = self._chat_json(
             "compare_candidates",
             "Return strict JSON with winner set to left, right, or tie.",
             (
@@ -490,6 +503,7 @@ class StructuredOutputBackend:
             ),
             required_keys=["winner"],
         )
+        self._record_auxiliary_usage(usage)
         winner = str(data.get("winner", "tie")).lower()
         if winner == "left":
             return 1
@@ -552,6 +566,62 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
     """Tiny OpenAI-compatible client that only depends on the stdlib."""
 
     provider_name = "openai_compatible"
+    retryable_status_codes = {429, 500, 502, 503, 504}
+
+    def _cache_key(self, url: str, payload: dict[str, Any]) -> str:
+        cache_payload = {
+            "provider": self.provider_name,
+            "url": url,
+            "model": self.config.model,
+            "payload": payload,
+        }
+        blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _read_cache(self, key: str) -> dict[str, Any] | None:
+        if not self.config.cache_dir:
+            return None
+        path = Path(self.config.cache_dir) / f"{key}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
+
+    def _write_cache(self, key: str, payload: dict[str, Any], content: str, usage: Usage) -> None:
+        if not self.config.cache_dir:
+            return
+        cache_dir = Path(self.config.cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_payload = {
+            "provider": self.provider_name,
+            "model": self.config.model,
+            "created_at": time.time(),
+            "request": {
+                "messages": payload.get("messages", []),
+                "temperature": payload.get("temperature"),
+                "max_completion_tokens": payload.get("max_completion_tokens"),
+            },
+            "response": {
+                "content": content,
+                "usage": {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "calls": usage.calls,
+                },
+            },
+        }
+        (cache_dir / f"{key}.json").write_text(json.dumps(cache_payload, indent=2, sort_keys=True))
+
+    def _retry_delay(self, exc: urllib.error.HTTPError, attempt: int, detail: str = "") -> float:
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return min(120.0, max(0.0, float(retry_after)))
+            except ValueError:
+                pass
+        detail_match = re.search(r"try again in ([0-9.]+)s", detail, flags=re.IGNORECASE)
+        if detail_match:
+            return min(120.0, max(0.0, float(detail_match.group(1))))
+        return min(120.0, 5.0 * (2**attempt))
 
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         base_url = (self.config.base_url or OPENAI_COMPATIBLE_DEFAULT_BASE_URL).rstrip("/")
@@ -563,20 +633,40 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.0,
+            "max_completion_tokens": self.config.max_output_tokens,
         }
+        cache_key = self._cache_key(url, payload)
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            cached_response = cached.get("response", {})
+            usage_payload = cached_response.get("usage", {})
+            return {
+                "content": str(cached_response.get("content", "")),
+                "usage": Usage(
+                    prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage_payload.get("completion_tokens", 0)),
+                    calls=0,
+                ),
+            }
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=120) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"OpenAI-compatible request failed: {exc.code} {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"Could not reach {url}: {exc.reason}") from exc
+        max_attempts = 6
+        for attempt in range(max_attempts):
+            try:
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    raw = json.loads(response.read().decode("utf-8"))
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                if exc.code in self.retryable_status_codes and attempt < max_attempts - 1:
+                    time.sleep(self._retry_delay(exc, attempt, detail))
+                    continue
+                raise RuntimeError(f"OpenAI-compatible request failed: {exc.code} {detail}") from exc
+            except urllib.error.URLError as exc:
+                raise RuntimeError(f"Could not reach {url}: {exc.reason}") from exc
         content = extract_text_content(raw["choices"][0]["message"]["content"])
         usage_payload = raw.get("usage", {})
         usage = Usage(
@@ -584,6 +674,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("completion_tokens", 0)),
             calls=1,
         )
+        self._write_cache(cache_key, payload, content, usage)
         return {"content": content, "usage": usage}
 
 
@@ -598,7 +689,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
             "model": self.config.model,
             "system": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
-            "max_tokens": 1024,
+            "max_tokens": self.config.max_output_tokens,
             "temperature": 0.0,
         }
         body = json.dumps(payload).encode("utf-8")
@@ -753,6 +844,10 @@ class RLM:
             before = len(memory)
             before_items = list(memory)
             memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
+            drain_usage = getattr(self.backend, "drain_usage", None)
+            if callable(drain_usage):
+                extra_usage = drain_usage()
+                usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
             kept_ids = {memory_identity(item) for item in memory}
             dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
             step_budget = {
@@ -812,6 +907,7 @@ class RLM:
         if provider != "openai_compatible" or is_local_base_url(resolved_base_url(self.config, provider)):
             return 0.0
         price_table = {
+            "gpt-5.4-mini": (0.00000075, 0.0000045),
             "gpt-5-mini": (0.00000025, 0.000002),
             "gpt-4.1-mini": (0.0000004, 0.0000016),
             "gpt-4.1": (0.000002, 0.000008),

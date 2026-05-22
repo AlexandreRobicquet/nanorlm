@@ -26,9 +26,10 @@ Run these in order once:
 ```bash
 uv run python --version
 uv run python -m unittest discover -s tests -v
-uv run python -m py_compile nanorlm.py policies.py bench.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
+uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 ```
 
 You should see:
@@ -74,6 +75,7 @@ You want confidence before editing code:
 ```bash
 uv run python -m unittest discover -s tests -v
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 ```
 
 You want to confirm which Python `uv` is actually using:
