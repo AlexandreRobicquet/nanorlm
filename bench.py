@@ -147,7 +147,7 @@ def build_pairbench(n: int = 100, seed: int = 0) -> list[BenchmarkExample]:
                         f"FACT_KIND: {distractor_kind}\n"
                         f"FACT_VALUE: {distractor_value}\n"
                         "SLOT: memo\n"
-                        "This scratch note may look relevant but belongs to another pair.\n"
+                        f"{distractor_pair} {distractor_kind} token is {distractor_value}; belongs to another pair.\n"
                     ),
                 )
             )
@@ -160,7 +160,7 @@ def build_pairbench(n: int = 100, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: left\n"
                         f"FACT_VALUE: {left_value}\n"
                         "SLOT: durable\n"
-                        "The left token must be combined with the right token.\n"
+                        f"{pair_id} left token is {left_value}; combine with right token.\n"
                     ),
                 ),
                 ContextBlock(
@@ -170,7 +170,7 @@ def build_pairbench(n: int = 100, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: right\n"
                         f"FACT_VALUE: {right_value}\n"
                         "SLOT: durable\n"
-                        "The right token must be combined with the left token.\n"
+                        f"{pair_id} right token is {right_value}; combine with left token.\n"
                     ),
                 ),
                 ContextBlock(
@@ -180,7 +180,7 @@ def build_pairbench(n: int = 100, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: left\n"
                         f"FACT_VALUE: {left_value}\n"
                         "SLOT: duplicate\n"
-                        "This duplicate memo exists to tempt single-item ranking.\n"
+                        f"Duplicate: {pair_id} left token is {left_value}; tempts single-item ranking.\n"
                     ),
                 ),
                 ContextBlock(
@@ -190,7 +190,7 @@ def build_pairbench(n: int = 100, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: left\n"
                         f"FACT_VALUE: {left_value}\n"
                         "SLOT: archive\n"
-                        "An older archive copy repeats the left token and competes for memory.\n"
+                        f"Archive: {pair_id} left token is {left_value}; competes for memory.\n"
                     ),
                 ),
             ]
@@ -276,15 +276,18 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
         docs: list[ContextBlock] = []
         for distractor in range(24):
             distractor_id = f"{types[(index + distractor + 1) % len(types)]}-{(index + distractor + 9) % distractor_space:03d}"
+            distractor_kind = "root_cause" if distractor % 2 == 0 else "file"
+            distractor_value = root_causes[(index + distractor) % len(root_causes)] if distractor % 2 == 0 else files[(index + distractor) % len(files)]
+            distractor_label = "root cause" if distractor_kind == "root_cause" else "patch file"
             docs.append(
                 ContextBlock(
                     name=f"dossiers/{distractor_id}-memo-{distractor}.md",
                     text=(
                         f"CASE_ID: {distractor_id}\n"
-                        f"FACT_KIND: {'root_cause' if distractor % 2 == 0 else 'file'}\n"
-                        f"FACT_VALUE: {root_causes[(index + distractor) % len(root_causes)] if distractor % 2 == 0 else files[(index + distractor) % len(files)]}\n"
+                        f"FACT_KIND: {distractor_kind}\n"
+                        f"FACT_VALUE: {distractor_value}\n"
                         "SLOT: distractor\n"
-                        "This memo belongs to another investigation and should not survive tight retention.\n"
+                        f"{distractor_id} {distractor_label}: {distractor_value}; belongs to another investigation.\n"
                     ),
                 )
             )
@@ -297,7 +300,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: service\n"
                         f"FACT_VALUE: {service}\n"
                         "SLOT: durable\n"
-                        f"The active system under investigation is {service}.\n"
+                        f"{case_id} active service: {service}.\n"
                     ),
                 ),
                 ContextBlock(
@@ -307,7 +310,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: root_cause\n"
                         f"FACT_VALUE: {root_cause}\n"
                         "SLOT: durable\n"
-                        f"The core blocker is {root_cause}.\n"
+                        f"{case_id} root cause and blocker: {root_cause}.\n"
                     ),
                 ),
                 ContextBlock(
@@ -317,7 +320,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: fix\n"
                         f"FACT_VALUE: {fix}\n"
                         "SLOT: durable\n"
-                        "This fix should be applied before the next release.\n"
+                        f"{case_id} first change and fix: {fix}.\n"
                     ),
                 ),
                 ContextBlock(
@@ -327,7 +330,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: file\n"
                         f"FACT_VALUE: {file_path}\n"
                         "SLOT: durable\n"
-                        "The most likely patch site is this file.\n"
+                        f"{case_id} patch file and minimal fix site: {file_path}.\n"
                     ),
                 ),
                 ContextBlock(
@@ -337,7 +340,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: owner\n"
                         f"FACT_VALUE: {owner}\n"
                         "SLOT: archive\n"
-                        "The patch owner is responsible for review and rollout.\n"
+                        f"{case_id} patch owner: {owner}; {owner} owns review and rollout.\n"
                     ),
                 ),
                 ContextBlock(
@@ -347,7 +350,7 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
                         "FACT_KIND: root_cause\n"
                         f"FACT_VALUE: {root_cause}\n"
                         "SLOT: duplicate\n"
-                        "This retrospective repeats the main root cause and tempts single-score ranking.\n"
+                        f"Duplicate: {case_id} root cause is {root_cause}; tempts single-score ranking.\n"
                     ),
                 ),
             ]
@@ -904,11 +907,13 @@ def write_report_bundle(
 ) -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    insights = build_experiment_insights(dataset_name, summaries)
     summary_payload = {
         "dataset": dataset_name,
         "generated_by": "bench.py",
         "command": command,
         "policies": [summary["policy"] for summary in summaries],
+        "insights": insights,
         "summaries": list(summaries),
     }
     (output_path / "summary.json").write_text(json.dumps(summary_payload, indent=2))
@@ -917,6 +922,14 @@ def write_report_bundle(
             for row in summary["results"]:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
     (output_path / "curves.json").write_text(json.dumps(curves, indent=2))
+    (output_path / "experiment_report.md").write_text(
+        format_experiment_report(
+            dataset_name=dataset_name,
+            summaries=summaries,
+            insights=insights,
+            command=command,
+        )
+    )
 
 
 def build_dataset(
@@ -951,6 +964,216 @@ def format_table(rows: Iterable[dict[str, Any]]) -> str:
             f"| {row['policy']} | {row['examples']} | {row['answer_accuracy']:.3f} | {row['provenance_score']:.3f} | {row['compactness']:.3f} | {row['avg_retained_tokens']:.1f} |"
         )
     return "\n".join(lines)
+
+
+def _metric(row: dict[str, Any], key: str) -> float:
+    value = row.get(key, 0.0)
+    return float(value) if value is not None else 0.0
+
+
+def _mean_metric(rows: Sequence[dict[str, Any]], key: str) -> float:
+    return round(statistics.fmean(_metric(row, key) for row in rows), 3) if rows else 0.0
+
+
+def _policy_rank_key(row: dict[str, Any]) -> tuple[float, float, float, float, str]:
+    return (
+        -_metric(row, "answer_accuracy"),
+        -_metric(row, "provenance_score"),
+        -_metric(row, "compactness"),
+        _metric(row, "avg_latency_ms"),
+        str(row.get("policy", "")),
+    )
+
+
+def _failure_tags(row: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    if _metric(row, "answer_accuracy") < 1.0:
+        tags.append("answer_miss")
+    if row.get("expected_provenance") and _metric(row, "provenance_score") < 1.0:
+        tags.append("provenance_miss")
+    if _metric(row, "compactness") <= 0.05:
+        tags.append("budget_saturated")
+    if row.get("drop_reasons"):
+        tags.append("retention_dropped_items")
+    return tags
+
+
+def build_experiment_insights(
+    dataset_name: str,
+    summaries: Sequence[dict[str, Any]],
+    *,
+    baseline_policy: str = "direct_full_context",
+) -> dict[str, Any]:
+    ranking = [
+        {
+            "rank": index,
+            "policy": summary["policy"],
+            "examples": summary["examples"],
+            "answer_accuracy": summary["answer_accuracy"],
+            "provenance_score": summary["provenance_score"],
+            "compactness": summary["compactness"],
+            "avg_retained_tokens": summary["avg_retained_tokens"],
+            "avg_latency_ms": summary["avg_latency_ms"],
+            "total_cost_estimate": summary["total_cost_estimate"],
+            "completed": summary["completed"],
+            "stop_reason": summary["stop_reason"],
+        }
+        for index, summary in enumerate(sorted(summaries, key=_policy_rank_key), start=1)
+    ]
+    baseline = next((summary for summary in summaries if summary["policy"] == baseline_policy), None)
+    deltas = []
+    if baseline is not None:
+        for summary in summaries:
+            deltas.append(
+                {
+                    "policy": summary["policy"],
+                    "answer_accuracy_delta": round(summary["answer_accuracy"] - baseline["answer_accuracy"], 3),
+                    "provenance_score_delta": round(summary["provenance_score"] - baseline["provenance_score"], 3),
+                    "compactness_delta": round(summary["compactness"] - baseline["compactness"], 3),
+                    "avg_retained_tokens_delta": round(summary["avg_retained_tokens"] - baseline["avg_retained_tokens"], 3),
+                }
+            )
+
+    all_rows = [row for summary in summaries for row in summary["results"]]
+    task_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    failure_groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in all_rows:
+        policy = str(row.get("policy", ""))
+        task_class = str(row.get("task_class", "general"))
+        task_groups.setdefault((policy, task_class), []).append(row)
+        tags = _failure_tags(row)
+        if tags:
+            failure_groups.setdefault((policy, task_class, ",".join(tags)), []).append(row)
+
+    task_breakdown = [
+        {
+            "policy": policy,
+            "task_class": task_class,
+            "examples": len(rows),
+            "answer_accuracy": _mean_metric(rows, "answer_accuracy"),
+            "provenance_score": _mean_metric(rows, "provenance_score"),
+            "compactness": _mean_metric(rows, "compactness"),
+            "answer_misses": sum(1 for row in rows if _metric(row, "answer_accuracy") < 1.0),
+            "provenance_misses": sum(1 for row in rows if row.get("expected_provenance") and _metric(row, "provenance_score") < 1.0),
+        }
+        for (policy, task_class), rows in sorted(task_groups.items())
+    ]
+    failure_clusters = [
+        {
+            "policy": policy,
+            "task_class": task_class,
+            "tags": tags.split(","),
+            "cases": len(rows),
+            "examples": [str(row.get("name", "")) for row in rows[:3]],
+        }
+        for (policy, task_class, tags), rows in sorted(failure_groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    ]
+    completed = [summary["policy"] for summary in summaries if summary["completed"]]
+    partial = [
+        {"policy": summary["policy"], "stop_reason": summary["stop_reason"]}
+        for summary in summaries
+        if not summary["completed"]
+    ]
+    return {
+        "dataset": dataset_name,
+        "baseline_policy": baseline_policy if baseline is not None else None,
+        "policy_ranking": ranking,
+        "policy_deltas": deltas,
+        "task_breakdown": task_breakdown,
+        "failure_clusters": failure_clusters,
+        "coverage": {
+            "policies": len(summaries),
+            "completed_policies": completed,
+            "partial_policies": partial,
+            "case_rows": len(all_rows),
+        },
+    }
+
+
+def _status_label(row: dict[str, Any]) -> str:
+    if row.get("completed", True):
+        return "complete"
+    return f"partial:{row.get('stop_reason') or 'unknown'}"
+
+
+def format_experiment_report(
+    *,
+    dataset_name: str,
+    summaries: Sequence[dict[str, Any]],
+    insights: dict[str, Any],
+    command: str,
+) -> str:
+    lines = [
+        "# Experiment Report",
+        "",
+        f"- Dataset: `{dataset_name}`",
+        f"- Command: `{command}`",
+        f"- Case rows: {insights['coverage']['case_rows']}",
+        "",
+        "## Policy Ranking",
+        "",
+        "| rank | policy | answer | prov | compact | avg toks | cost | status |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for row in insights["policy_ranking"]:
+        lines.append(
+            f"| {row['rank']} | `{row['policy']}` | {row['answer_accuracy']:.3f} | {row['provenance_score']:.3f} | "
+            f"{row['compactness']:.3f} | {row['avg_retained_tokens']:.1f} | {row['total_cost_estimate']:.6f} | {_status_label(row)} |"
+        )
+
+    if insights["baseline_policy"] and insights["policy_deltas"]:
+        lines.extend(
+            [
+                "",
+                f"## Deltas Vs `{insights['baseline_policy']}`",
+                "",
+                "| policy | answer delta | prov delta | compact delta | avg toks delta |",
+                "| --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for row in insights["policy_deltas"]:
+            lines.append(
+                f"| `{row['policy']}` | {row['answer_accuracy_delta']:+.3f} | {row['provenance_score_delta']:+.3f} | "
+                f"{row['compactness_delta']:+.3f} | {row['avg_retained_tokens_delta']:+.1f} |"
+            )
+
+    lines.extend(["", "## Failure Clusters", ""])
+    if insights["failure_clusters"]:
+        lines.extend(["| policy | task | tags | cases | examples |", "| --- | --- | --- | ---: | --- |"])
+        for row in insights["failure_clusters"][:12]:
+            examples = ", ".join(f"`{name}`" for name in row["examples"] if name)
+            tags = ", ".join(f"`{tag}`" for tag in row["tags"])
+            lines.append(f"| `{row['policy']}` | `{row['task_class']}` | {tags} | {row['cases']} | {examples} |")
+    else:
+        lines.append("No failures were tagged in this run.")
+
+    lines.extend(
+        [
+            "",
+            "## Task Breakdown",
+            "",
+            "| policy | task | examples | answer | prov | compact | answer misses | prov misses |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in insights["task_breakdown"]:
+        lines.append(
+            f"| `{row['policy']}` | `{row['task_class']}` | {row['examples']} | {row['answer_accuracy']:.3f} | "
+            f"{row['provenance_score']:.3f} | {row['compactness']:.3f} | {row['answer_misses']} | {row['provenance_misses']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Bundle",
+            "",
+            "- `summary.json`: machine-readable summary plus this run's insights",
+            "- `per_case.jsonl`: one scored row per policy and case",
+            "- `curves.json`: sweep points and aggregates",
+            "- `trace_examples/`: retained recursive traces when `--output-dir` is set",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def parse_csv_ints(value: str) -> list[int]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 import bench
 from bench import (
+    build_experiment_insights,
     build_dataset,
     build_dossierbench,
     build_pairbench,
@@ -26,7 +28,7 @@ from bench import (
     run_dataset,
     write_report_bundle,
 )
-from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig, Usage
+from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, MemoryItem, RLM, RLMConfig, Usage
 from scripts.prepare_ruler_external_jsonl import convert_row
 
 
@@ -130,6 +132,36 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual(result.answer, "compact evidence")
         self.assertEqual(backend.score_calls, 0)
 
+    def test_heuristic_answer_uses_full_retained_summary(self) -> None:
+        backend = HeuristicBackend(seed=0)
+        answer = backend.answer(
+            "What is the root cause and file?",
+            [
+                MemoryItem(
+                    summary="root cause is stale cache | file is verifiers/clients/config.py",
+                    provenance="case.md",
+                    raw_pointer="root",
+                    tokens=12,
+                    depth=1,
+                    timestamp=1.0,
+                    answer_candidate="root cause is stale cache",
+                    confidence=0.8,
+                )
+            ],
+        )
+        self.assertIn("stale cache", answer.answer)
+        self.assertIn("verifiers/clients/config.py", answer.answer)
+
+    def test_pairbench_fixture_produces_meaningful_heuristic_answers(self) -> None:
+        summary = run_dataset(
+            build_pairbench(n=4, seed=0),
+            "pairwise_tournament",
+            budget=60,
+            max_depth=2,
+            dataset_name="pairbench",
+        )
+        self.assertGreater(summary["answer_accuracy"], 0.0)
+
     def test_small_multi_block_context_stays_leaf(self) -> None:
         engine = RLM(
             RLMConfig(
@@ -200,7 +232,62 @@ class NanoRLMTests(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "summary.json").exists())
             self.assertTrue((Path(tmpdir) / "per_case.jsonl").exists())
             self.assertTrue((Path(tmpdir) / "curves.json").exists())
+            self.assertTrue((Path(tmpdir) / "experiment_report.md").exists())
             self.assertTrue((Path(tmpdir) / "trace_examples" / "pairwise_tournament").exists())
+            summary_payload = json.loads((Path(tmpdir) / "summary.json").read_text())
+            self.assertIn("insights", summary_payload)
+            self.assertEqual(summary_payload["insights"]["dataset"], "pairbench")
+            report = (Path(tmpdir) / "experiment_report.md").read_text()
+            self.assertIn("## Policy Ranking", report)
+            self.assertIn("## Failure Clusters", report)
+            self.assertIn("`pairwise_tournament`", report)
+
+    def test_experiment_insights_groups_failure_modes(self) -> None:
+        summaries = [
+            {
+                "policy": "direct_full_context",
+                "examples": 2,
+                "answer_accuracy": 0.5,
+                "provenance_score": 0.5,
+                "compactness": 0.5,
+                "avg_retained_tokens": 40.0,
+                "avg_latency_ms": 1.0,
+                "total_cost_estimate": 0.0,
+                "completed": True,
+                "stop_reason": None,
+                "results": [
+                    {
+                        "name": "case-a",
+                        "policy": "direct_full_context",
+                        "task_class": "repo-qa",
+                        "answer_accuracy": 0.0,
+                        "provenance_score": 0.5,
+                        "compactness": 0.02,
+                        "expected_provenance": ["a.py"],
+                        "drop_reasons": [{"reason": "policy_budget_trim"}],
+                    },
+                    {
+                        "name": "case-b",
+                        "policy": "direct_full_context",
+                        "task_class": "repo-qa",
+                        "answer_accuracy": 1.0,
+                        "provenance_score": 0.5,
+                        "compactness": 0.5,
+                        "expected_provenance": ["b.py"],
+                        "drop_reasons": [],
+                    },
+                ],
+            }
+        ]
+        insights = build_experiment_insights("mini", summaries)
+        self.assertEqual(insights["coverage"]["case_rows"], 2)
+        self.assertEqual(insights["task_breakdown"][0]["answer_misses"], 1)
+        self.assertEqual(insights["task_breakdown"][0]["provenance_misses"], 2)
+        first_cluster = insights["failure_clusters"][0]
+        self.assertEqual(first_cluster["policy"], "direct_full_context")
+        self.assertIn("answer_miss", first_cluster["tags"])
+        self.assertIn("provenance_miss", first_cluster["tags"])
+        self.assertIn("budget_saturated", first_cluster["tags"])
 
     def test_non_heuristic_cli_report_uses_existing_summaries_for_curves(self) -> None:
         fixture_path = Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"
