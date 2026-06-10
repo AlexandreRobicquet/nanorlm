@@ -67,6 +67,7 @@ Benchmark runs produce:
 - `summary.json`
 - `per_case.jsonl`
 - `curves.json`
+- `experiment_report.md`
 - `trace_examples/`
 
 Asset generation produces:

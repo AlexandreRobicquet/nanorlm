@@ -36,7 +36,17 @@ def normalize_text(text: str) -> str:
 
 
 def query_terms(text: str) -> set[str]:
-    return {token.lower() for token in WORD_RE.findall(text) if len(token) >= 3}
+    terms: set[str] = set()
+    for raw_token in WORD_RE.findall(text):
+        token = raw_token.lower()
+        candidates = [token, *re.split(r"[_./:-]+", token)]
+        for candidate in candidates:
+            if len(candidate) < 3:
+                continue
+            terms.add(candidate)
+            if len(candidate) > 4 and candidate.endswith("s"):
+                terms.add(candidate[:-1])
+    return terms
 
 
 def score_overlap(query: str, text: str) -> float:
@@ -363,7 +373,7 @@ class HeuristicBackend:
                 snippets.append((score, f"{document.name}: {line}"))
                 evidence.append(f"{document.name}: {line}")
         snippets.sort(key=lambda item: (-item[0], item[1]))
-        summary_parts = [snippet for _, snippet in snippets[:3]]
+        summary_parts = [snippet for _, snippet in snippets[:2]]
         if not summary_parts:
             joined_names = ", ".join(document.name for document in documents[:3])
             summary_parts.append(f"{joined_names}: no strong lexical match, returning leading context")
@@ -379,7 +389,7 @@ class HeuristicBackend:
         ranked = sorted(memory, key=lambda item: (-self.score_candidate(query, item), -item.timestamp))
         lines: list[str] = []
         for item in ranked[:3]:
-            snippet = item.answer_candidate or item.summary
+            snippet = item.summary or item.answer_candidate
             if snippet:
                 lines.append(f"{item.provenance}: {snippet}")
         answer = "\n".join(lines) if lines else "I do not have enough retained evidence."

@@ -92,12 +92,14 @@ The repo already emits a stable report bundle:
 - `summary.json`
 - `per_case.jsonl`
 - `curves.json`
+- `experiment_report.md`
 - `trace_examples/`
 
 That makes the current artifact useful for:
 
 - provider-portable recursive runs over the same engine
 - readable recursive traces and retained-memory inspection
+- compact post-run analysis of policy deltas, task-level misses, and failure clusters
 - `Verifiers-30` codebase-QA runs with real model backends
 - dossier and planning showcases that demonstrate how retention changes what evidence survives
 
