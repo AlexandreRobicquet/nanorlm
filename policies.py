@@ -136,7 +136,7 @@ class PairwiseTournamentPolicy(RetentionPolicy):
                     right.wins += 1
             ranked.sort(key=lambda item: (-item.wins, item.losses, -self._diversity_bonus(root_query, item), -item.score, -item.timestamp))
         diversified = self._prefer_complementary_items(ranked)
-        return self._select_with_budget(diversified, budget)
+        return self._select_with_budget(root_query, diversified, budget)
 
     def _diversity_bonus(self, root_query: str, item: MemoryItem) -> float:
         tags = set(query_terms(item.provenance))
@@ -155,18 +155,42 @@ class PairwiseTournamentPolicy(RetentionPolicy):
                 deferred.append(item)
         return preferred + deferred
 
-    def _select_with_budget(self, ranked: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
+    def _select_with_budget(self, root_query: str, ranked: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
         kept: list[MemoryItem] = []
         used = 0
         recent = max(ranked, key=lambda item: item.timestamp)
-        for item in ranked:
-            if used + item.tokens > budget:
-                continue
-            kept.append(item)
-            used += item.tokens
+        remaining = list(ranked)
+        covered_terms: set[str] = set()
+        while remaining:
+            feasible = [item for item in remaining if used + item.tokens <= budget]
+            if not feasible:
+                break
+            best = max(feasible, key=lambda item: self._marginal_value(root_query, item, covered_terms))
+            kept.append(best)
+            used += best.tokens
+            covered_terms.update(self._evidence_terms(best))
+            remaining.remove(best)
         if recent not in kept and recent.tokens <= budget - used:
             kept.append(recent)
         return kept or [min(ranked, key=lambda item: item.tokens)]
+
+    def _marginal_value(self, root_query: str, item: MemoryItem, covered_terms: set[str]) -> float:
+        terms = self._evidence_terms(item)
+        query_overlap = len(terms & query_terms(root_query))
+        novelty = len(terms - covered_terms)
+        redundancy = len(terms & covered_terms)
+        return (
+            item.score * 4.0
+            + item.wins * 2.0
+            - item.losses * 1.5
+            + query_overlap * 0.75
+            + min(novelty, 12) * 0.2
+            - redundancy * 0.08
+            + item.timestamp * 0.000001
+        )
+
+    def _evidence_terms(self, item: MemoryItem) -> set[str]:
+        return query_terms(f"{item.provenance} {item.summary} {item.answer_candidate}")
 
 
 def build_policy(name: str, judge: Judge, seed: int = 0) -> RetentionPolicy:

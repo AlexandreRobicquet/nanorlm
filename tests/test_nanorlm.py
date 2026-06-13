@@ -160,7 +160,7 @@ class NanoRLMTests(unittest.TestCase):
             max_depth=2,
             dataset_name="pairbench",
         )
-        self.assertGreater(summary["answer_accuracy"], 0.0)
+        self.assertEqual(summary["answer_accuracy"], 1.0)
 
     def test_small_multi_block_context_stays_leaf(self) -> None:
         engine = RLM(
