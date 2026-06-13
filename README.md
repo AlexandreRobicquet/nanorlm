@@ -246,7 +246,10 @@ uv run python bench.py \
 
 Network-provider report bundles avoid hidden second-pass API calls: their `curves.json` is derived from the already completed summaries rather than re-running the sweep.
 
-A small OpenAI-backed RULER-derived snapshot is tracked at [`examples/real_runs/openai_ruler_small/benchmark_snapshot.md`](examples/real_runs/openai_ruler_small/benchmark_snapshot.md). It is a mechanics and reproducibility artifact, not a headline benchmark claim.
+Small OpenAI-backed snapshots are tracked as mechanics and reproducibility artifacts, not headline benchmark claims:
+
+- [`examples/real_runs/openai_ruler_small/benchmark_snapshot.md`](examples/real_runs/openai_ruler_small/benchmark_snapshot.md)
+- [`examples/real_runs/openai_external_mini/benchmark_snapshot.md`](examples/real_runs/openai_external_mini/benchmark_snapshot.md)
 
 ## Generate Assets
 
