@@ -279,17 +279,14 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 
 ## Testing
 
-If you want the repo-safe `uv` version of each command, prefix it as `uv run python ...`.
+Use [UV.md](UV.md#canonical-verification) as the canonical local verification path.
 
-```bash
-uv run python -m unittest discover -s tests -v
-uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
-uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
-uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
-uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
-```
+GitHub Actions keeps PR checks fast:
 
-A GitHub Actions smoke workflow runs the same core checks on pushes and pull requests.
+- `CI` runs `uv lock --check`, frozen sync, unit tests, and the compile check on Python 3.11 and 3.12.
+- `smoke` uses the same `uv` setup on Python 3.11, then runs the same core checks plus the deterministic PairBench and Verifiers smoke fixtures.
+
+CI intentionally does not run real-model jobs, networked benchmark jobs, or full benchmark sweeps.
 
 ## Current Scope
 

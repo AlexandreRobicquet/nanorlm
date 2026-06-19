@@ -47,8 +47,7 @@ If a change makes the repo feel heavier or noisier, it is probably the wrong cha
 
 ## Before Publishing
 
-- Run `python3 -m unittest discover -s tests -v` if code changed.
-- Run `python3 -m py_compile nanorlm.py policies.py bench.py examples/run_needlepairs.py examples/run_verifiers.py` if Python source changed.
+- Use the canonical verification block in `UV.md` if code or workflow checks changed.
 - If benchmark numbers in the README changed, regenerate them honestly and keep the reproduction command close to the claim.
 - Keep the repo publishable from a fresh machine with `uv`.
 
