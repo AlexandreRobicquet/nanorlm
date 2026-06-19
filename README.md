@@ -81,9 +81,10 @@ print(result.trace.tree)
 - `cost_estimate`
 - `kept_items`
 - `retention_stats`
-- `provenance_hits`
 - `drop_reasons`
 - `per_step_budget`
+
+Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
 
 ## Evidence Status
 
@@ -138,6 +139,7 @@ uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model gpt-4.1-mini \
   --base-url https://api.openai.com/v1 \
+  --max-estimated-cost 5 \
   --repo-root /tmp/nanorlm-verifiers
 ```
 
@@ -151,20 +153,12 @@ uv run python examples/run_verifiers.py \
   --repo-root /tmp/nanorlm-verifiers
 ```
 
-For native Claude through Anthropic:
-
-```bash
-export ANTHROPIC_API_KEY=...
-uv run python examples/run_verifiers.py \
-  --provider anthropic \
-  --model <your-claude-model> \
-  --repo-root /tmp/nanorlm-verifiers
-```
+The Anthropic Messages backend is implemented, but the benchmark harness currently rejects Anthropic and unknown remote models because report bundles include cost estimates and there is no checked-in pricing table for those models.
 
 Portability limits:
 
 - `any local LLM` here means any local model served behind an OpenAI-compatible `chat/completions` endpoint such as Ollama, `vLLM`, `llama.cpp` server, `LM Studio`, or `LocalAI`
-- native Claude works through the Anthropic Messages API
+- native Claude works through the Anthropic Messages API at the backend-contract level, but it is not a priced benchmark-report path yet
 - bespoke local runtime APIs are intentionally out of scope
 
 ### 2. Long-Horizon Dossiers
@@ -244,6 +238,10 @@ uv run python bench.py \
   --output-dir outputs/real-runs/openai-ruler-small
 ```
 
+`direct_full_context` is a true direct-answer baseline: the answer step receives every raw context block and does not apply the retention budget. Recursive policies inspect shards into retained memory and then answer only from what survives the budget.
+
+`--max-estimated-cost` is global for the whole policy sweep, not per policy. The harness checks the completed-case cumulative estimate before starting each case, so a single final case can move the total slightly past the cap before the next case or policy stops. Remote cost reporting is intentionally limited to the built-in priced OpenAI-compatible model table; unknown OpenAI-compatible models and Anthropic benchmark runs are rejected instead of reported as zero-cost.
+
 Network-provider report bundles avoid hidden second-pass API calls: their `curves.json` is derived from the already completed summaries rather than re-running the sweep.
 
 Small OpenAI-backed snapshots are tracked as mechanics and reproducibility artifacts, not headline benchmark claims:
@@ -282,7 +280,9 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 If you want the repo-safe `uv` version of each command, prefix it as `uv run python ...`.
 
 ```bash
+uv lock --check
 uv run python -m unittest discover -s tests -v
+uv run --with pytest pytest
 uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini

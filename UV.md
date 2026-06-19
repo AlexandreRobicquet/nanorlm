@@ -24,8 +24,10 @@ This is the smallest `uv` guide you need to work confidently in this repo.
 Run these in order once:
 
 ```bash
+uv lock --check
 uv run python --version
 uv run python -m unittest discover -s tests -v
+uv run --with pytest pytest
 uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
@@ -35,9 +37,11 @@ uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/ex
 You should see:
 
 - `uv run python --version` use a `3.11.x` interpreter
+- the lockfile check pass
 - the test suite pass
+- the temporary pytest run pass without adding pytest to project dependencies
 - the compile check pass
-- both smoke runs complete cleanly
+- the smoke runs complete cleanly
 
 ## Rules Of Thumb
 
@@ -74,6 +78,7 @@ You want confidence before editing code:
 
 ```bash
 uv run python -m unittest discover -s tests -v
+uv run --with pytest pytest
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 ```
