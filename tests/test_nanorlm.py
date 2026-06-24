@@ -523,6 +523,22 @@ class NanoRLMTests(unittest.TestCase):
                 dataset_name="pairbench",
             )
 
+    def test_unpriced_remote_core_engine_returns_zero_cost(self) -> None:
+        engine = RLM(
+            RLMConfig(model="claude-3-5-sonnet", provider="anthropic", max_depth=0),
+            backend=HeuristicBackend(seed=0),
+        )
+        result = engine.completion(
+            "Which code belongs to alpha?",
+            [ContextBlock(name="needle.txt", text="The code for alpha is orchid.")],
+        )
+        direct_result = engine.direct_completion(
+            "Which code belongs to alpha?",
+            [ContextBlock(name="needle.txt", text="The code for alpha is orchid.")],
+        )
+        self.assertEqual(result.cost_estimate, 0.0)
+        self.assertEqual(direct_result.cost_estimate, 0.0)
+
     def test_ruler_conversion_maps_external_jsonl_shape(self) -> None:
         row = {
             "id": "niah-4k-001",

@@ -36,11 +36,11 @@ uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/ex
 
 You should see:
 
-- `uv run python --version` use a `3.11.x` interpreter
-- the lockfile check pass
-- the test suite pass
-- the temporary pytest run pass without adding pytest to project dependencies
-- the compile check pass
+- `uv run python --version` uses a `3.11.x` interpreter
+- the lockfile check passes
+- the test suite passes
+- the temporary pytest run passes without adding pytest to project dependencies
+- the compile check passes
 - the smoke runs complete cleanly
 
 ## Rules Of Thumb

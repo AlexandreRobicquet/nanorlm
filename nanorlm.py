@@ -986,10 +986,7 @@ class RLM:
             return 0.0
         price_key = (provider, self.config.model)
         if price_key not in REMOTE_MODEL_PRICES:
-            raise ValueError(
-                f"cost estimate is not supported for provider={provider} model={self.config.model}; "
-                "benchmark reports currently require priced OpenAI-compatible remote models"
-            )
+            return 0.0
         prompt_price, completion_price = REMOTE_MODEL_PRICES[price_key]
         return round(usage.prompt_tokens * prompt_price + usage.completion_tokens * completion_price, 6)
 
