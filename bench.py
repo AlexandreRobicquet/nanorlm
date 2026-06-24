@@ -17,6 +17,7 @@ from nanorlm import (
     item_source_paths,
     load_text_blocks,
     normalize_text,
+    supports_cost_estimate,
     write_trace,
 )
 
@@ -581,6 +582,15 @@ def resolve_provider_arg(provider: str, use_openai_backend: bool | None) -> str:
     return "openai_compatible" if use_openai_backend else provider
 
 
+def validate_benchmark_cost_support(provider: str, model: str, base_url: str | None) -> None:
+    if supports_cost_estimate(provider, model, base_url):
+        return
+    raise ValueError(
+        f"benchmark cost estimates are not supported for provider={provider} model={model}; "
+        "use a priced OpenAI-compatible model from the built-in table"
+    )
+
+
 def run_policy_case(
     example: BenchmarkExample,
     policy: str,
@@ -602,13 +612,15 @@ def run_policy_case(
         api_key=api_key,
         cache_dir=cache_dir,
         max_output_tokens=max_output_tokens,
-        max_depth=0 if policy == "direct_full_context" else max_depth,
+        max_depth=max_depth,
         max_steps=256,
         memory_budget_tokens=budget,
         retention_policy="keep_recent" if policy == "direct_full_context" else policy,
         seed=seed,
     )
     engine = RLM(config=config)
+    if policy == "direct_full_context":
+        return engine.direct_completion(example.query, example.context)
     return engine.completion(example.query, example.context)
 
 
@@ -625,19 +637,23 @@ def run_dataset(
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
     max_estimated_cost: float | None = None,
+    initial_cost_estimate: float = 0.0,
     output_dir: str | Path | None = None,
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
 ) -> dict[str, Any]:
     provider = resolve_provider_arg(provider, use_openai_backend)
+    validate_benchmark_cost_support(provider, model, base_url)
     results: list[dict[str, Any]] = []
     stop_reason: str | None = None
-    cumulative_cost = 0.0
+    cumulative_cost = round(initial_cost_estimate, 6)
     trace_root: Path | None = None
     if output_dir is not None:
         trace_root = Path(output_dir) / "trace_examples" / policy
         trace_root.mkdir(parents=True, exist_ok=True)
+    if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost and examples:
+        stop_reason = "cost_cap"
     for example in examples:
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             stop_reason = "cost_cap"
@@ -713,6 +729,8 @@ def run_dataset(
         "avg_latency_ms": mean("latency_ms"),
         "avg_cost_estimate": round(statistics.fmean(float(row["cost_estimate"]) for row in results), 6) if results else 0.0,
         "total_cost_estimate": round(sum(float(row["cost_estimate"]) for row in results), 6),
+        "initial_cost_estimate": round(initial_cost_estimate, 6),
+        "final_cumulative_cost_estimate": cumulative_cost,
         "max_estimated_cost": max_estimated_cost,
         "completed": stop_reason is None,
         "stop_reason": stop_reason,
@@ -740,8 +758,10 @@ def policy_sweep(
     seed: int = 0,
     dataset_name: str = "dataset",
 ) -> list[dict[str, Any]]:
-    return [
-        run_dataset(
+    summaries: list[dict[str, Any]] = []
+    cumulative_cost = 0.0
+    for policy in policies:
+        summary = run_dataset(
             examples,
             policy,
             budget=budget,
@@ -754,12 +774,14 @@ def policy_sweep(
             cache_dir=cache_dir,
             max_output_tokens=max_output_tokens,
             max_estimated_cost=max_estimated_cost,
+            initial_cost_estimate=cumulative_cost,
             use_openai_backend=use_openai_backend,
             seed=seed,
             dataset_name=dataset_name,
         )
-        for policy in policies
-    ]
+        summaries.append(summary)
+        cumulative_cost = float(summary["final_cumulative_cost_estimate"])
+    return summaries
 
 
 def generate_curves(
@@ -1215,7 +1237,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", type=str, default="")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=1024)
-    parser.add_argument("--max-estimated-cost", type=float, default=20.0)
+    parser.add_argument(
+        "--max-estimated-cost",
+        type=float,
+        default=None,
+        help="Global run-level cap for supported remote model cost estimates.",
+    )
     parser.add_argument("--openai", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -1227,8 +1254,8 @@ def main() -> None:
     provider = resolve_provider_choice(args.provider, args.openai)
     policies = parse_csv_strings(args.policies)
     cache_dir = None if args.no_cache else args.cache_dir or None
-    max_estimated_cost = args.max_estimated_cost if provider == "openai_compatible" else None
     try:
+        validate_benchmark_cost_support(provider, args.model, args.base_url or None)
         examples = build_dataset(
             args.dataset,
             limit=args.limit,
@@ -1250,7 +1277,7 @@ def main() -> None:
         api_key=args.api_key or None,
         cache_dir=cache_dir,
         max_output_tokens=args.max_output_tokens,
-        max_estimated_cost=max_estimated_cost,
+        max_estimated_cost=args.max_estimated_cost,
         dataset_name=args.dataset,
     )
     print(format_table(summaries))
@@ -1297,7 +1324,7 @@ def main() -> None:
                 f"--base-url {args.base_url}" if args.base_url else "",
                 f"--cache-dir {args.cache_dir}" if cache_dir else "",
                 f"--max-output-tokens {args.max_output_tokens}",
-                f"--max-estimated-cost {args.max_estimated_cost}" if provider == "openai_compatible" else "",
+                f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),
         )
 

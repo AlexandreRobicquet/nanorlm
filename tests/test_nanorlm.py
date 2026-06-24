@@ -162,6 +162,47 @@ class NanoRLMTests(unittest.TestCase):
         )
         self.assertEqual(summary["answer_accuracy"], 1.0)
 
+    def test_direct_full_context_keeps_raw_context_without_retention(self) -> None:
+        example = bench.BenchmarkExample(
+            name="direct-mini",
+            query="Which code belongs to alpha?",
+            context=[
+                ContextBlock(name="distractor.txt", text="The code for beta is granite."),
+                ContextBlock(name="needle.txt", text="The code for alpha is orchid."),
+            ],
+            answer="orchid",
+            must_contain=["orchid"],
+        )
+        summary = run_dataset([example], "direct_full_context", budget=1, max_depth=2, dataset_name="mini")
+        row = summary["results"][0]
+        self.assertEqual(row["answer_accuracy"], 1.0)
+        self.assertEqual(row["retention_stats"]["policy"], "direct_full_context")
+        self.assertTrue(row["retention_stats"]["direct_full_context"])
+        self.assertEqual(row["per_step_budget"], [])
+        self.assertEqual(row["drop_reasons"], [])
+        self.assertEqual(row["retained_items"], 2)
+        self.assertGreater(row["retained_tokens"], 1)
+
+    def test_provenance_hits_are_benchmark_scored_not_engine_output(self) -> None:
+        example = bench.BenchmarkExample(
+            name="provenance-mini",
+            query="Which file contains the alpha code?",
+            context=[
+                ContextBlock(name="needle.txt", text="The code for alpha is orchid.", metadata={"path": "fixtures/needle.txt"}),
+            ],
+            answer="orchid",
+            must_contain=["orchid"],
+            expected_provenance=["needle.txt"],
+        )
+        summary = run_dataset([example], "direct_full_context", budget=80, max_depth=2, dataset_name="mini")
+        self.assertEqual(summary["results"][0]["provenance_hits"], ["needle.txt"])
+
+        result = RLM(RLMConfig(model="demo/heuristic"), backend=HeuristicBackend(seed=0)).direct_completion(
+            example.query,
+            example.context,
+        )
+        self.assertFalse(hasattr(result, "provenance_hits"))
+
     def test_small_multi_block_context_stays_leaf(self) -> None:
         engine = RLM(
             RLMConfig(
@@ -451,6 +492,52 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual(summary["examples"], 1)
         self.assertEqual(summary["last_completed_case"], "pair-000")
         self.assertEqual(summary["total_cost_estimate"], 0.02)
+
+    def test_policy_sweep_cost_cap_is_global_across_policies(self) -> None:
+        examples = build_pairbench(n=3, seed=0)
+        with patch("nanorlm.RLM._estimate_cost", return_value=0.02):
+            summaries = policy_sweep(
+                examples,
+                ["keep_recent", "summary_only"],
+                budget=80,
+                max_depth=2,
+                max_estimated_cost=0.03,
+                dataset_name="pairbench",
+            )
+        self.assertEqual(summaries[0]["examples"], 2)
+        self.assertEqual(summaries[0]["stop_reason"], "cost_cap")
+        self.assertEqual(summaries[0]["final_cumulative_cost_estimate"], 0.04)
+        self.assertEqual(summaries[1]["examples"], 0)
+        self.assertEqual(summaries[1]["initial_cost_estimate"], 0.04)
+        self.assertEqual(summaries[1]["stop_reason"], "cost_cap")
+
+    def test_unpriced_remote_benchmark_provider_is_rejected_before_network(self) -> None:
+        with self.assertRaisesRegex(ValueError, "cost estimates are not supported"):
+            run_dataset(
+                build_pairbench(n=1, seed=0),
+                "pairwise_tournament",
+                budget=80,
+                max_depth=2,
+                provider="anthropic",
+                model="claude-3-5-sonnet",
+                dataset_name="pairbench",
+            )
+
+    def test_unpriced_remote_core_engine_returns_zero_cost(self) -> None:
+        engine = RLM(
+            RLMConfig(model="claude-3-5-sonnet", provider="anthropic", max_depth=0),
+            backend=HeuristicBackend(seed=0),
+        )
+        result = engine.completion(
+            "Which code belongs to alpha?",
+            [ContextBlock(name="needle.txt", text="The code for alpha is orchid.")],
+        )
+        direct_result = engine.direct_completion(
+            "Which code belongs to alpha?",
+            [ContextBlock(name="needle.txt", text="The code for alpha is orchid.")],
+        )
+        self.assertEqual(result.cost_estimate, 0.0)
+        self.assertEqual(direct_result.cost_estimate, 0.0)
 
     def test_ruler_conversion_maps_external_jsonl_shape(self) -> None:
         row = {

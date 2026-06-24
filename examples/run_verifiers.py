@@ -18,6 +18,7 @@ from bench import (
     policy_sweep,
     resolve_provider_choice,
     run_dataset,
+    validate_benchmark_cost_support,
     write_report_bundle,
 )
 
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache-dir", type=str, default="")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=1024)
-    parser.add_argument("--max-estimated-cost", type=float, default=20.0)
+    parser.add_argument("--max-estimated-cost", type=float, default=None)
     parser.add_argument("--openai", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -46,10 +47,13 @@ def main() -> None:
     args = parser.parse_args()
 
     provider = resolve_provider_choice(args.provider, args.openai)
+    try:
+        validate_benchmark_cost_support(provider, args.model, args.base_url or None)
+    except ValueError as exc:
+        parser.error(str(exc))
     examples = load_verifiers_30(args.repo_root)[: args.limit]
     output_dir = Path(args.output_dir)
     cache_dir = None if args.no_cache else args.cache_dir or None
-    max_estimated_cost = args.max_estimated_cost if provider == "openai_compatible" else None
     if provider != "heuristic":
         summary = run_dataset(
             examples,
@@ -63,7 +67,7 @@ def main() -> None:
             api_key=args.api_key or None,
             cache_dir=cache_dir,
             max_output_tokens=args.max_output_tokens,
-            max_estimated_cost=max_estimated_cost,
+            max_estimated_cost=args.max_estimated_cost,
             dataset_name="verifiers_30",
         )
         curves = curves_from_summaries("verifiers_30", [summary], budget=args.budget, depth=args.depth)
@@ -79,7 +83,8 @@ def main() -> None:
                 f"--provider {args.provider} --model {args.model}"
                 f"{' --base-url ' + args.base_url if args.base_url else ''}"
                 f"{' --cache-dir ' + args.cache_dir if cache_dir else ''}"
-                f" --max-output-tokens {args.max_output_tokens} --max-estimated-cost {args.max_estimated_cost}"
+                f" --max-output-tokens {args.max_output_tokens}"
+                f"{' --max-estimated-cost ' + str(args.max_estimated_cost) if args.max_estimated_cost is not None else ''}"
             ),
         )
         print(json.dumps(summary, indent=2))
