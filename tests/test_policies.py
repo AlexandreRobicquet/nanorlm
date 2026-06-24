@@ -86,6 +86,29 @@ class PolicyTests(unittest.TestCase):
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
         self.assertTrue(any("cache" in candidate.summary for candidate in kept))
 
+    def test_pairwise_keeps_complementary_evidence_under_tight_budget(self) -> None:
+        class TieJudge:
+            def score_candidate(self, query: str, candidate: MemoryItem) -> float:
+                return 1.0
+
+            def compare_candidates(self, query: str, left: MemoryItem, right: MemoryItem) -> int:
+                return 0
+
+        candidates = [
+            item(1.0, "alpha cache duplicate detail", "facts/alpha-a.txt", tokens=10),
+            item(2.0, "alpha cache duplicate detail", "facts/alpha-b.txt", tokens=10),
+            item(3.0, "beta owner complementary detail", "facts/beta.txt", tokens=10),
+            item(4.0, "alpha cache duplicate extra", "facts/alpha-c.txt", tokens=10),
+        ]
+        kept = PairwiseTournamentPolicy(judge=TieJudge(), seed=0).select(
+            "Need alpha cache and beta owner facts",
+            candidates,
+            budget=20,
+        )
+        self.assertLessEqual(sum(candidate.tokens for candidate in kept), 20)
+        self.assertTrue(any("alpha" in candidate.summary for candidate in kept))
+        self.assertTrue(any("beta" in candidate.summary for candidate in kept))
+
     def test_critic_policies_skip_judge_when_candidates_fit_budget(self) -> None:
         single_judge = CountingJudge()
         pairwise_judge = CountingJudge()

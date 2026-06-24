@@ -18,6 +18,12 @@ from typing import Any, Literal, Protocol, Sequence
 WORD_RE = re.compile(r"[A-Za-z0-9_./:-]+")
 OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
+REMOTE_MODEL_PRICES = {
+    ("openai_compatible", "gpt-5.4-mini"): (0.00000075, 0.0000045),
+    ("openai_compatible", "gpt-5-mini"): (0.00000025, 0.000002),
+    ("openai_compatible", "gpt-4.1-mini"): (0.0000004, 0.0000016),
+    ("openai_compatible", "gpt-4.1"): (0.000002, 0.000008),
+}
 
 
 def estimate_tokens(text: str) -> int:
@@ -108,6 +114,13 @@ def is_local_base_url(base_url: str | None) -> bool:
     parsed = urllib.parse.urlparse(base_url)
     host = (parsed.hostname or "").lower()
     return host in {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def supports_cost_estimate(provider: str, model: str, base_url: str | None = None) -> bool:
+    normalized_provider = normalize_provider_name(provider)
+    if normalized_provider == "heuristic" or is_local_base_url(base_url):
+        return True
+    return (normalized_provider, model) in REMOTE_MODEL_PRICES
 
 
 def resolve_provider(config: "RLMConfig") -> Literal["heuristic", "openai_compatible", "anthropic"]:
@@ -274,7 +287,6 @@ class RLMResult:
     cost_estimate: float
     kept_items: list[MemoryItem]
     retention_stats: dict[str, Any] = field(default_factory=dict)
-    provenance_hits: list[str] = field(default_factory=list)
     drop_reasons: list[dict[str, Any]] = field(default_factory=list)
     per_step_budget: list[dict[str, Any]] = field(default_factory=list)
 
@@ -794,9 +806,64 @@ class RLM:
             cost_estimate=self._estimate_cost(usage),
             kept_items=kept_items,
             retention_stats=retention_stats,
-            provenance_hits=[],
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
+        )
+
+    def direct_completion(self, query: str, context: str | Sequence[ContextBlock | dict[str, Any] | tuple[str, str]]) -> RLMResult:
+        blocks = materialize_context(context)
+        recorder = TraceRecorder()
+        usage = Usage()
+        recorder.emit(
+            "direct_context",
+            0,
+            "direct full context",
+            query=truncate_words(query, 16),
+            blocks=len(blocks),
+            tokens=sum(block.tokens for block in blocks),
+        )
+        timestamp = time.time()
+        kept_items = [
+            MemoryItem(
+                summary=block.text,
+                provenance=block.name,
+                raw_pointer=f"direct.{index}",
+                tokens=block.tokens,
+                depth=0,
+                timestamp=timestamp + index,
+                answer_candidate=block.text,
+                confidence=1.0,
+                metadata={
+                    "source_paths": [str(block.metadata.get("path", block.name))],
+                    "block_names": [block.name],
+                    "direct_full_context": True,
+                },
+            )
+            for index, block in enumerate(blocks)
+        ]
+        final = self.backend.answer(query, kept_items)
+        usage.add(final.usage.prompt_tokens, final.usage.completion_tokens, final.usage.calls)
+        recorder.emit("final_answer", 0, "compose answer", retained=len(kept_items), answer_preview=truncate_words(final.answer, 24))
+        trace = recorder.artifact()
+        retention_stats = {
+            "policy": "direct_full_context",
+            "steps_used": 0,
+            "total_retention_steps": 0,
+            "total_dropped_items": 0,
+            "final_retained_items": len(kept_items),
+            "final_retained_tokens": sum(item.tokens for item in kept_items),
+            "max_memory_depth": 0,
+            "direct_full_context": True,
+        }
+        return RLMResult(
+            answer=final.answer,
+            trace=trace,
+            usage=usage,
+            cost_estimate=self._estimate_cost(usage),
+            kept_items=kept_items,
+            retention_stats=retention_stats,
+            drop_reasons=[],
+            per_step_budget=[],
         )
 
     def _walk(
@@ -914,17 +981,13 @@ class RLM:
 
     def _estimate_cost(self, usage: Usage) -> float:
         provider = resolve_provider(self.config)
-        if provider != "openai_compatible" or is_local_base_url(resolved_base_url(self.config, provider)):
+        base_url = resolved_base_url(self.config, provider)
+        if provider == "heuristic" or is_local_base_url(base_url):
             return 0.0
-        price_table = {
-            "gpt-5.4-mini": (0.00000075, 0.0000045),
-            "gpt-5-mini": (0.00000025, 0.000002),
-            "gpt-4.1-mini": (0.0000004, 0.0000016),
-            "gpt-4.1": (0.000002, 0.000008),
-        }
-        if self.config.model not in price_table:
+        price_key = (provider, self.config.model)
+        if price_key not in REMOTE_MODEL_PRICES:
             return 0.0
-        prompt_price, completion_price = price_table[self.config.model]
+        prompt_price, completion_price = REMOTE_MODEL_PRICES[price_key]
         return round(usage.prompt_tokens * prompt_price + usage.completion_tokens * completion_price, 6)
 
 
