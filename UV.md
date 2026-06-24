@@ -19,13 +19,13 @@ This is the smallest `uv` guide you need to work confidently in this repo.
 - `uv lock --check`
   Verify the lockfile still matches the project metadata.
 
-## First Learning Pass
+## Canonical Verification
 
-Run these in order once:
+Run this before merging a PR that touches workflows, docs, tests, or Python source:
 
 ```bash
 uv lock --check
-uv run python --version
+uv sync --frozen
 uv run python -m unittest discover -s tests -v
 uv run --with pytest pytest
 uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
@@ -36,8 +36,8 @@ uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/ex
 
 You should see:
 
-- `uv run python --version` uses a `3.11.x` interpreter
 - the lockfile check passes
+- the frozen sync completes cleanly
 - the test suite passes
 - the temporary pytest run passes without adding pytest to project dependencies
 - the compile check passes
@@ -58,8 +58,9 @@ Fresh clone:
 ```bash
 uv sync
 uv run python --version
-uv run python -m unittest discover -s tests -v
 ```
+
+Run the canonical verification block before opening a PR.
 
 README says `python`, but you want the `uv`-safe version:
 
@@ -76,12 +77,7 @@ uv sync
 
 You want confidence before editing code:
 
-```bash
-uv run python -m unittest discover -s tests -v
-uv run --with pytest pytest
-uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
-uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
-```
+Run the canonical verification block above.
 
 You want to confirm which Python `uv` is actually using:
 
