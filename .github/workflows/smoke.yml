@@ -44,7 +44,7 @@ jobs:
         run: uv run python -m unittest discover -s tests -v
 
       - name: Verify core files compile
-        run: uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+        run: uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 
       - name: PairBench smoke
         run: uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
