@@ -266,11 +266,42 @@ This writes:
 
 The showcase workflow is documented in [showcases/README.md](showcases/README.md).
 
+## Benchmark E2E Workflow
+
+Use the e2e runner when you want the repo checks, benchmark smoke paths, report bundles, and generated assets captured in one manifest:
+
+```bash
+uv run python scripts/run_benchmark_e2e.py
+```
+
+By default this runs local checks, smoke benchmarks, synthetic benchmarks, the checked-in external JSONL fixture, and asset generation under `outputs/e2e/<run-id>/`.
+
+For repo-QA coverage against a local Verifiers checkout:
+
+```bash
+git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
+uv run python scripts/run_benchmark_e2e.py --phases offline --repo-root /tmp/nanorlm-verifiers
+```
+
+For a bounded hosted-model run, first generate or provide an external benchmark JSONL file, then run only the real-model phase with an explicit cache:
+
+```bash
+export OPENAI_API_KEY=...
+uv run python scripts/run_benchmark_e2e.py \
+  --phases real_model \
+  --external-dataset-path /tmp/nanorlm-ruler-small.jsonl \
+  --real-model gpt-4.1-mini \
+  --real-cache-dir outputs/cache/openai-gpt-4.1-mini
+```
+
+Hosted OpenAI-compatible runs fail fast when the model has no cost table entry or no API key. The cost cap is enforced between benchmark cases, not before each individual model call.
+
 ## Repo Layout
 
 - `nanorlm.py`: recursion loop, trace recorder, OpenAI-compatible backend, Anthropic backend, deterministic backend
 - `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, `pairwise_tournament`
 - `bench.py`: datasets, evaluation harness, curve generation, report bundle writer
+- `scripts/run_benchmark_e2e.py`: e2e benchmark orchestration, manifests, and artifact checks
 - `examples/`: minimal runnable demos
 - `showcases/`: launch-facing demos, planning suite, asset generation
 - `tests/`: recursion, policy, report-bundle, smoke-fixture, and planning tests
@@ -284,10 +315,11 @@ uv lock --check
 uv sync --frozen
 uv run python -m unittest discover -s tests -v
 uv run --with pytest pytest
-uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
+uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1
 ```
 
 GitHub Actions keeps PR checks fast:
