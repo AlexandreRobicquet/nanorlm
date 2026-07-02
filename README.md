@@ -23,6 +23,7 @@ Modern long-context systems still fail in a very specific way: they look at ever
 - two tiny network backends: OpenAI-compatible and Anthropic Messages
 - a minimal memory interface with swappable retention policies
 - a tournament-style `pairwise_tournament` policy that tries to preserve complementary evidence instead of just top-scoring snippets
+- an offline-trained `learned_retention` policy for testing whether retention can be learned from benchmark traces under fixed budgets
 
 ## Quickstart With `uv`
 
@@ -36,6 +37,7 @@ uv run python --version
 uv run python -m unittest discover -s tests -v
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4
 ```
 
 The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
@@ -103,12 +105,14 @@ That makes the current artifact useful for:
 - compact post-run analysis of policy deltas, task-level misses, and failure clusters
 - `Verifiers-30` codebase-QA runs with real model backends
 - dossier and planning showcases that demonstrate how retention changes what evidence survives
+- learned-retention training rows, model JSON, and positive/negative reports against `pairwise_tournament`
 
 What it does **not** claim yet:
 
 - real-model headline results on established long-context benchmarks such as `RULER` or `BABILong`
 - a paper-faithful model-directed RLM runtime
 - public benchmark evidence that `pairwise_tournament` is generally superior beyond the repo's internal smoke and regression fixtures
+- leaderboard evidence that `learned_retention` wins on real RULER or BABILong exports
 
 `examples/benchmark_snapshot.md` is intentionally a deterministic smoke snapshot, not a public benchmark leaderboard.
 
@@ -171,7 +175,39 @@ uv run python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
 
 Treat dossier results as an internal synthetic regression surface, not as headline evidence of general long-context performance.
 
-### 3. Grounded Planning
+### 3. Learned Retention
+
+`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer builds labeled candidate rows from benchmark examples, writes the rows as JSONL for auditability, and saves a JSON model that the retention policy can load.
+
+```bash
+uv run python scripts/train_learned_retention.py \
+  --datasets pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl \
+  --train-seeds 0,1 \
+  --limit 12 \
+  --output-dir outputs/learned_retention
+
+uv run python bench.py \
+  --dataset ruler_synthetic \
+  --seed 2 \
+  --limit 12 \
+  --budget 90 \
+  --depth 4 \
+  --policies direct_full_context,keep_recent,single_critic_topk,pairwise_tournament,learned_retention \
+  --learned-retention-model outputs/learned_retention/learned_retention_model.json \
+  --output-dir outputs/learned_retention/ruler_eval
+```
+
+For the full offline workflow, use:
+
+```bash
+uv run python scripts/run_benchmark_e2e.py --phases learned
+```
+
+That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative: if the learned policy does not beat `pairwise_tournament` on at least two non-toy slices by the saved reward metric, the bundle should be read as evidence for where hand-coded retention is still enough.
+
+To include the full `Verifiers-30` curated slice in training or eval, first clone the external repo and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
+
+### 4. Grounded Planning
 
 `examples/run_planning.py` turns retained evidence into a read-only patch plan with ordered steps, citations, and explicit unknowns.
 
@@ -185,18 +221,20 @@ uv run python examples/run_planning.py \
 
 The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` under `showcases/outputs/planning/`.
 
-### 4. PairBench And NeedlePairs
+### 5. PairBench, NeedlePairs, RULER Synthetic, And BABILong Synthetic
 
 For the smallest synthetic sanity checks:
 
 ```bash
 uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
 uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
+uv run python bench.py --dataset ruler_synthetic --limit 10 --budget 90 --depth 4
+uv run python bench.py --dataset babilong_synthetic --limit 10 --budget 90 --depth 4
 ```
 
-These are useful for quick smoke tests, trace demos, and test-friendly regressions. They are not the public empirical story for the repo.
+These are useful for quick smoke tests, trace demos, and test-friendly regressions. The RULER and BABILong variants are synthetic task-shape slices for multi-hop, aggregation, and distributed-fact retention; they are not official benchmark results.
 
-### 5. External Benchmark JSONL
+### 6. External Benchmark JSONL
 
 `external_jsonl` is an adapter for externally generated long-context benchmark exports, including RULER-style JSONL rows. It lets the same nanoRLM harness run over established benchmark data without vendoring benchmark datasets into this repo.
 

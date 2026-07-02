@@ -303,6 +303,7 @@ class RLMConfig:
     max_steps: int = 64
     memory_budget_tokens: int = 320
     retention_policy: str = "pairwise_tournament"
+    retention_model_path: str | None = None
     sandbox: str | None = None
     seed: int = 0
 
@@ -762,7 +763,12 @@ class RLM:
         if policy is None:
             from policies import build_policy
 
-            self.policy = build_policy(config.retention_policy, judge=self.backend, seed=config.seed)
+            self.policy = build_policy(
+                config.retention_policy,
+                judge=self.backend,
+                seed=config.seed,
+                model_path=config.retention_model_path,
+            )
         else:
             self.policy = policy
         self.random = random.Random(config.seed)

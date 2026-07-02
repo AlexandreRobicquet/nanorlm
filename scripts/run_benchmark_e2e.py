@@ -34,16 +34,19 @@ from showcases.generate_assets import (  # noqa: E402
     render_trace_svg,
     summary_table,
 )
+from scripts import train_learned_retention  # noqa: E402
 
 
-PHASE_ORDER = ["check", "smoke", "synthetic", "repo_qa", "external", "real_model", "assets"]
+PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "real_model", "assets"]
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
-OFFLINE_PHASES = ["check", "smoke", "synthetic", "repo_qa", "external", "assets"]
+OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
+    "learned_retention.py",
     "nanorlm.py",
     "policies.py",
     "bench.py",
     "scripts/prepare_ruler_external_jsonl.py",
+    "scripts/train_learned_retention.py",
     "scripts/run_benchmark_e2e.py",
     "examples/run_verifiers.py",
     "examples/run_needlepairs.py",
@@ -75,6 +78,8 @@ class BenchmarkSpec:
     cache_dir: str | None = None
     max_output_tokens: int = 1024
     max_estimated_cost: float | None = None
+    seed: int = 0
+    learned_retention_model: str | None = None
 
 
 def utc_timestamp() -> str:
@@ -180,6 +185,8 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
         spec.dataset,
         "--limit",
         str(spec.limit),
+        "--seed",
+        str(spec.seed),
         "--budget",
         str(spec.budget),
         "--depth",
@@ -203,6 +210,8 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
         parts.extend(["--cache-dir", spec.cache_dir])
     if spec.max_estimated_cost is not None:
         parts.extend(["--max-estimated-cost", str(spec.max_estimated_cost)])
+    if spec.learned_retention_model:
+        parts.extend(["--learned-retention-model", spec.learned_retention_model])
     return shell_join(parts)
 
 
@@ -211,7 +220,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
     examples = build_dataset(
         spec.dataset,
         limit=spec.limit,
-        seed=0,
+        seed=spec.seed,
         repo_root=spec.repo_root,
         dataset_path=spec.dataset_path,
     )
@@ -228,7 +237,9 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         cache_dir=spec.cache_dir,
         max_output_tokens=spec.max_output_tokens,
         max_estimated_cost=spec.max_estimated_cost,
+        learned_retention_model=spec.learned_retention_model,
         dataset_name=spec.dataset,
+        seed=spec.seed,
     )
     if spec.provider == "heuristic":
         curves = generate_curves(
@@ -250,6 +261,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             api_key=spec.api_key,
             cache_dir=spec.cache_dir,
             max_output_tokens=spec.max_output_tokens,
+            learned_retention_model=spec.learned_retention_model,
         )
     else:
         curves = curves_from_summaries(spec.dataset, summaries, budget=spec.budget, depth=spec.depth)
@@ -410,6 +422,283 @@ def external_specs(args: argparse.Namespace) -> list[BenchmarkSpec]:
     ]
 
 
+def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[BenchmarkSpec]:
+    policies = ["direct_full_context", "keep_recent", "single_critic_topk", "pairwise_tournament", "learned_retention"]
+    seed = args.learned_eval_seed
+    return [
+        BenchmarkSpec(
+            name="learned_pairbench",
+            dataset="pairbench",
+            limit=args.learned_eval_limit,
+            budget=60,
+            depth=2,
+            policies=policies,
+            curve_policies=policies,
+            curve_budgets=[60],
+            curve_depths=[2],
+            curve_seeds=[seed],
+            repo_root=args.repo_root,
+            seed=seed,
+            learned_retention_model=model_path,
+        ),
+        BenchmarkSpec(
+            name="learned_dossierbench",
+            dataset="dossierbench",
+            limit=args.learned_eval_limit,
+            budget=80,
+            depth=4,
+            policies=policies,
+            curve_policies=policies,
+            curve_budgets=[80],
+            curve_depths=[4],
+            curve_seeds=[seed],
+            repo_root=args.repo_root,
+            seed=seed,
+            learned_retention_model=model_path,
+        ),
+        BenchmarkSpec(
+            name="learned_ruler_synthetic",
+            dataset="ruler_synthetic",
+            limit=args.learned_eval_limit,
+            budget=90,
+            depth=4,
+            policies=policies,
+            curve_policies=policies,
+            curve_budgets=[90],
+            curve_depths=[4],
+            curve_seeds=[seed],
+            repo_root=args.repo_root,
+            seed=seed,
+            learned_retention_model=model_path,
+        ),
+        BenchmarkSpec(
+            name="learned_babilong_synthetic",
+            dataset="babilong_synthetic",
+            limit=args.learned_eval_limit,
+            budget=90,
+            depth=4,
+            policies=policies,
+            curve_policies=policies,
+            curve_budgets=[90],
+            curve_depths=[4],
+            curve_seeds=[seed],
+            repo_root=args.repo_root,
+            seed=seed,
+            learned_retention_model=model_path,
+        ),
+        BenchmarkSpec(
+            name="learned_external_jsonl",
+            dataset="external_jsonl",
+            limit=min(args.learned_eval_limit, args.external_limit),
+            budget=120,
+            depth=3,
+            policies=policies,
+            curve_policies=policies,
+            curve_budgets=[120],
+            curve_depths=[3],
+            curve_seeds=[seed],
+            repo_root=args.repo_root,
+            dataset_path=args.external_dataset_path,
+            seed=seed,
+            learned_retention_model=model_path,
+        ),
+    ]
+
+
+def _summary_by_policy(summary_path: Path) -> dict[str, dict[str, Any]]:
+    payload = json.loads(summary_path.read_text())
+    return {summary["policy"]: summary for summary in payload.get("summaries", [])}
+
+
+def _per_case_by_policy(report_path: Path) -> dict[tuple[str, str], dict[str, Any]]:
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    per_case_path = report_path / "per_case.jsonl"
+    if not per_case_path.exists():
+        return rows
+    with per_case_path.open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            rows[(str(row.get("policy", "")), str(row.get("name", "")))] = row
+    return rows
+
+
+def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, Any]]:
+    rows = _per_case_by_policy(report_path)
+    case_names = sorted({name for policy, name in rows if policy in {"learned_retention", "pairwise_tournament"}})
+    failures: list[dict[str, Any]] = []
+    for name in case_names:
+        learned = rows.get(("learned_retention", name))
+        pairwise = rows.get(("pairwise_tournament", name))
+        if not learned or not pairwise:
+            continue
+        learned_answer = float(learned.get("answer_accuracy", 0.0))
+        pairwise_answer = float(pairwise.get("answer_accuracy", 0.0))
+        learned_prov = float(learned.get("provenance_score", 0.0))
+        pairwise_prov = float(pairwise.get("provenance_score", 0.0))
+        if learned_answer >= pairwise_answer and learned_prov >= pairwise_prov:
+            continue
+        failures.append(
+            {
+                "name": name,
+                "learned_answer": learned_answer,
+                "pairwise_answer": pairwise_answer,
+                "learned_provenance": learned_prov,
+                "pairwise_provenance": pairwise_prov,
+                "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{name}.tree.txt"),
+                "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{name}.tree.txt"),
+            }
+        )
+        if len(failures) >= limit:
+            break
+    return failures
+
+
+def write_learned_report(run_root: Path, training_manifest: dict[str, Any], reports: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    failure_evidence: list[dict[str, Any]] = []
+    for report in reports:
+        report_path = Path(str(report["path"]))
+        by_policy = _summary_by_policy(report_path / "summary.json")
+        learned = by_policy.get("learned_retention")
+        pairwise = by_policy.get("pairwise_tournament")
+        if not learned or not pairwise:
+            continue
+        reward_delta = round(float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0)), 3)
+        answer_delta = round(float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0)), 3)
+        provenance_delta = round(float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0)), 3)
+        rows.append(
+            {
+                "dataset": report.get("dataset"),
+                "report": str(report_path),
+                "examples": learned.get("examples", 0),
+                "budget": report.get("budget"),
+                "depth": report.get("depth"),
+                "learned_reward": learned.get("reward_score", 0.0),
+                "pairwise_reward": pairwise.get("reward_score", 0.0),
+                "reward_delta": reward_delta,
+                "answer_delta": answer_delta,
+                "provenance_delta": provenance_delta,
+                "learned_answer": learned.get("answer_accuracy", 0.0),
+                "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
+                "learned_provenance": learned.get("provenance_score", 0.0),
+                "pairwise_provenance": pairwise.get("provenance_score", 0.0),
+                "learned_compactness": learned.get("compactness", 0.0),
+                "pairwise_compactness": pairwise.get("compactness", 0.0),
+            }
+        )
+        for failure in _underperforming_cases(report_path):
+            failure_evidence.append({"dataset": report.get("dataset"), **failure})
+    non_toy_wins = [
+        row
+        for row in rows
+        if row["dataset"] not in {"pairbench"} and row["reward_delta"] > 0.0
+    ]
+    verdict = "positive" if len(non_toy_wins) >= 2 else "negative_or_inconclusive"
+    report_path = run_root / "learned_retention_report.md"
+    lines = [
+        "# Learned Retention Report",
+        "",
+        f"- Verdict: `{verdict}`",
+        f"- Acceptance check: learned_retention beats pairwise_tournament on {len(non_toy_wins)} non-toy slice(s) by reward.",
+        f"- Model: `{training_manifest['model_path']}`",
+        f"- Training rows: {training_manifest['training'].get('training_rows', 0)}",
+        "",
+        "This is a budgeted internal evaluation bundle. The RULER and BABILong rows here are synthetic task-shape slices, not public leaderboard claims.",
+        "",
+        "## Pairwise Comparison",
+        "",
+        "| dataset | examples | budget | learned reward | pairwise reward | reward delta | answer delta | provenance delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row in rows:
+        lines.append(
+            f"| `{row['dataset']}` | {row['examples']} | {row['budget']} | {row['learned_reward']:.3f} | "
+            f"{row['pairwise_reward']:.3f} | {row['reward_delta']:+.3f} | {row['answer_delta']:+.3f} | "
+            f"{row['provenance_delta']:+.3f} |"
+        )
+    if verdict == "positive":
+        lines.extend(
+            [
+                "",
+                "## Conservative Read",
+                "",
+                "The learned controller cleared the local acceptance check on at least two non-toy slices. Treat this as a reproducible internal result until the same model is evaluated against real exported RULER or BABILong data with a hosted-model bundle.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "## Conservative Read",
+                "",
+                "The learned controller did not clear the local acceptance check. The saved `per_case.jsonl` rows and `trace_examples/` directories are the evidence for where hand-coded retention remains sufficient or where the learned scorer failed to preserve the right facts.",
+            ]
+        )
+    if failure_evidence:
+        lines.extend(
+            [
+                "",
+                "## Trace Evidence For Negative Cases",
+                "",
+                "| dataset | case | learned answer | pairwise answer | learned prov | pairwise prov | learned trace | pairwise trace |",
+                "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+            ]
+        )
+        for row in failure_evidence[:10]:
+            lines.append(
+                f"| `{row['dataset']}` | `{row['name']}` | {row['learned_answer']:.3f} | {row['pairwise_answer']:.3f} | "
+                f"{row['learned_provenance']:.3f} | {row['pairwise_provenance']:.3f} | "
+                f"`{row['learned_trace']}` | `{row['pairwise_trace']}` |"
+            )
+    report_path.write_text("\n".join(lines) + "\n")
+    return {
+        "report_path": str(report_path),
+        "verdict": verdict,
+        "non_toy_wins": len(non_toy_wins),
+        "comparisons": rows,
+        "failure_evidence": failure_evidence,
+    }
+
+
+def run_learned_phase(run_root: Path, args: argparse.Namespace) -> dict[str, Any]:
+    phase_dir = run_root / "learned_retention"
+    training_dir = phase_dir / "training"
+    training_manifest = train_learned_retention.run(
+        [
+            "--datasets",
+            args.learned_train_datasets,
+            "--train-seeds",
+            args.learned_train_seeds,
+            "--limit",
+            str(args.learned_train_limit),
+            "--repo-root",
+            args.smoke_repo_root,
+            "--dataset-path",
+            args.fixture_external_dataset_path,
+            "--output-dir",
+            str(training_dir),
+            "--epochs",
+            str(args.learned_epochs),
+            "--learning-rate",
+            str(args.learned_learning_rate),
+            "--l2",
+            str(args.learned_l2),
+            "--seed",
+            str(args.learned_train_seed),
+        ]
+    )
+    reports = run_specs(run_root, learned_eval_specs(args, training_manifest["model_path"]))["reports"]
+    learned_report = write_learned_report(run_root, training_manifest, reports)
+    return {
+        "training": training_manifest,
+        "reports": reports,
+        "learned_report": learned_report,
+    }
+
+
 def real_model_spec(args: argparse.Namespace, run_root: Path) -> BenchmarkSpec:
     provider = resolve_provider_choice(args.real_provider, False)
     base_url = args.real_base_url or None
@@ -481,6 +770,7 @@ def phase_runner(args: argparse.Namespace, run_root: Path) -> dict[str, Callable
         "check": lambda: run_check_phase(run_root),
         "smoke": lambda: run_specs(run_root, smoke_specs(args)),
         "synthetic": lambda: run_specs(run_root, synthetic_specs(args)),
+        "learned": lambda: run_learned_phase(run_root, args),
         "repo_qa": lambda: run_specs(run_root, repo_qa_specs(args)),
         "external": lambda: run_specs(run_root, external_specs(args)),
         "real_model": lambda: run_specs(run_root, [real_model_spec(args, run_root)]),
@@ -515,6 +805,9 @@ def initial_manifest(args: argparse.Namespace, phases: Sequence[str], run_root: 
             "real_base_url": args.real_base_url,
             "real_cache_dir": args.real_cache_dir,
             "real_max_estimated_cost": args.real_max_estimated_cost,
+            "learned_train_datasets": args.learned_train_datasets,
+            "learned_train_seeds": args.learned_train_seeds,
+            "learned_eval_seed": args.learned_eval_seed,
             "cost_cap_note": "max_estimated_cost is enforced between benchmark cases, not before each model call.",
         },
         "phases": [],
@@ -538,6 +831,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dossier-limit", type=int, default=12)
     parser.add_argument("--repo-qa-limit", type=int, default=10)
     parser.add_argument("--external-limit", type=int, default=12)
+    parser.add_argument(
+        "--learned-train-datasets",
+        default="pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl,verifiers_smoke",
+    )
+    parser.add_argument("--learned-train-seeds", default="0,1")
+    parser.add_argument("--learned-train-limit", type=int, default=8)
+    parser.add_argument("--learned-train-seed", type=int, default=0)
+    parser.add_argument("--learned-eval-limit", type=int, default=10)
+    parser.add_argument("--learned-eval-seed", type=int, default=2)
+    parser.add_argument("--learned-epochs", type=int, default=20)
+    parser.add_argument("--learned-learning-rate", type=float, default=0.15)
+    parser.add_argument("--learned-l2", type=float, default=0.0005)
     parser.add_argument("--real-provider", choices=["openai-compatible", "anthropic"], default="openai-compatible")
     parser.add_argument("--real-model", default="gpt-4.1-mini")
     parser.add_argument("--real-base-url", default="https://api.openai.com/v1")
