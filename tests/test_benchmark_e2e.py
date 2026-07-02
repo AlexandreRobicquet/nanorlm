@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,6 +68,32 @@ class BenchmarkE2ETests(unittest.TestCase):
             self.assertIn("benchmark_snapshot.md", manifest["files"])
             self.assertIn("architecture.svg", manifest["files"])
             self.assertIn("policy_curve.svg", manifest["files"])
+
+    def test_smoke_phase_resolves_fixture_defaults_from_non_repo_cwd(self) -> None:
+        previous_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as launch_cwd:
+            try:
+                os.chdir(launch_cwd)
+                code = self.run_quietly(
+                    [
+                        "--phases",
+                        "smoke",
+                        "--output-root",
+                        tmpdir,
+                        "--run-id",
+                        "outside-cwd-test",
+                        "--smoke-limit",
+                        "1",
+                    ]
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(code, 0)
+            run_root = Path(tmpdir) / "outside-cwd-test"
+            manifest = json.loads((run_root / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "passed")
+            self.assertTrue((run_root / "smoke_verifiers" / "summary.json").exists())
 
     def test_real_model_phase_rejects_unknown_hosted_cost_model_before_network(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

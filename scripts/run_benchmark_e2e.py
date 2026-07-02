@@ -126,12 +126,13 @@ def validate_report_bundle(path: Path) -> dict[str, Any]:
         raise RuntimeError(f"{path} is missing report file(s): {', '.join(missing)}")
     summary = json.loads((path / "summary.json").read_text())
     curves = json.loads((path / "curves.json").read_text())
-    per_case_rows = [line for line in (path / "per_case.jsonl").read_text().splitlines() if line.strip()]
+    with (path / "per_case.jsonl").open(encoding="utf-8") as handle:
+        per_case_rows = sum(1 for line in handle if line.strip())
     return {
         "path": str(path),
         "dataset": summary.get("dataset"),
         "policies": summary.get("policies", []),
-        "per_case_rows": len(per_case_rows),
+        "per_case_rows": per_case_rows,
         "curve_points": len(curves.get("points", [])),
         "curve_aggregates": len(curves.get("aggregates", [])),
         "trace_examples": str(path / "trace_examples"),
@@ -523,12 +524,15 @@ def initial_manifest(args: argparse.Namespace, phases: Sequence[str], run_root: 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the nanoRLM benchmark workflow end to end.")
     parser.add_argument("--phases", default="default", help="default, offline, all, or comma-separated phase names")
-    parser.add_argument("--output-root", default="outputs/e2e")
+    parser.add_argument("--output-root", default=str(ROOT / "outputs" / "e2e"))
     parser.add_argument("--run-id", default="")
     parser.add_argument("--repo-root", default="/tmp/nanorlm-verifiers")
-    parser.add_argument("--smoke-repo-root", default="tests/fixtures/verifiers-mini")
-    parser.add_argument("--fixture-external-dataset-path", default="tests/fixtures/external-benchmark-mini.jsonl")
-    parser.add_argument("--external-dataset-path", default="tests/fixtures/external-benchmark-mini.jsonl")
+    parser.add_argument("--smoke-repo-root", default=str(ROOT / "tests" / "fixtures" / "verifiers-mini"))
+    parser.add_argument(
+        "--fixture-external-dataset-path",
+        default=str(ROOT / "tests" / "fixtures" / "external-benchmark-mini.jsonl"),
+    )
+    parser.add_argument("--external-dataset-path", default=str(ROOT / "tests" / "fixtures" / "external-benchmark-mini.jsonl"))
     parser.add_argument("--smoke-limit", type=int, default=4)
     parser.add_argument("--synthetic-limit", type=int, default=10)
     parser.add_argument("--dossier-limit", type=int, default=12)
