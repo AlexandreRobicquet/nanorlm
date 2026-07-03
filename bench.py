@@ -1274,25 +1274,32 @@ def build_dataset(
     seed: int,
     repo_root: str,
     dataset_path: str | Path | None = None,
+    start_index: int = 0,
 ) -> list[BenchmarkExample]:
+    if start_index < 0:
+        raise ValueError("start_index must be non-negative")
+    requested = limit + start_index
+    def window(examples: Sequence[BenchmarkExample]) -> list[BenchmarkExample]:
+        return list(examples[start_index : start_index + limit])
+
     if dataset_name == "pairbench":
-        return build_pairbench(n=limit, seed=seed)
+        return window(build_pairbench(n=requested, seed=seed))
     if dataset_name == "needlepairs":
-        return build_needlepairs(n=limit, seed=seed)
+        return window(build_needlepairs(n=requested, seed=seed))
     if dataset_name == "dossierbench":
-        return build_dossierbench(n=limit, seed=seed)
+        return window(build_dossierbench(n=requested, seed=seed))
     if dataset_name == "ruler_synthetic":
-        return build_ruler_synthetic(n=limit, seed=seed)
+        return window(build_ruler_synthetic(n=requested, seed=seed))
     if dataset_name == "babilong_synthetic":
-        return build_babilong_synthetic(n=limit, seed=seed)
+        return window(build_babilong_synthetic(n=requested, seed=seed))
     if dataset_name == "verifiers_30":
-        return load_verifiers_30(repo_root, seed=seed)[:limit]
+        return window(load_verifiers_30(repo_root, seed=seed))
     if dataset_name == "verifiers_smoke":
-        return load_verifiers_smoke(repo_root, seed=seed)[:limit]
+        return window(load_verifiers_smoke(repo_root, seed=seed))
     if dataset_name == "external_jsonl":
         if dataset_path is None:
             raise ValueError("--dataset-path is required when --dataset external_jsonl")
-        return load_external_jsonl(dataset_path)[:limit]
+        return window(load_external_jsonl(dataset_path))
     raise ValueError(f"unknown dataset: {dataset_name}")
 
 
@@ -1550,6 +1557,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dataset-path", type=str, default="")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--budget", type=int, default=120)
     parser.add_argument("--depth", type=int, default=2)
@@ -1592,6 +1600,7 @@ def main() -> None:
             seed=args.seed,
             repo_root=args.repo_root,
             dataset_path=args.dataset_path or None,
+            start_index=args.start_index,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -1626,6 +1635,7 @@ def main() -> None:
                 seed=seed,
                 repo_root=args.repo_root,
                 dataset_path=args.dataset_path or None,
+                start_index=args.start_index,
             ),
             policies=policies,
             budgets=curve_budgets,
@@ -1650,6 +1660,7 @@ def main() -> None:
             command=" ".join(["python", "bench.py", *filter(None, [
                 f"--dataset {args.dataset}",
                 f"--limit {args.limit}",
+                f"--start-index {args.start_index}",
                 f"--seed {args.seed}",
                 f"--budget {args.budget}",
                 f"--depth {args.depth}",

@@ -79,6 +79,7 @@ class BenchmarkSpec:
     max_output_tokens: int = 1024
     max_estimated_cost: float | None = None
     seed: int = 0
+    start_index: int = 0
     learned_retention_model: str | None = None
 
 
@@ -185,6 +186,8 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
         spec.dataset,
         "--limit",
         str(spec.limit),
+        "--start-index",
+        str(spec.start_index),
         "--seed",
         str(spec.seed),
         "--budget",
@@ -223,6 +226,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         seed=spec.seed,
         repo_root=spec.repo_root,
         dataset_path=spec.dataset_path,
+        start_index=spec.start_index,
     )
     summaries = policy_sweep(
         examples,
@@ -250,6 +254,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
                 seed=seed,
                 repo_root=spec.repo_root,
                 dataset_path=spec.dataset_path,
+                start_index=spec.start_index,
             ),
             policies=spec.curve_policies,
             budgets=spec.curve_budgets,
@@ -279,6 +284,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             "limit": spec.limit,
             "budget": spec.budget,
             "depth": spec.depth,
+            "start_index": spec.start_index,
             "provider": spec.provider,
             "model": spec.model,
             "base_url": spec.base_url,
@@ -425,6 +431,9 @@ def external_specs(args: argparse.Namespace) -> list[BenchmarkSpec]:
 def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[BenchmarkSpec]:
     policies = ["direct_full_context", "keep_recent", "single_critic_topk", "pairwise_tournament", "learned_retention"]
     seed = args.learned_eval_seed
+    heldout_start = args.learned_eval_start_index
+    if heldout_start < 0:
+        heldout_start = args.learned_train_limit
     return [
         BenchmarkSpec(
             name="learned_pairbench",
@@ -439,6 +448,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             curve_seeds=[seed],
             repo_root=args.repo_root,
             seed=seed,
+            start_index=heldout_start,
             learned_retention_model=model_path,
         ),
         BenchmarkSpec(
@@ -454,6 +464,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             curve_seeds=[seed],
             repo_root=args.repo_root,
             seed=seed,
+            start_index=heldout_start,
             learned_retention_model=model_path,
         ),
         BenchmarkSpec(
@@ -469,6 +480,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             curve_seeds=[seed],
             repo_root=args.repo_root,
             seed=seed,
+            start_index=heldout_start,
             learned_retention_model=model_path,
         ),
         BenchmarkSpec(
@@ -484,6 +496,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             curve_seeds=[seed],
             repo_root=args.repo_root,
             seed=seed,
+            start_index=heldout_start,
             learned_retention_model=model_path,
         ),
         BenchmarkSpec(
@@ -500,6 +513,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             repo_root=args.repo_root,
             dataset_path=args.external_dataset_path,
             seed=seed,
+            start_index=0,
             learned_retention_model=model_path,
         ),
     ]
@@ -576,6 +590,7 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
                 "examples": learned.get("examples", 0),
                 "budget": report.get("budget"),
                 "depth": report.get("depth"),
+                "start_index": report.get("start_index", 0),
                 "learned_reward": learned.get("reward_score", 0.0),
                 "pairwise_reward": pairwise.get("reward_score", 0.0),
                 "reward_delta": reward_delta,
@@ -610,12 +625,12 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
         "",
         "## Pairwise Comparison",
         "",
-        "| dataset | examples | budget | learned reward | pairwise reward | reward delta | answer delta | provenance delta |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| dataset | examples | start | budget | learned reward | pairwise reward | reward delta | answer delta | provenance delta |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            f"| `{row['dataset']}` | {row['examples']} | {row['budget']} | {row['learned_reward']:.3f} | "
+            f"| `{row['dataset']}` | {row['examples']} | {row['start_index']} | {row['budget']} | {row['learned_reward']:.3f} | "
             f"{row['pairwise_reward']:.3f} | {row['reward_delta']:+.3f} | {row['answer_delta']:+.3f} | "
             f"{row['provenance_delta']:+.3f} |"
         )
@@ -808,6 +823,7 @@ def initial_manifest(args: argparse.Namespace, phases: Sequence[str], run_root: 
             "learned_train_datasets": args.learned_train_datasets,
             "learned_train_seeds": args.learned_train_seeds,
             "learned_eval_seed": args.learned_eval_seed,
+            "learned_eval_start_index": args.learned_eval_start_index,
             "cost_cap_note": "max_estimated_cost is enforced between benchmark cases, not before each model call.",
         },
         "phases": [],
@@ -840,6 +856,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-train-seed", type=int, default=0)
     parser.add_argument("--learned-eval-limit", type=int, default=10)
     parser.add_argument("--learned-eval-seed", type=int, default=2)
+    parser.add_argument(
+        "--learned-eval-start-index",
+        type=int,
+        default=-1,
+        help="Held-out start index for synthetic learned eval; -1 means learned-train-limit.",
+    )
     parser.add_argument("--learned-epochs", type=int, default=20)
     parser.add_argument("--learned-learning-rate", type=float, default=0.15)
     parser.add_argument("--learned-l2", type=float, default=0.0005)

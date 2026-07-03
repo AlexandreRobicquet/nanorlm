@@ -98,6 +98,8 @@ class BenchmarkE2ETests(unittest.TestCase):
             learned_report = Path(result["learned_report"]["report_path"])
             self.assertTrue(learned_report.exists())
             self.assertIn("Verdict:", learned_report.read_text())
+            pairbench_report = next(report for report in result["reports"] if report["name"] == "learned_pairbench")
+            self.assertEqual(pairbench_report["start_index"], 1)
 
     def test_smoke_phase_resolves_fixture_defaults_from_non_repo_cwd(self) -> None:
         previous_cwd = Path.cwd()

@@ -153,9 +153,24 @@ class LearnedRetentionModel:
     @classmethod
     def load(cls, path: str | Path) -> "LearnedRetentionModel":
         payload = json.loads(Path(path).read_text())
+        if not isinstance(payload, dict):
+            raise ValueError(f"learned retention model must be a JSON object: {path}")
+        version = int(payload.get("version", -1))
+        if version != MODEL_VERSION:
+            raise ValueError(
+                f"learned retention model version mismatch for {path}: expected {MODEL_VERSION}, got {version}"
+            )
+        feature_names = payload.get("feature_names")
+        if feature_names != FEATURE_NAMES:
+            raise ValueError(f"learned retention model feature set mismatch: {path}")
         weights = {str(key): float(value) for key, value in payload.get("weights", {}).items()}
         if not weights:
             raise ValueError(f"learned retention model has no weights: {path}")
+        missing_weights = [name for name in FEATURE_NAMES if name not in weights]
+        if missing_weights:
+            raise ValueError(
+                f"learned retention model is missing weight(s): {', '.join(missing_weights)}"
+            )
         metadata = dict(payload.get("metadata", {})) if isinstance(payload.get("metadata", {}), dict) else {}
         metadata.setdefault("model_path", str(path))
         return cls(weights=weights, intercept=float(payload.get("intercept", 0.0)), metadata=metadata)

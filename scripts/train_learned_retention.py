@@ -16,6 +16,14 @@ from nanorlm import ContextBlock, HeuristicBackend, MemoryItem, estimate_tokens,
 
 
 DEFAULT_DATASETS = "pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl"
+NEGATIVE_SLOT_MARKERS = (
+    "slot: distractor",
+    "slot distractor",
+    "belongs to another",
+    "slot: duplicate",
+    "slot duplicate",
+    "duplicate:",
+)
 
 
 def _matches_expected_provenance(block: ContextBlock, expected_provenance: Sequence[str]) -> bool:
@@ -43,8 +51,17 @@ def _contains_answer_fragment(block: ContextBlock, example: BenchmarkExample) ->
     return False
 
 
+def _is_explicit_negative_block(block: ContextBlock) -> bool:
+    haystack = f"{block.name}\n{block.text}".lower()
+    return any(marker in haystack for marker in NEGATIVE_SLOT_MARKERS)
+
+
 def label_block(block: ContextBlock, example: BenchmarkExample) -> bool:
-    return _matches_expected_provenance(block, example.expected_provenance) or _contains_answer_fragment(block, example)
+    if _matches_expected_provenance(block, example.expected_provenance):
+        return True
+    if _is_explicit_negative_block(block):
+        return False
+    return _contains_answer_fragment(block, example)
 
 
 def memory_item_from_block(

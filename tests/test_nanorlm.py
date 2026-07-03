@@ -32,6 +32,7 @@ from bench import (
 )
 from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, MemoryItem, RLM, RLMConfig, Usage
 from scripts.prepare_ruler_external_jsonl import convert_row
+from scripts.train_learned_retention import label_block
 from scripts.train_learned_retention import run as run_learned_retention_training
 
 
@@ -164,6 +165,24 @@ class NanoRLMTests(unittest.TestCase):
             dataset_name="pairbench",
         )
         self.assertEqual(summary["answer_accuracy"], 1.0)
+
+    def test_build_dataset_start_index_uses_held_out_case_ids(self) -> None:
+        examples = build_dataset("pairbench", limit=2, start_index=3, seed=0, repo_root="")
+        self.assertEqual([example.name for example in examples], ["pair-003", "pair-004"])
+
+    def test_training_label_keeps_explicit_distractors_negative(self) -> None:
+        example = bench.BenchmarkExample(
+            name="pair-000",
+            query="For pair-000, what is the full code?",
+            context=[],
+            answer="amber comet",
+            must_contain=["amber", "comet"],
+        )
+        distractor = ContextBlock(
+            name="notes/pair-099-left.md",
+            text="PAIR_ID: pair-099\nFACT_VALUE: amber\nSLOT: distractor\npair-099 left token is amber; belongs to another pair.",
+        )
+        self.assertFalse(label_block(distractor, example))
 
     def test_synthetic_long_context_slices_run_with_learned_retention(self) -> None:
         for dataset_name, examples, budget, depth in [

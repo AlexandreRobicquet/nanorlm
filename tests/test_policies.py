@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -161,6 +162,16 @@ class PolicyTests(unittest.TestCase):
             loaded = LearnedRetentionModel.load(path)
         self.assertEqual(loaded.weights["query_all_overlap"], model.weights["query_all_overlap"])
         self.assertEqual(loaded.metadata["source"], "built_in_default")
+
+    def test_learned_retention_model_rejects_schema_mismatch(self) -> None:
+        model = LearnedRetentionModel.default()
+        payload = model.to_payload()
+        payload["version"] = -1
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "model.json"
+            path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ValueError, "version mismatch"):
+                LearnedRetentionModel.load(path)
 
 
 if __name__ == "__main__":
