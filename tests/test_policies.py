@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nanorlm import MemoryItem
+from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy
 from policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTopKPolicy, SummaryOnlyPolicy
 
 
@@ -121,6 +124,54 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(single_judge.score_calls, 0)
         self.assertEqual(pairwise_judge.score_calls, 0)
         self.assertEqual(pairwise_judge.compare_calls, 0)
+
+    def test_learned_retention_prefers_relevant_durable_evidence(self) -> None:
+        model = LearnedRetentionModel.default()
+        candidates = [
+            item(
+                1.0,
+                "CASE_ID: incident-001 FACT_KIND: root_cause FACT_VALUE: stale cache SLOT: durable",
+                "dossiers/incident-001-root-cause.md",
+                tokens=12,
+            ),
+            item(
+                2.0,
+                "CASE_ID: incident-099 FACT_KIND: root_cause FACT_VALUE: wrong cache SLOT: distractor belongs to another investigation",
+                "dossiers/incident-099-root-cause.md",
+                tokens=12,
+            ),
+            item(
+                3.0,
+                "Duplicate: incident-001 stale cache but no patch file SLOT: duplicate",
+                "dossiers/incident-001-duplicate.md",
+                tokens=12,
+            ),
+        ]
+        kept = LearnedRetentionPolicy(model=model).select(
+            "For incident-001, what root cause should be retained?",
+            candidates,
+            budget=12,
+        )
+        self.assertEqual(kept[0].provenance, "dossiers/incident-001-root-cause.md")
+
+    def test_learned_retention_model_round_trips(self) -> None:
+        model = LearnedRetentionModel.default()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "model.json"
+            model.save(path)
+            loaded = LearnedRetentionModel.load(path)
+        self.assertEqual(loaded.weights["query_all_overlap"], model.weights["query_all_overlap"])
+        self.assertEqual(loaded.metadata["source"], "built_in_default")
+
+    def test_learned_retention_model_rejects_schema_mismatch(self) -> None:
+        model = LearnedRetentionModel.default()
+        payload = model.to_payload()
+        payload["version"] = -1
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "model.json"
+            path.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(ValueError, "version mismatch"):
+                LearnedRetentionModel.load(path)
 
 
 if __name__ == "__main__":

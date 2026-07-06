@@ -18,7 +18,9 @@ from bench import (
     build_experiment_insights,
     build_dataset,
     build_dossierbench,
+    build_babilong_synthetic,
     build_pairbench,
+    build_ruler_synthetic,
     curves_from_summaries,
     extract_anchor_blocks,
     generate_curves,
@@ -30,6 +32,8 @@ from bench import (
 )
 from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, MemoryItem, RLM, RLMConfig, Usage
 from scripts.prepare_ruler_external_jsonl import convert_row
+from scripts.train_learned_retention import label_block
+from scripts.train_learned_retention import run as run_learned_retention_training
 
 
 class NoScoreBackend(HeuristicBackend):
@@ -161,6 +165,70 @@ class NanoRLMTests(unittest.TestCase):
             dataset_name="pairbench",
         )
         self.assertEqual(summary["answer_accuracy"], 1.0)
+
+    def test_build_dataset_start_index_uses_held_out_case_ids(self) -> None:
+        examples = build_dataset("pairbench", limit=2, start_index=3, seed=0, repo_root="")
+        self.assertEqual([example.name for example in examples], ["pair-003", "pair-004"])
+
+    def test_training_label_keeps_explicit_distractors_negative(self) -> None:
+        example = bench.BenchmarkExample(
+            name="pair-000",
+            query="For pair-000, what is the full code?",
+            context=[],
+            answer="amber comet",
+            must_contain=["amber", "comet"],
+        )
+        distractor = ContextBlock(
+            name="notes/pair-099-left.md",
+            text="PAIR_ID: pair-099\nFACT_VALUE: amber\nSLOT: distractor\npair-099 left token is amber; belongs to another pair.",
+        )
+        self.assertFalse(label_block(distractor, example))
+
+    def test_synthetic_long_context_slices_run_with_learned_retention(self) -> None:
+        for dataset_name, examples, budget, depth in [
+            ("ruler_synthetic", build_ruler_synthetic(n=3, seed=0), 90, 4),
+            ("babilong_synthetic", build_babilong_synthetic(n=3, seed=0), 90, 4),
+        ]:
+            with self.subTest(dataset=dataset_name):
+                summary = run_dataset(
+                    examples,
+                    "learned_retention",
+                    budget=budget,
+                    max_depth=depth,
+                    dataset_name=dataset_name,
+                )
+                self.assertEqual(summary["examples"], 3)
+                self.assertIn("reward_score", summary)
+                self.assertEqual(summary["results"][0]["retention_stats"]["policy"], "learned_retention")
+
+    def test_learned_retention_training_writes_model_consumed_by_benchmark(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = run_learned_retention_training(
+                [
+                    "--datasets",
+                    "pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl",
+                    "--train-seeds",
+                    "0",
+                    "--limit",
+                    "2",
+                    "--output-dir",
+                    tmpdir,
+                    "--dataset-path",
+                    str(Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"),
+                ]
+            )
+            model_path = Path(manifest["model_path"])
+            self.assertTrue(model_path.exists())
+            summary = run_dataset(
+                build_ruler_synthetic(n=2, seed=1),
+                "learned_retention",
+                budget=90,
+                max_depth=4,
+                learned_retention_model=model_path,
+                dataset_name="ruler_synthetic",
+            )
+        self.assertEqual(summary["examples"], 2)
+        self.assertIn("reward_score", summary)
 
     def test_direct_full_context_keeps_raw_context_without_retention(self) -> None:
         example = bench.BenchmarkExample(

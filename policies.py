@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import random
 from dataclasses import replace
+from pathlib import Path
 from typing import Protocol, Sequence
 
+from learned_retention import LearnedRetentionPolicy
 from nanorlm import MemoryItem, estimate_tokens, query_terms, truncate_words
 
 
@@ -193,7 +195,7 @@ class PairwiseTournamentPolicy(RetentionPolicy):
         return query_terms(f"{item.provenance} {item.summary} {item.answer_candidate}")
 
 
-def build_policy(name: str, judge: Judge, seed: int = 0) -> RetentionPolicy:
+def build_policy(name: str, judge: Judge, seed: int = 0, model_path: str | Path | None = None) -> RetentionPolicy:
     normalized = name.strip().lower()
     if normalized == "keep_recent":
         return KeepRecentPolicy()
@@ -203,4 +205,6 @@ def build_policy(name: str, judge: Judge, seed: int = 0) -> RetentionPolicy:
         return SingleCriticTopKPolicy(judge=judge)
     if normalized == "pairwise_tournament":
         return PairwiseTournamentPolicy(judge=judge, seed=seed)
+    if normalized == "learned_retention":
+        return LearnedRetentionPolicy(model_path=model_path)
     raise ValueError(f"unknown retention policy: {name}")

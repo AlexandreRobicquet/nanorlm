@@ -69,6 +69,38 @@ class BenchmarkE2ETests(unittest.TestCase):
             self.assertIn("architecture.svg", manifest["files"])
             self.assertIn("policy_curve.svg", manifest["files"])
 
+    def test_learned_phase_trains_evaluates_and_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code = self.run_quietly(
+                [
+                    "--phases",
+                    "learned",
+                    "--output-root",
+                    tmpdir,
+                    "--run-id",
+                    "learned-test",
+                    "--learned-train-limit",
+                    "1",
+                    "--learned-eval-limit",
+                    "1",
+                    "--external-limit",
+                    "1",
+                ]
+            )
+
+            self.assertEqual(code, 0)
+            run_root = Path(tmpdir) / "learned-test"
+            manifest = json.loads((run_root / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "passed")
+            result = manifest["phases"][0]["result"]
+            model_path = Path(result["training"]["model_path"])
+            self.assertTrue(model_path.exists())
+            learned_report = Path(result["learned_report"]["report_path"])
+            self.assertTrue(learned_report.exists())
+            self.assertIn("Verdict:", learned_report.read_text())
+            pairbench_report = next(report for report in result["reports"] if report["name"] == "learned_pairbench")
+            self.assertEqual(pairbench_report["start_index"], 1)
+
     def test_smoke_phase_resolves_fixture_defaults_from_non_repo_cwd(self) -> None:
         previous_cwd = Path.cwd()
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as launch_cwd:

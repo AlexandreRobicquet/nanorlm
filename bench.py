@@ -24,13 +24,23 @@ from nanorlm import (
 
 ROOT = Path(__file__).resolve().parent
 CLI_PROVIDER_CHOICES = ["heuristic", "openai-compatible", "anthropic"]
-DATASET_CHOICES = ["pairbench", "needlepairs", "dossierbench", "verifiers_30", "verifiers_smoke", "external_jsonl"]
+DATASET_CHOICES = [
+    "pairbench",
+    "needlepairs",
+    "dossierbench",
+    "ruler_synthetic",
+    "babilong_synthetic",
+    "verifiers_30",
+    "verifiers_smoke",
+    "external_jsonl",
+]
 DEFAULT_POLICIES = [
     "direct_full_context",
     "keep_recent",
     "summary_only",
     "single_critic_topk",
     "pairwise_tournament",
+    "learned_retention",
 ]
 
 
@@ -103,6 +113,26 @@ def compactness_score(retained_tokens: int, budget: int) -> float:
     if budget <= 0:
         return 0.0
     return round(max(0.0, 1.0 - (retained_tokens / budget)), 3)
+
+
+def retention_reward_score(
+    *,
+    answer_accuracy: float,
+    provenance_score: float,
+    compactness: float,
+    latency_ms: float,
+    cost_estimate: float,
+) -> float:
+    latency_penalty = min(0.12, latency_ms / 10000.0)
+    cost_penalty = min(0.12, cost_estimate * 2.0)
+    reward = (
+        0.62 * answer_accuracy
+        + 0.18 * provenance_score
+        + 0.12 * compactness
+        - latency_penalty
+        - cost_penalty
+    )
+    return round(max(0.0, reward), 3)
 
 
 def pair_words() -> list[str]:
@@ -385,6 +415,268 @@ def build_dossierbench(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
     return examples
 
 
+def build_ruler_synthetic(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
+    rng = random.Random(seed)
+    codes = ["orchid", "quartz", "ember", "lattice", "topaz", "willow", "raven", "comet"]
+    mids = ["alpha-node", "bravo-node", "cedar-node", "delta-node", "ember-node", "frost-node"]
+    regions = ["north", "south", "east", "west"]
+    examples: list[BenchmarkExample] = []
+    distractor_space = max(128, n + 64)
+
+    for index in range(n):
+        ruler_id = f"ruler-{index:03d}"
+        mode = index % 3
+        code = codes[(index * 2) % len(codes)]
+        mid = mids[(index * 3) % len(mids)]
+        docs: list[ContextBlock] = []
+        for distractor in range(30):
+            other_id = f"ruler-{(index + distractor + 17) % distractor_space:03d}"
+            other_code = codes[(index + distractor) % len(codes)]
+            docs.append(
+                ContextBlock(
+                    name=f"ruler/noise/{other_id}-{distractor:02d}.txt",
+                    text=(
+                        f"RULER_ID: {other_id}\n"
+                        "FACT_KIND: distractor\n"
+                        f"FACT_VALUE: {other_code}\n"
+                        "SLOT: distractor\n"
+                        f"{other_id} unrelated trace stores code {other_code}; belongs to another synthetic RULER task. "
+                        f"Background filler {regions[distractor % len(regions)]} ledger text repeats neutral tokens.\n"
+                    ),
+                )
+            )
+
+        if mode == 0:
+            docs.extend(
+                [
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-first-hop.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: first_hop\n"
+                            f"FACT_VALUE: {mid}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} first hop sends START_NODE root to MID_NODE {mid}.\n"
+                        ),
+                    ),
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-final-code.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: final_code\n"
+                            f"FACT_VALUE: {code}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} MID_NODE {mid} resolves to FINAL_CODE {code}.\n"
+                        ),
+                    ),
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-duplicate-hop.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: first_hop\n"
+                            f"FACT_VALUE: {mid}\n"
+                            "SLOT: duplicate\n"
+                            f"Duplicate: {ruler_id} root reaches {mid}, but it does not state the final code.\n"
+                        ),
+                    ),
+                ]
+            )
+            query = f"For {ruler_id}, follow START_NODE root through MID_NODE and report the MID_NODE plus FINAL_CODE."
+            must_contain = [mid, code]
+            expected = [f"ruler/{ruler_id}-first-hop.txt", f"ruler/{ruler_id}-final-code.txt"]
+            task_class = "ruler/variable_tracking"
+        elif mode == 1:
+            first = index + 11
+            second = index + 7
+            total = first + second
+            docs.extend(
+                [
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-north-shard.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: aggregate_shard\n"
+                            f"FACT_VALUE: north={first}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} north shard contributes {first} units to the aggregate total.\n"
+                        ),
+                    ),
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-south-shard.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: aggregate_shard\n"
+                            f"FACT_VALUE: south={second}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} south shard contributes {second} units to the aggregate total.\n"
+                        ),
+                    ),
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-total.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: aggregate_total\n"
+                            f"FACT_VALUE: {total}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} aggregate total is {total} after combining north and south shards.\n"
+                        ),
+                    ),
+                ]
+            )
+            query = f"For {ruler_id}, what aggregate total follows from the north and south shards?"
+            must_contain = [str(total), str(first), str(second)]
+            expected = [
+                f"ruler/{ruler_id}-north-shard.txt",
+                f"ruler/{ruler_id}-south-shard.txt",
+                f"ruler/{ruler_id}-total.txt",
+            ]
+            task_class = "ruler/aggregation"
+        else:
+            key = f"key-{codes[index % len(codes)]}"
+            value = f"value-{codes[(index + 3) % len(codes)]}"
+            docs.extend(
+                [
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-lookup-key.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: lookup_key\n"
+                            f"FACT_VALUE: {key}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} requested lookup key is {key}.\n"
+                        ),
+                    ),
+                    ContextBlock(
+                        name=f"ruler/{ruler_id}-lookup-value.txt",
+                        text=(
+                            f"RULER_ID: {ruler_id}\n"
+                            "FACT_KIND: lookup_value\n"
+                            f"FACT_VALUE: {value}\n"
+                            "SLOT: durable\n"
+                            f"{ruler_id} {key} maps to retained value {value}.\n"
+                        ),
+                    ),
+                ]
+            )
+            query = f"For {ruler_id}, which lookup key is requested and what retained value does it map to?"
+            must_contain = [key, value]
+            expected = [f"ruler/{ruler_id}-lookup-key.txt", f"ruler/{ruler_id}-lookup-value.txt"]
+            task_class = "ruler/key_value"
+
+        rng.shuffle(docs)
+        examples.append(
+            BenchmarkExample(
+                name=ruler_id,
+                query=query,
+                context=docs,
+                answer=" | ".join(must_contain),
+                must_contain=must_contain,
+                expected_provenance=expected,
+                task_class=task_class,
+                metadata={"benchmark_shape": "RULER synthetic", "mode": task_class},
+            )
+        )
+    return examples
+
+
+def build_babilong_synthetic(n: int = 24, seed: int = 0) -> list[BenchmarkExample]:
+    rng = random.Random(seed)
+    people = ["Mara", "Jon", "Iris", "Tao", "Nia", "Omar"]
+    objects = ["blue key", "silver map", "green badge", "red ledger", "amber token", "white pass"]
+    rooms = ["archive", "observatory", "gallery", "workshop", "vault", "library"]
+    codes = ["opal", "cedar", "onyx", "saffron", "pearl", "basalt"]
+    examples: list[BenchmarkExample] = []
+    distractor_space = max(128, n + 64)
+
+    for index in range(n):
+        story_id = f"babi-{index:03d}"
+        person = people[index % len(people)]
+        carried = objects[(index * 2) % len(objects)]
+        room = rooms[(index * 3) % len(rooms)]
+        code = codes[(index * 5) % len(codes)]
+        docs: list[ContextBlock] = []
+        for distractor in range(32):
+            other_id = f"babi-{(index + distractor + 23) % distractor_space:03d}"
+            other_person = people[(index + distractor) % len(people)]
+            other_object = objects[(index + distractor + 1) % len(objects)]
+            docs.append(
+                ContextBlock(
+                    name=f"babilong/noise/{other_id}-{distractor:02d}.txt",
+                    text=(
+                        f"BABILONG_ID: {other_id}\n"
+                        "FACT_KIND: distractor_story\n"
+                        f"FACT_VALUE: {other_person} carried {other_object}\n"
+                        "SLOT: distractor\n"
+                        f"{other_person} carried {other_object} in {other_id}; belongs to another story thread. "
+                        "The corridor log adds neutral sentences to lengthen the episode.\n"
+                    ),
+                )
+            )
+
+        docs.extend(
+            [
+                ContextBlock(
+                    name=f"babilong/{story_id}-person-object.txt",
+                    text=(
+                        f"BABILONG_ID: {story_id}\n"
+                        "FACT_KIND: person_object\n"
+                        f"FACT_VALUE: {person} carried {carried}\n"
+                        "SLOT: durable\n"
+                        f"In {story_id}, {person} carried the {carried} after leaving the hallway.\n"
+                    ),
+                ),
+                ContextBlock(
+                    name=f"babilong/{story_id}-object-room.txt",
+                    text=(
+                        f"BABILONG_ID: {story_id}\n"
+                        "FACT_KIND: object_room\n"
+                        f"FACT_VALUE: {carried} opens {room}\n"
+                        "SLOT: durable\n"
+                        f"In {story_id}, the {carried} opens the {room}.\n"
+                    ),
+                ),
+                ContextBlock(
+                    name=f"babilong/{story_id}-room-code.txt",
+                    text=(
+                        f"BABILONG_ID: {story_id}\n"
+                        "FACT_KIND: room_code\n"
+                        f"FACT_VALUE: {room} contains {code}\n"
+                        "SLOT: durable\n"
+                        f"In {story_id}, the {room} contains code {code}.\n"
+                    ),
+                ),
+                ContextBlock(
+                    name=f"babilong/{story_id}-duplicate-object.txt",
+                    text=(
+                        f"BABILONG_ID: {story_id}\n"
+                        "FACT_KIND: person_object\n"
+                        f"FACT_VALUE: {person} carried {carried}\n"
+                        "SLOT: duplicate\n"
+                        f"Duplicate: {person} carried the {carried}, but this note omits the destination and code.\n"
+                    ),
+                ),
+            ]
+        )
+        rng.shuffle(docs)
+        examples.append(
+            BenchmarkExample(
+                name=story_id,
+                query=f"In {story_id}, what object did {person} carry, which room did it open, and what code was there?",
+                context=docs,
+                answer=f"{carried} | {room} | {code}",
+                must_contain=[carried, room, code],
+                expected_provenance=[
+                    f"babilong/{story_id}-person-object.txt",
+                    f"babilong/{story_id}-object-room.txt",
+                    f"babilong/{story_id}-room-code.txt",
+                ],
+                task_class="babilong/multi_hop_story",
+                metadata={"benchmark_shape": "BABILong synthetic"},
+            )
+        )
+    return examples
+
+
 def load_curated_dataset(
     repo_root: str | Path,
     dataset_path: str | Path,
@@ -603,6 +895,7 @@ def run_policy_case(
     api_key: str | None,
     cache_dir: str | None,
     max_output_tokens: int,
+    learned_retention_model: str | None,
     seed: int,
 ) -> RLMResult:
     config = RLMConfig(
@@ -616,6 +909,7 @@ def run_policy_case(
         max_steps=256,
         memory_budget_tokens=budget,
         retention_policy="keep_recent" if policy == "direct_full_context" else policy,
+        retention_model_path=learned_retention_model if policy == "learned_retention" else None,
         seed=seed,
     )
     engine = RLM(config=config)
@@ -636,6 +930,7 @@ def run_dataset(
     api_key: str | None = None,
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
+    learned_retention_model: str | Path | None = None,
     max_estimated_cost: float | None = None,
     initial_cost_estimate: float = 0.0,
     output_dir: str | Path | None = None,
@@ -670,6 +965,7 @@ def run_dataset(
             api_key=api_key,
             cache_dir=str(cache_dir) if cache_dir is not None else None,
             max_output_tokens=max_output_tokens,
+            learned_retention_model=str(learned_retention_model) if learned_retention_model else None,
             seed=seed,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
@@ -678,6 +974,13 @@ def run_dataset(
         provenance_score, provenance_hits = score_provenance(result, example.expected_provenance)
         retained_tokens = sum(item.tokens for item in result.kept_items)
         compactness = compactness_score(retained_tokens, budget)
+        reward_score = retention_reward_score(
+            answer_accuracy=answer_accuracy,
+            provenance_score=provenance_score,
+            compactness=compactness,
+            latency_ms=elapsed_ms,
+            cost_estimate=result.cost_estimate,
+        )
         row = {
             "dataset": dataset_name,
             "seed": seed,
@@ -693,6 +996,7 @@ def run_dataset(
             "provenance_score": provenance_score,
             "provenance_hits": provenance_hits,
             "compactness": compactness,
+            "reward_score": reward_score,
             "retained_items": len(result.kept_items),
             "retained_tokens": retained_tokens,
             "usage": {
@@ -725,6 +1029,7 @@ def run_dataset(
         "answer_accuracy": mean("answer_accuracy"),
         "provenance_score": mean("provenance_score"),
         "compactness": mean("compactness"),
+        "reward_score": mean("reward_score"),
         "avg_retained_tokens": mean("retained_tokens"),
         "avg_latency_ms": mean("latency_ms"),
         "avg_cost_estimate": round(statistics.fmean(float(row["cost_estimate"]) for row in results), 6) if results else 0.0,
@@ -753,6 +1058,7 @@ def policy_sweep(
     api_key: str | None = None,
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
+    learned_retention_model: str | Path | None = None,
     max_estimated_cost: float | None = None,
     use_openai_backend: bool | None = None,
     seed: int = 0,
@@ -773,6 +1079,7 @@ def policy_sweep(
             api_key=api_key,
             cache_dir=cache_dir,
             max_output_tokens=max_output_tokens,
+            learned_retention_model=learned_retention_model,
             max_estimated_cost=max_estimated_cost,
             initial_cost_estimate=cumulative_cost,
             use_openai_backend=use_openai_backend,
@@ -798,6 +1105,7 @@ def generate_curves(
     api_key: str | None = None,
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
+    learned_retention_model: str | Path | None = None,
 ) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for seed in seeds:
@@ -816,6 +1124,7 @@ def generate_curves(
                     api_key=api_key,
                     cache_dir=cache_dir,
                     max_output_tokens=max_output_tokens,
+                    learned_retention_model=learned_retention_model,
                     seed=seed,
                     dataset_name=dataset_name,
                 )
@@ -830,6 +1139,7 @@ def generate_curves(
                             "answer_accuracy": summary["answer_accuracy"],
                             "provenance_score": summary["provenance_score"],
                             "compactness": summary["compactness"],
+                            "reward_score": summary["reward_score"],
                             "avg_retained_tokens": summary["avg_retained_tokens"],
                             "avg_latency_ms": summary["avg_latency_ms"],
                             "avg_cost_estimate": summary["avg_cost_estimate"],
@@ -848,6 +1158,7 @@ def generate_curves(
                 "answer_accuracy": round(statistics.fmean(row["answer_accuracy"] for row in rows), 3),
                 "provenance_score": round(statistics.fmean(row["provenance_score"] for row in rows), 3),
                 "compactness": round(statistics.fmean(row["compactness"] for row in rows), 3),
+                "reward_score": round(statistics.fmean(row["reward_score"] for row in rows), 3),
                 "avg_retained_tokens": round(statistics.fmean(row["avg_retained_tokens"] for row in rows), 3),
                 "avg_latency_ms": round(statistics.fmean(row["avg_latency_ms"] for row in rows), 3),
                 "avg_cost_estimate": round(statistics.fmean(row["avg_cost_estimate"] for row in rows), 6),
@@ -882,6 +1193,7 @@ def curves_from_summaries(
             "answer_accuracy": summary["answer_accuracy"],
             "provenance_score": summary["provenance_score"],
             "compactness": summary["compactness"],
+            "reward_score": summary.get("reward_score", 0.0),
             "avg_retained_tokens": summary["avg_retained_tokens"],
             "avg_latency_ms": summary["avg_latency_ms"],
             "avg_cost_estimate": summary["avg_cost_estimate"],
@@ -899,6 +1211,7 @@ def curves_from_summaries(
             "answer_accuracy": point["answer_accuracy"],
             "provenance_score": point["provenance_score"],
             "compactness": point["compactness"],
+            "reward_score": point["reward_score"],
             "avg_retained_tokens": point["avg_retained_tokens"],
             "avg_latency_ms": point["avg_latency_ms"],
             "avg_cost_estimate": point["avg_cost_estimate"],
@@ -961,29 +1274,44 @@ def build_dataset(
     seed: int,
     repo_root: str,
     dataset_path: str | Path | None = None,
+    start_index: int = 0,
 ) -> list[BenchmarkExample]:
+    if start_index < 0:
+        raise ValueError("start_index must be non-negative")
+    requested = limit + start_index
+    def window(examples: Sequence[BenchmarkExample]) -> list[BenchmarkExample]:
+        return list(examples[start_index : start_index + limit])
+
     if dataset_name == "pairbench":
-        return build_pairbench(n=limit, seed=seed)
+        return window(build_pairbench(n=requested, seed=seed))
     if dataset_name == "needlepairs":
-        return build_needlepairs(n=limit, seed=seed)
+        return window(build_needlepairs(n=requested, seed=seed))
     if dataset_name == "dossierbench":
-        return build_dossierbench(n=limit, seed=seed)
+        return window(build_dossierbench(n=requested, seed=seed))
+    if dataset_name == "ruler_synthetic":
+        return window(build_ruler_synthetic(n=requested, seed=seed))
+    if dataset_name == "babilong_synthetic":
+        return window(build_babilong_synthetic(n=requested, seed=seed))
     if dataset_name == "verifiers_30":
-        return load_verifiers_30(repo_root, seed=seed)[:limit]
+        return window(load_verifiers_30(repo_root, seed=seed))
     if dataset_name == "verifiers_smoke":
-        return load_verifiers_smoke(repo_root, seed=seed)[:limit]
+        return window(load_verifiers_smoke(repo_root, seed=seed))
     if dataset_name == "external_jsonl":
         if dataset_path is None:
             raise ValueError("--dataset-path is required when --dataset external_jsonl")
-        return load_external_jsonl(dataset_path)[:limit]
+        return window(load_external_jsonl(dataset_path))
     raise ValueError(f"unknown dataset: {dataset_name}")
 
 
 def format_table(rows: Iterable[dict[str, Any]]) -> str:
-    lines = ["| policy | examples | answer | prov | compact | avg toks |", "| --- | ---: | ---: | ---: | ---: | ---: |"]
+    lines = [
+        "| policy | examples | answer | prov | compact | reward | avg toks |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
     for row in rows:
         lines.append(
-            f"| {row['policy']} | {row['examples']} | {row['answer_accuracy']:.3f} | {row['provenance_score']:.3f} | {row['compactness']:.3f} | {row['avg_retained_tokens']:.1f} |"
+            f"| {row['policy']} | {row['examples']} | {row['answer_accuracy']:.3f} | {row['provenance_score']:.3f} | "
+            f"{row['compactness']:.3f} | {row.get('reward_score', 0.0):.3f} | {row['avg_retained_tokens']:.1f} |"
         )
     return "\n".join(lines)
 
@@ -997,8 +1325,9 @@ def _mean_metric(rows: Sequence[dict[str, Any]], key: str) -> float:
     return round(statistics.fmean(_metric(row, key) for row in rows), 3) if rows else 0.0
 
 
-def _policy_rank_key(row: dict[str, Any]) -> tuple[float, float, float, float, str]:
+def _policy_rank_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, str]:
     return (
+        -_metric(row, "reward_score"),
         -_metric(row, "answer_accuracy"),
         -_metric(row, "provenance_score"),
         -_metric(row, "compactness"),
@@ -1034,6 +1363,7 @@ def build_experiment_insights(
             "answer_accuracy": summary["answer_accuracy"],
             "provenance_score": summary["provenance_score"],
             "compactness": summary["compactness"],
+            "reward_score": summary.get("reward_score", 0.0),
             "avg_retained_tokens": summary["avg_retained_tokens"],
             "avg_latency_ms": summary["avg_latency_ms"],
             "total_cost_estimate": summary["total_cost_estimate"],
@@ -1052,6 +1382,7 @@ def build_experiment_insights(
                     "answer_accuracy_delta": round(summary["answer_accuracy"] - baseline["answer_accuracy"], 3),
                     "provenance_score_delta": round(summary["provenance_score"] - baseline["provenance_score"], 3),
                     "compactness_delta": round(summary["compactness"] - baseline["compactness"], 3),
+                    "reward_score_delta": round(summary.get("reward_score", 0.0) - baseline.get("reward_score", 0.0), 3),
                     "avg_retained_tokens_delta": round(summary["avg_retained_tokens"] - baseline["avg_retained_tokens"], 3),
                 }
             )
@@ -1075,6 +1406,7 @@ def build_experiment_insights(
             "answer_accuracy": _mean_metric(rows, "answer_accuracy"),
             "provenance_score": _mean_metric(rows, "provenance_score"),
             "compactness": _mean_metric(rows, "compactness"),
+            "reward_score": _mean_metric(rows, "reward_score"),
             "answer_misses": sum(1 for row in rows if _metric(row, "answer_accuracy") < 1.0),
             "provenance_misses": sum(1 for row in rows if row.get("expected_provenance") and _metric(row, "provenance_score") < 1.0),
         }
@@ -1134,13 +1466,14 @@ def format_experiment_report(
         "",
         "## Policy Ranking",
         "",
-        "| rank | policy | answer | prov | compact | avg toks | cost | status |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| rank | policy | answer | prov | compact | reward | avg toks | cost | status |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in insights["policy_ranking"]:
         lines.append(
             f"| {row['rank']} | `{row['policy']}` | {row['answer_accuracy']:.3f} | {row['provenance_score']:.3f} | "
-            f"{row['compactness']:.3f} | {row['avg_retained_tokens']:.1f} | {row['total_cost_estimate']:.6f} | {_status_label(row)} |"
+            f"{row['compactness']:.3f} | {row.get('reward_score', 0.0):.3f} | {row['avg_retained_tokens']:.1f} | "
+            f"{row['total_cost_estimate']:.6f} | {_status_label(row)} |"
         )
 
     if insights["baseline_policy"] and insights["policy_deltas"]:
@@ -1149,14 +1482,15 @@ def format_experiment_report(
                 "",
                 f"## Deltas Vs `{insights['baseline_policy']}`",
                 "",
-                "| policy | answer delta | prov delta | compact delta | avg toks delta |",
-                "| --- | ---: | ---: | ---: | ---: |",
+                "| policy | answer delta | prov delta | compact delta | reward delta | avg toks delta |",
+                "| --- | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for row in insights["policy_deltas"]:
             lines.append(
                 f"| `{row['policy']}` | {row['answer_accuracy_delta']:+.3f} | {row['provenance_score_delta']:+.3f} | "
-                f"{row['compactness_delta']:+.3f} | {row['avg_retained_tokens_delta']:+.1f} |"
+                f"{row['compactness_delta']:+.3f} | {row.get('reward_score_delta', 0.0):+.3f} | "
+                f"{row['avg_retained_tokens_delta']:+.1f} |"
             )
 
     lines.extend(["", "## Failure Clusters", ""])
@@ -1174,14 +1508,15 @@ def format_experiment_report(
             "",
             "## Task Breakdown",
             "",
-            "| policy | task | examples | answer | prov | compact | answer misses | prov misses |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| policy | task | examples | answer | prov | compact | reward | answer misses | prov misses |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for row in insights["task_breakdown"]:
         lines.append(
             f"| `{row['policy']}` | `{row['task_class']}` | {row['examples']} | {row['answer_accuracy']:.3f} | "
-            f"{row['provenance_score']:.3f} | {row['compactness']:.3f} | {row['answer_misses']} | {row['provenance_misses']} |"
+            f"{row['provenance_score']:.3f} | {row['compactness']:.3f} | {row.get('reward_score', 0.0):.3f} | "
+            f"{row['answer_misses']} | {row['provenance_misses']} |"
         )
 
     lines.extend(
@@ -1222,6 +1557,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dataset-path", type=str, default="")
     parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--start-index", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--budget", type=int, default=120)
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--repo-root", type=str, default="/tmp/nanorlm-verifiers")
@@ -1235,6 +1572,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", type=str, default="")
     parser.add_argument("--api-key", type=str, default="")
     parser.add_argument("--cache-dir", type=str, default="")
+    parser.add_argument("--learned-retention-model", type=str, default="")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=1024)
     parser.add_argument(
@@ -1259,9 +1597,10 @@ def main() -> None:
         examples = build_dataset(
             args.dataset,
             limit=args.limit,
-            seed=0,
+            seed=args.seed,
             repo_root=args.repo_root,
             dataset_path=args.dataset_path or None,
+            start_index=args.start_index,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -1277,7 +1616,9 @@ def main() -> None:
         api_key=args.api_key or None,
         cache_dir=cache_dir,
         max_output_tokens=args.max_output_tokens,
+        learned_retention_model=args.learned_retention_model or None,
         max_estimated_cost=args.max_estimated_cost,
+        seed=args.seed,
         dataset_name=args.dataset,
     )
     print(format_table(summaries))
@@ -1294,6 +1635,7 @@ def main() -> None:
                 seed=seed,
                 repo_root=args.repo_root,
                 dataset_path=args.dataset_path or None,
+                start_index=args.start_index,
             ),
             policies=policies,
             budgets=curve_budgets,
@@ -1305,6 +1647,7 @@ def main() -> None:
             api_key=args.api_key or None,
             cache_dir=cache_dir,
             max_output_tokens=args.max_output_tokens,
+            learned_retention_model=args.learned_retention_model or None,
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
@@ -1317,12 +1660,15 @@ def main() -> None:
             command=" ".join(["python", "bench.py", *filter(None, [
                 f"--dataset {args.dataset}",
                 f"--limit {args.limit}",
+                f"--start-index {args.start_index}",
+                f"--seed {args.seed}",
                 f"--budget {args.budget}",
                 f"--depth {args.depth}",
                 f"--provider {args.provider}",
                 f"--dataset-path {args.dataset_path}" if args.dataset_path else "",
                 f"--base-url {args.base_url}" if args.base_url else "",
                 f"--cache-dir {args.cache_dir}" if cache_dir else "",
+                f"--learned-retention-model {args.learned_retention_model}" if args.learned_retention_model else "",
                 f"--max-output-tokens {args.max_output_tokens}",
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),

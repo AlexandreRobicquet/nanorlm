@@ -28,11 +28,14 @@ uv lock --check
 uv sync --frozen
 uv run python -m unittest discover -s tests -v
 uv run --with pytest pytest
-uv run python -m py_compile nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python bench.py --dataset ruler_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
+uv run python bench.py --dataset babilong_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 2 --learned-eval-limit 2
 ```
 
 You should see:
