@@ -32,7 +32,7 @@ from bench import (
 )
 from nanorlm import AnswerResult, ContextBlock, HeuristicBackend, InspectionResult, MemoryItem, RLM, RLMConfig, Usage
 from scripts.prepare_ruler_external_jsonl import convert_row
-from scripts.train_learned_retention import label_block
+from scripts.train_learned_retention import label_block, label_memory_item
 from scripts.train_learned_retention import run as run_learned_retention_training
 
 
@@ -183,18 +183,46 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual([example.name for example in examples], ["pair-003", "pair-004"])
 
     def test_training_label_keeps_explicit_distractors_negative(self) -> None:
-        example = bench.BenchmarkExample(
-            name="pair-000",
-            query="For pair-000, what is the full code?",
-            context=[],
-            answer="amber comet",
-            must_contain=["amber", "comet"],
-        )
         distractor = ContextBlock(
             name="notes/pair-099-left.md",
             text="PAIR_ID: pair-099\nFACT_VALUE: amber\nSLOT: distractor\npair-099 left token is amber; belongs to another pair.",
         )
+        durable = ContextBlock(
+            name="vault/pair-000-right.md",
+            text="PAIR_ID: pair-000\nFACT_VALUE: comet\nSLOT: durable\npair-000 right token is comet.",
+        )
+        example = bench.BenchmarkExample(
+            name="pair-000",
+            query="For pair-000, what is the full code?",
+            context=[distractor, durable],
+            answer="amber comet",
+            must_contain=["amber", "comet"],
+        )
         self.assertFalse(label_block(distractor, example))
+        distractor_item = MemoryItem(
+            summary=distractor.text,
+            provenance=distractor.name,
+            raw_pointer="pair-000.0",
+            tokens=12,
+            depth=1,
+            timestamp=1.0,
+            metadata={"source_paths": [distractor.name], "block_names": [distractor.name]},
+        )
+        self.assertFalse(label_memory_item(distractor_item, example))
+
+        mixed_item = MemoryItem(
+            summary=f"{distractor.text}\n{durable.text}",
+            provenance=f"{distractor.name}, {durable.name}",
+            raw_pointer="pair-000.mixed",
+            tokens=24,
+            depth=1,
+            timestamp=2.0,
+            metadata={
+                "source_paths": [distractor.name, durable.name],
+                "block_names": [distractor.name, durable.name],
+            },
+        )
+        self.assertTrue(label_memory_item(mixed_item, example))
 
     def test_synthetic_long_context_slices_run_with_learned_retention(self) -> None:
         for dataset_name, examples, budget, depth in [

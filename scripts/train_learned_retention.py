@@ -101,14 +101,22 @@ def label_block(block: ContextBlock, example: BenchmarkExample) -> bool:
 
 
 def label_memory_item(item: MemoryItem, example: BenchmarkExample) -> bool:
-    provenance_blob = normalize_text(
-        " ".join([item.provenance, *item_source_paths(item), *map(str, item.metadata.get("block_names", []))])
-    )
+    source_paths = set(item_source_paths(item))
+    raw_block_names = item.metadata.get("block_names", [])
+    block_names = {str(name) for name in raw_block_names} if isinstance(raw_block_names, list) else set()
+    provenance_blob = normalize_text(" ".join([item.provenance, *source_paths, *block_names]))
     for expected in example.expected_provenance:
         expected_path = normalize_text(expected)
         expected_name = normalize_text(Path(expected).name)
         if (expected_path and expected_path in provenance_blob) or (expected_name and expected_name in provenance_blob):
             return True
+    source_blocks = [
+        block
+        for block in example.context
+        if block.name in block_names or str(block.metadata.get("path", block.name)) in source_paths
+    ]
+    if source_blocks:
+        return any(label_block(block, example) for block in source_blocks)
     item_blob = normalize_text(f"{item.provenance}\n{item.summary}\n{item.answer_candidate}")
     if any(marker in item_blob for marker in NEGATIVE_SLOT_MARKERS):
         return False
