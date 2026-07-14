@@ -51,6 +51,7 @@ COMPILE_TARGETS = [
     "scripts/prepare_ruler_external_jsonl.py",
     "scripts/train_learned_retention.py",
     "scripts/run_benchmark_e2e.py",
+    "scripts/run_matched_retention.py",
     "examples/run_verifiers.py",
     "examples/run_needlepairs.py",
     "examples/run_dossiers.py",

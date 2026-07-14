@@ -140,6 +140,34 @@ uv run python bench.py \
 
 Because replay preserves the captured usage ledger, `--max-estimated-cost` remains a conservative counterfactual allocation across policies; it is an upper bound on the API work actually issued by a replayed sweep, not a billing receipt.
 
+For a protocol-bound sweep, use `scripts/run_matched_retention.py`. It runs the five frozen policies task-by-task, selects the smallest structurally eligible budget from the development grid, reruns a fixed task in replay-only mode, validates every exported trace with a clean LOOM checkout, and writes a manifest, privacy audit, and checksums. Accuracy is deliberately excluded from budget selection.
+
+The default protocol sweep uses `dossierbench`, `ruler_synthetic`, and `babilong_synthetic`. PairBench remains an engineering fixture and is not included in the protocol model or budget-selection evidence.
+
+The release gate requires a hash-bound learned-retention model and portable training manifest, clean nanoRLM and LOOM commits, and exact 40-character commit bindings. A convenient offline sequence is:
+
+```bash
+uv run python scripts/train_learned_retention.py \
+  --datasets dossierbench,ruler_synthetic,babilong_synthetic \
+  --train-seeds 0,1 \
+  --limit 12 \
+  --repo-root tests/fixtures/verifiers-mini \
+  --dataset-path tests/fixtures/external-benchmark-mini.jsonl \
+  --output-dir outputs/protocol-model
+
+uv run python scripts/run_matched_retention.py \
+  --phase offline \
+  --budgets 96,128,192 \
+  --learned-retention-model outputs/protocol-model/learned_retention_model.json \
+  --learned-retention-training-manifest outputs/protocol-model/manifest.json \
+  --loom-root ../loom \
+  --expected-nanorlm-commit "$(git rev-parse HEAD)" \
+  --expected-loom-commit "$(git -C ../loom rev-parse HEAD)" \
+  --output-dir outputs/matched-retention-offline
+```
+
+The command exits nonzero whenever a release gate fails. Inspect `manifest.json` and each `budget-*/validation.json`; do not treat `smallest_eligible_budget_candidate` as frozen unless `selected_budget` is populated and the manifest status is `passed`.
+
 `direct_full_context` remains an unmatched descriptive reference because it skips recursive inspection and retention. Do not include it in a matched-policy significance claim.
 
 The exporter has no runtime dependency on LOOM. When both repos are available, validate generated traces with LOOM itself:

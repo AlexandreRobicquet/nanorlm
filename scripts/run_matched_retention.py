@@ -1,0 +1,1129 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import platform
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from bench import (  # noqa: E402
+    DATASET_CHOICES,
+    BenchmarkExample,
+    build_dataset,
+    curves_from_summaries,
+    run_dataset,
+    write_report_bundle,
+)
+from nanorlm import slugify  # noqa: E402
+
+
+MATCHED_POLICIES = [
+    "keep_recent",
+    "summary_only",
+    "single_critic_topk",
+    "pairwise_tournament",
+    "learned_retention",
+]
+SIMPLE_POLICIES = ["keep_recent", "summary_only", "single_critic_topk"]
+DEFAULT_BUDGETS = [96, 128, 192]
+PHASES = ("offline", "pilot", "confirmation")
+SCHEMA_VERSION = "0.1"
+FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetSpec:
+    label: str
+    dataset: str
+    path: Path | None = None
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    return sha256_bytes(path.read_bytes())
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def parse_csv_ints(value: str) -> list[int]:
+    values = [int(part.strip()) for part in value.split(",") if part.strip()]
+    if not values or any(item <= 0 for item in values):
+        raise ValueError("budgets must be positive integers")
+    return values
+
+
+def parse_dataset_spec(value: str) -> DatasetSpec:
+    parts = value.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError("dataset spec must be LABEL:DATASET[:PATH]")
+    label, dataset = parts[0].strip(), parts[1].strip()
+    if not label or slugify(label) != label:
+        raise ValueError("dataset label must already be a lowercase filesystem-safe slug")
+    if dataset not in DATASET_CHOICES:
+        raise ValueError(f"unknown dataset in spec {value}: {dataset}")
+    path = Path(parts[2]).expanduser().resolve() if len(parts) == 3 and parts[2].strip() else None
+    if dataset == "external_jsonl" and path is None:
+        raise ValueError(f"external_jsonl spec requires a path: {value}")
+    if dataset != "external_jsonl" and path is not None:
+        raise ValueError(f"only external_jsonl specs accept a path: {value}")
+    return DatasetSpec(label=label, dataset=dataset, path=path)
+
+
+def git_snapshot(path: Path) -> dict[str, Any]:
+    def run(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    status = run("status", "--porcelain")
+    commit = run("rev-parse", "HEAD")
+    return {
+        "is_repository": bool(commit),
+        "commit": commit,
+        "branch": run("branch", "--show-current") or "detached",
+        "clean": not bool(status),
+        "status_entries": len(status.splitlines()) if status else 0,
+    }
+
+
+def commit_binding(snapshot: Mapping[str, Any] | None, expected: str) -> dict[str, Any]:
+    expected = expected.strip().lower()
+    actual = str(snapshot.get("commit", "")).lower() if snapshot else ""
+    if not expected:
+        reason = "expected_commit_missing"
+    elif FULL_GIT_SHA_RE.fullmatch(expected) is None:
+        reason = "expected_commit_not_full_sha"
+    elif not snapshot or not snapshot.get("is_repository"):
+        reason = "repository_unavailable"
+    elif actual != expected:
+        reason = "commit_mismatch"
+    else:
+        reason = None
+    return {"ok": reason is None, "expected": expected or None, "actual": actual or None, "reason": reason}
+
+
+def example_record(spec: DatasetSpec, index: int, example: BenchmarkExample) -> dict[str, Any]:
+    context = [
+        {
+            "index": block_index,
+            "name": block.name,
+            "text_sha256": sha256_bytes(block.text.encode("utf-8")),
+            "estimated_tokens": block.tokens,
+        }
+        for block_index, block in enumerate(example.context)
+    ]
+    payload = {
+        "family": spec.label,
+        "position": index,
+        "name": example.name,
+        "task_class": example.task_class,
+        "query_sha256": sha256_bytes(example.query.encode("utf-8")),
+        "answer_sha256": sha256_bytes(example.answer.encode("utf-8")),
+        "must_contain_sha256": sha256_bytes(canonical_json(example.must_contain).encode("utf-8")),
+        "context": context,
+    }
+    return {"task_id": f"task_{sha256_bytes(canonical_json(payload).encode('utf-8'))[:20]}", **payload}
+
+
+def load_spec_examples(
+    specs: Sequence[DatasetSpec],
+    *,
+    limit: int,
+    start_index: int,
+    seed: int,
+    repo_root: str,
+) -> dict[str, list[BenchmarkExample]]:
+    loaded: dict[str, list[BenchmarkExample]] = {}
+    for spec in specs:
+        examples = build_dataset(
+            spec.dataset,
+            limit=limit,
+            start_index=start_index,
+            seed=seed,
+            repo_root=repo_root,
+            dataset_path=spec.path,
+        )
+        names = [example.name for example in examples]
+        if len(names) != len(set(names)):
+            raise ValueError(f"dataset {spec.label} contains duplicate example names")
+        loaded[spec.label] = examples
+    return loaded
+
+
+def round_robin_tasks(
+    specs: Sequence[DatasetSpec],
+    examples: Mapping[str, Sequence[BenchmarkExample]],
+) -> list[tuple[DatasetSpec, BenchmarkExample]]:
+    ordered: list[tuple[DatasetSpec, BenchmarkExample]] = []
+    max_length = max((len(examples[spec.label]) for spec in specs), default=0)
+    for index in range(max_length):
+        for spec in specs:
+            family = examples[spec.label]
+            if index < len(family):
+                ordered.append((spec, family[index]))
+    return ordered
+
+
+def combine_policy_summaries(
+    parts: Sequence[dict[str, Any]],
+    *,
+    policy: str,
+    dataset: str,
+    requested_examples: int,
+    max_estimated_cost: float | None,
+) -> dict[str, Any]:
+    results = [row for part in parts for row in part.get("results", [])]
+
+    def mean(key: str) -> float:
+        return round(statistics.fmean(float(row.get(key, 0.0)) for row in results), 3) if results else 0.0
+
+    replay_rows = [
+        row["retention_stats"]["inspection_replay"]
+        for row in results
+        if isinstance(row.get("retention_stats", {}).get("inspection_replay"), dict)
+    ]
+    total_cost = round(sum(float(row.get("cost_estimate", 0.0)) for row in results), 6)
+    completed = len(results) == requested_examples and all(part.get("completed", False) for part in parts)
+    return {
+        "dataset": dataset,
+        "policy": policy,
+        "retention_judge": "heuristic",
+        "inspection_replay": {
+            "mode": "capture_or_replay",
+            "captured": sum(int(row.get("captured", 0)) for row in replay_rows),
+            "replayed": sum(int(row.get("replayed", 0)) for row in replay_rows),
+            "stores": len(replay_rows),
+            "store_sha256": sorted(
+                str(row["store_sha256"]) for row in replay_rows if row.get("store_sha256")
+            ),
+        },
+        "examples": len(results),
+        "requested_examples": requested_examples,
+        "accuracy": mean("answer_accuracy"),
+        "answer_accuracy": mean("answer_accuracy"),
+        "provenance_score": mean("provenance_score"),
+        "compactness": mean("compactness"),
+        "reward_score": mean("reward_score"),
+        "avg_retained_tokens": mean("retained_tokens"),
+        "avg_latency_ms": mean("latency_ms"),
+        "avg_cost_estimate": round(total_cost / len(results), 6) if results else 0.0,
+        "total_cost_estimate": total_cost,
+        "initial_cost_estimate": 0.0,
+        "final_cumulative_cost_estimate": total_cost,
+        "max_estimated_cost": max_estimated_cost,
+        "completed": completed,
+        "stop_reason": None if completed else "incomplete_task_blocks",
+        "last_completed_case": results[-1]["name"] if results else None,
+        "results": results,
+    }
+
+
+def candidate_identity(candidate: Mapping[str, Any]) -> tuple[str, str]:
+    raw_input = candidate.get("input_item")
+    source = raw_input if isinstance(raw_input, Mapping) else candidate
+    return str(source.get("raw_pointer", "")), str(source.get("provenance", ""))
+
+
+def decision_signature(row: Mapping[str, Any]) -> list[tuple[tuple[str, str], ...]]:
+    signatures: list[tuple[tuple[str, str], ...]] = []
+    for decision in row.get("retention_decisions", []):
+        selected = sorted(
+            candidate_identity(candidate)
+            for candidate in decision.get("candidates", [])
+            if isinstance(candidate, Mapping) and candidate.get("selected")
+        )
+        signatures.append(tuple(selected))
+    return signatures
+
+
+def normalized_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    usage = row.get("usage", {})
+    return {
+        "answer": row.get("answer"),
+        "retained_tokens": row.get("retained_tokens"),
+        "retained_summaries": row.get("retained_summaries"),
+        "retained_provenance": row.get("retained_provenance"),
+        "decision_signature": decision_signature(row),
+        "usage": {
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "calls": usage.get("calls"),
+        },
+    }
+
+
+def budget_diagnostics(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    budget: int,
+    expected_tasks: int,
+) -> dict[str, Any]:
+    expected_rows = expected_tasks * len(MATCHED_POLICIES)
+    pressures = []
+    budget_violations = []
+    judge_call_violations = []
+    final_call_violations = []
+    for row in rows:
+        decisions = list(row.get("retention_decisions", []))
+        pressures.append(
+            max((float(decision.get("before_tokens", 0)) / budget for decision in decisions), default=0.0)
+        )
+        if int(row.get("retained_tokens", 0)) > budget:
+            budget_violations.append(f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}")
+        for decision_index, decision in enumerate(decisions):
+            if (
+                int(decision.get("budget", -1)) != budget
+                or int(decision.get("after_tokens", budget + 1)) > budget
+            ):
+                budget_violations.append(
+                    f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}:decision-{decision_index}"
+                )
+        judge_calls = sum(
+            int(decision.get("budget_used", {}).get("calls", 0))
+            for decision in decisions
+        )
+        if judge_calls:
+            judge_call_violations.append(f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}")
+        final_calls = int(row.get("stage_budgets", {}).get("final_answer", {}).get("calls", 0))
+        if final_calls != 1:
+            final_call_violations.append(f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}")
+
+    by_task: dict[tuple[str, str], dict[str, Mapping[str, Any]]] = {}
+    for row in rows:
+        by_task.setdefault((str(row.get("dataset")), str(row.get("name"))), {})[
+            str(row.get("policy"))
+        ] = row
+
+    matched_ledger_violations = []
+    replay_hash_violations = []
+    difference_counts = {policy: [0, 0] for policy in SIMPLE_POLICIES}
+    for task_key, policies in sorted(by_task.items()):
+        if set(policies) != set(MATCHED_POLICIES):
+            matched_ledger_violations.append(f"{task_key[0]}:{task_key[1]}:missing-policy")
+            continue
+        inspect_ledgers = {
+            (
+                int(row.get("stage_budgets", {}).get("inspect", {}).get("prompt_tokens", 0)),
+                int(row.get("stage_budgets", {}).get("inspect", {}).get("completion_tokens", 0)),
+                int(row.get("stage_budgets", {}).get("inspect", {}).get("calls", 0)),
+            )
+            for row in policies.values()
+        }
+        if len(inspect_ledgers) != 1:
+            matched_ledger_violations.append(f"{task_key[0]}:{task_key[1]}:inspect-ledger")
+        replay_hashes = {
+            str(row.get("retention_stats", {}).get("inspection_replay", {}).get("store_sha256", ""))
+            for row in policies.values()
+        }
+        if len(replay_hashes) != 1 or "" in replay_hashes:
+            replay_hash_violations.append(f"{task_key[0]}:{task_key[1]}")
+
+        pairwise_signature = decision_signature(policies["pairwise_tournament"])
+        for simple_policy in SIMPLE_POLICIES:
+            simple_signature = decision_signature(policies[simple_policy])
+            count = min(len(pairwise_signature), len(simple_signature))
+            difference_counts[simple_policy][0] += abs(len(pairwise_signature) - len(simple_signature)) + sum(
+                pairwise_signature[index] != simple_signature[index] for index in range(count)
+            )
+            difference_counts[simple_policy][1] += max(len(pairwise_signature), len(simple_signature))
+
+    difference_rates = {
+        policy: round(different / total, 6) if total else 0.0
+        for policy, (different, total) in difference_counts.items()
+    }
+    nonempty_rate = (
+        sum(int(row.get("retained_items", 0)) > 0 for row in rows) / len(rows)
+        if rows
+        else 0.0
+    )
+    median_pressure = statistics.median(pressures) if pressures else 0.0
+    structurally_complete = len(rows) == expected_rows and len(by_task) == expected_tasks
+    distinct = max(difference_rates.values(), default=0.0) >= 0.20
+    eligible = (
+        structurally_complete
+        and nonempty_rate >= 0.95
+        and median_pressure >= 1.5
+        and not budget_violations
+        and not judge_call_violations
+        and not final_call_violations
+        and not matched_ledger_violations
+        and not replay_hash_violations
+        and distinct
+    )
+    return {
+        "budget": budget,
+        "eligible": eligible,
+        "expected_rows": expected_rows,
+        "observed_rows": len(rows),
+        "expected_tasks": expected_tasks,
+        "observed_tasks": len(by_task),
+        "nonempty_rate": round(nonempty_rate, 6),
+        "median_max_pre_retention_pressure": round(median_pressure, 6),
+        "budget_violations": budget_violations,
+        "remote_retention_judge_call_violations": judge_call_violations,
+        "final_answer_call_violations": final_call_violations,
+        "matched_inspection_ledger_violations": matched_ledger_violations,
+        "replay_hash_violations": replay_hash_violations,
+        "pairwise_difference_rates": difference_rates,
+        "distinctness_pass": distinct,
+    }
+
+
+def validate_loom_traces(
+    loom_root: Path | None,
+    trace_paths: Sequence[Path],
+    *,
+    expected_count: int,
+) -> dict[str, Any]:
+    if loom_root is None:
+        return {
+            "available": False,
+            "all_valid": False,
+            "expected_traces": expected_count,
+            "observed_traces": len(trace_paths),
+            "traces": [],
+        }
+    code = (
+        "import json,sys\n"
+        "from loom.trace import load_trace_events,validate_trace\n"
+        "bad=0\n"
+        "for raw in sys.argv[1:]:\n"
+        " events=load_trace_events(raw); report=validate_trace(events)\n"
+        " issues=[str(issue) for issue in report.issues]\n"
+        " print(json.dumps({'path':raw,'ok':report.ok,'events':len(events),'issues':issues}))\n"
+        " bad += 0 if report.ok else 1\n"
+        "raise SystemExit(1 if bad else 0)\n"
+    )
+    command = ["uv", "run", "--project", str(loom_root), "python", "-c", code, *map(str, trace_paths)]
+    result = subprocess.run(command, cwd=loom_root, text=True, capture_output=True, check=False)
+    records = [json.loads(line) for line in result.stdout.splitlines() if line.strip().startswith("{")]
+    by_path = {str(record["path"]): record for record in records}
+    sanitized = []
+    for path in trace_paths:
+        record = by_path.get(str(path), {"ok": False, "events": 0, "issues": ["validator returned no row"]})
+        parts = path.parts
+        display_path = (
+            Path(*parts[parts.index("reports") :]).as_posix()
+            if "reports" in parts
+            else path.name
+        )
+        sanitized.append(
+            {
+                "path": display_path,
+                "ok": bool(record.get("ok")),
+                "events": int(record.get("events", 0)),
+                "issues": list(record.get("issues", [])),
+            }
+        )
+    stderr = result.stderr.strip()
+    return {
+        "available": True,
+        "all_valid": (
+            result.returncode == 0
+            and len(trace_paths) == expected_count
+            and len(records) == len(trace_paths)
+            and all(record["ok"] for record in sanitized)
+        ),
+        "expected_traces": expected_count,
+        "observed_traces": len(trace_paths),
+        "traces": sanitized,
+        "validator_returncode": result.returncode,
+        "validator_stderr_lines": len(stderr.splitlines()) if stderr else 0,
+        "validator_stderr_sha256": sha256_bytes(stderr.encode("utf-8")) if stderr else None,
+    }
+
+
+AUDIT_PATTERNS = {
+    "mac_user_path": re.compile(r"/Users/[^\s\"']+"),
+    "linux_user_path": re.compile(r"/home/[^\s\"']+"),
+    "temporary_path": re.compile(r"/tmp/[^\s\"']+"),
+    "windows_user_path": re.compile(r"[A-Za-z]:\\\\Users\\\\[^\s\"']+"),
+    "openai_style_secret": re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
+    "bearer_secret": re.compile(r"Authorization[^\n]{0,40}Bearer\s+[A-Za-z0-9._-]{12,}", re.IGNORECASE),
+}
+
+
+def release_audit(root: Path, *, excluded: Sequence[str] = ()) -> dict[str, Any]:
+    excluded_set = set(excluded)
+    findings = []
+    scanned = 0
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative = path.relative_to(root).as_posix()
+        if relative in excluded_set:
+            continue
+        data = path.read_bytes()
+        if b"\x00" in data:
+            continue
+        text = data.decode("utf-8", errors="replace")
+        scanned += 1
+        for code, pattern in AUDIT_PATTERNS.items():
+            match = pattern.search(text)
+            if match:
+                findings.append({"file": relative, "code": code, "match_sha256": sha256_bytes(match.group(0).encode())})
+    return {"ok": not findings, "scanned_text_files": scanned, "findings": findings}
+
+
+def artifact_inventory(root: Path, *, excluded: Sequence[str]) -> list[dict[str, Any]]:
+    excluded_set = set(excluded)
+    return [
+        {
+            "path": path.relative_to(root).as_posix(),
+            "bytes": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
+        for path in sorted(item for item in root.rglob("*") if item.is_file())
+        if path.relative_to(root).as_posix() not in excluded_set
+    ]
+
+
+def write_checksums(root: Path, path: Path) -> None:
+    files = [item for item in root.rglob("*") if item.is_file() and item != path]
+    lines = [f"{sha256_file(item)}  {item.relative_to(root).as_posix()}" for item in sorted(files)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_budget(
+    *,
+    phase: str,
+    specs: Sequence[DatasetSpec],
+    examples: Mapping[str, Sequence[BenchmarkExample]],
+    budget: int,
+    budget_root: Path,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    learned_model: Path | None,
+    seed: int,
+    depth: int,
+    max_output_tokens: int,
+    max_estimated_cost: float | None,
+) -> dict[str, Any]:
+    parts: dict[str, dict[str, list[dict[str, Any]]]] = {
+        spec.label: {policy: [] for policy in MATCHED_POLICIES} for spec in specs
+    }
+    ordered_tasks = round_robin_tasks(specs, examples)
+    execution_order = []
+    cumulative_cost = 0.0
+    cost_cap_exceeded = False
+    for task_index, (spec, example) in enumerate(ordered_tasks):
+        if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
+            break
+        block = {"task_index": task_index, "family": spec.label, "name": example.name, "policies": []}
+        for policy in MATCHED_POLICIES:
+            summary = run_dataset(
+                [example],
+                policy,
+                budget=budget,
+                max_depth=depth,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                cache_dir=None,
+                max_output_tokens=max_output_tokens,
+                learned_retention_model=learned_model,
+                output_dir=budget_root / "reports" / spec.label,
+                seed=seed,
+                dataset_name=spec.label,
+                retention_judge="heuristic",
+                inspection_replay_dir=budget_root / "inspection_replay",
+            )
+            if len(summary.get("results", [])) != 1:
+                raise RuntimeError(f"incomplete policy result for {spec.label}:{example.name}:{policy}")
+            row = summary["results"][0]
+            cumulative_cost = round(cumulative_cost + float(row.get("cost_estimate", 0.0)), 6)
+            row["cumulative_cost_estimate"] = cumulative_cost
+            parts[spec.label][policy].append(summary)
+            block["policies"].append(policy)
+        block["cumulative_cost_estimate"] = cumulative_cost
+        execution_order.append(block)
+        if max_estimated_cost is not None and cumulative_cost > max_estimated_cost:
+            cost_cap_exceeded = True
+            break
+
+    all_rows = []
+    report_records = []
+    for spec in specs:
+        summaries = [
+            combine_policy_summaries(
+                parts[spec.label][policy],
+                policy=policy,
+                dataset=spec.label,
+                requested_examples=len(examples[spec.label]),
+                max_estimated_cost=max_estimated_cost,
+            )
+            for policy in MATCHED_POLICIES
+        ]
+        all_rows.extend(row for summary in summaries for row in summary["results"])
+        report_root = budget_root / "reports" / spec.label
+        curves = curves_from_summaries(spec.label, summaries, budget=budget, depth=depth, seed=seed)
+        write_report_bundle(
+            report_root,
+            dataset_name=spec.label,
+            summaries=summaries,
+            curves=curves,
+            command=(
+                "python scripts/run_matched_retention.py "
+                f"--phase {phase} --dataset-spec {spec.label}:{spec.dataset}"
+                f"{':<embedded-dataset-path>' if spec.path else ''} "
+                f"--budgets {budget} --output-dir <bundle>"
+            ),
+        )
+        report_records.append(
+            {
+                "family": spec.label,
+                "path": (Path("reports") / spec.label).as_posix(),
+                "rows": sum(len(summary["results"]) for summary in summaries),
+            }
+        )
+
+    diagnostics = budget_diagnostics(all_rows, budget=budget, expected_tasks=len(ordered_tasks))
+    diagnostics["cost_cap_exceeded"] = cost_cap_exceeded
+    diagnostics["total_estimated_cost"] = cumulative_cost
+    diagnostics["eligible"] = diagnostics["eligible"] and not cost_cap_exceeded
+    return {
+        "budget": budget,
+        "root": budget_root,
+        "rows": all_rows,
+        "diagnostics": diagnostics,
+        "execution_order": execution_order,
+        "reports": report_records,
+    }
+
+
+def determinism_check(
+    budget_result: Mapping[str, Any],
+    *,
+    first_spec: DatasetSpec,
+    first_example: BenchmarkExample,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    learned_model: Path | None,
+    seed: int,
+    depth: int,
+    max_output_tokens: int,
+) -> dict[str, Any]:
+    budget = int(budget_result["budget"])
+    original_rows = {
+        str(row["policy"]): row
+        for row in budget_result["rows"]
+        if row["dataset"] == first_spec.label and row["name"] == first_example.name
+    }
+    mismatches = []
+    for policy in MATCHED_POLICIES:
+        rerun = run_dataset(
+            [first_example],
+            policy,
+            budget=budget,
+            max_depth=depth,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            cache_dir=None,
+            max_output_tokens=max_output_tokens,
+            learned_retention_model=learned_model,
+            output_dir=None,
+            seed=seed,
+            dataset_name=first_spec.label,
+            retention_judge="heuristic",
+            inspection_replay_dir=Path(budget_result["root"]) / "inspection_replay",
+            inspection_replay_mode="replay_only",
+        )
+        candidate = rerun["results"][0]
+        if normalized_row(original_rows[policy]) != normalized_row(candidate):
+            mismatches.append(policy)
+    return {"ok": not mismatches, "task": f"{first_spec.label}:{first_example.name}", "mismatches": mismatches}
+
+
+def copy_dataset_sources(output_root: Path, specs: Sequence[DatasetSpec]) -> list[dict[str, Any]]:
+    records = []
+    for spec in specs:
+        if spec.path is None:
+            records.append({"label": spec.label, "dataset": spec.dataset, "embedded": False})
+            continue
+        destination = output_root / "datasets" / f"{spec.label}.jsonl"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(spec.path, destination)
+        records.append(
+            {
+                "label": spec.label,
+                "dataset": spec.dataset,
+                "embedded": True,
+                "path": destination.relative_to(output_root).as_posix(),
+                "sha256": sha256_file(destination),
+            }
+        )
+    return records
+
+
+def reproduction_argv_template(
+    args: argparse.Namespace,
+    specs: Sequence[DatasetSpec],
+    budgets: Sequence[int],
+) -> list[str]:
+    argv = ["uv", "run", "python", "scripts/run_matched_retention.py", "--phase", args.phase]
+    for spec in specs:
+        value = f"{spec.label}:{spec.dataset}"
+        if spec.path is not None:
+            value += f":<bundle>/datasets/{spec.label}.jsonl"
+        argv.extend(["--dataset-spec", value])
+    argv.extend(
+        [
+            "--limit",
+            str(args.limit),
+            "--start-index",
+            str(args.start_index),
+            "--seed",
+            str(args.seed),
+            "--budgets",
+            ",".join(map(str, budgets)),
+            "--depth",
+            str(args.depth),
+            "--max-output-tokens",
+            str(args.max_output_tokens),
+            "--provider",
+            args.provider,
+            "--model",
+            args.model,
+        ]
+    )
+    if args.base_url:
+        endpoint_hash = sha256_bytes(args.base_url.encode("utf-8"))[:16]
+        argv.extend(["--base-url", f"<endpoint-sha256-{endpoint_hash}>"])
+    if args.learned_retention_model:
+        argv.extend(
+            [
+                "--learned-retention-model",
+                "<bundle>/artifacts/learned_retention_training/learned_retention_model.json",
+            ]
+        )
+    if args.learned_retention_training_manifest:
+        argv.extend(
+            [
+                "--learned-retention-training-manifest",
+                "<bundle>/artifacts/learned_retention_training/manifest.json",
+            ]
+        )
+    if args.max_estimated_cost is not None:
+        argv.extend(["--max-estimated-cost", str(args.max_estimated_cost)])
+    if any(spec.dataset == "verifiers_smoke" for spec in specs):
+        argv.extend(["--repo-root", "<verifiers-checkout>"])
+    argv.extend(
+        [
+            "--loom-root",
+            "<loom-checkout>",
+            "--expected-nanorlm-commit",
+            args.expected_nanorlm_commit or "<full-nanorlm-commit>",
+            "--expected-loom-commit",
+            args.expected_loom_commit or "<full-loom-commit>",
+            "--output-dir",
+            "<empty-output-dir>",
+        ]
+    )
+    return argv
+
+
+def copy_learned_training_bundle(
+    source_manifest: Path,
+    supplied_model: Path,
+    output_root: Path,
+) -> tuple[Path, Path, dict[str, Any]]:
+    payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("status") != "trained":
+        raise ValueError("learned-retention training manifest must have status=trained")
+    training = payload.get("training")
+    if not isinstance(training, dict):
+        raise ValueError("learned-retention training manifest is missing training metadata")
+    if training.get("source") != "offline_trace_training":
+        raise ValueError("learned-retention model must come from offline trace training")
+    if training.get("training_source") != "traces" or training.get("objective") != "pairwise":
+        raise ValueError("learned-retention model must use pairwise training over decision traces")
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict) or not isinstance(artifacts.get("model"), dict):
+        raise ValueError("learned-retention training manifest is missing artifact hashes")
+    repository = payload.get("repository")
+    if (
+        not isinstance(repository, dict)
+        or FULL_GIT_SHA_RE.fullmatch(str(repository.get("commit", ""))) is None
+        or repository.get("clean") is not True
+    ):
+        raise ValueError("learned-retention training manifest must bind a clean full git commit")
+
+    source_root = source_manifest.parent.resolve()
+    destination_root = output_root / "artifacts" / "learned_retention_training"
+    copied = []
+    model_destination: Path | None = None
+    supplied_hash = sha256_file(supplied_model)
+    for name, record in artifacts.items():
+        if record is None:
+            continue
+        if not isinstance(record, dict) or record.get("external"):
+            raise ValueError(f"learned-retention artifact must be bundle-local: {name}")
+        relative = Path(str(record.get("path", "")))
+        if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"learned-retention artifact has unsafe path: {name}")
+        source = (source_root / relative).resolve()
+        try:
+            source.relative_to(source_root)
+        except ValueError as exc:
+            raise ValueError(f"learned-retention artifact escapes manifest root: {name}") from exc
+        if not source.is_file():
+            raise ValueError(f"learned-retention artifact is missing: {name}")
+        actual_hash = sha256_file(source)
+        if actual_hash != record.get("sha256"):
+            raise ValueError(f"learned-retention artifact hash mismatch: {name}")
+        destination = destination_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        copied.append({"name": name, "path": relative.as_posix(), "sha256": actual_hash})
+        if name == "model":
+            model_destination = destination
+            if actual_hash != supplied_hash:
+                raise ValueError("supplied learned-retention model does not match its training manifest")
+    if model_destination is None:
+        raise ValueError("learned-retention training manifest did not resolve a model artifact")
+    manifest_destination = destination_root / "manifest.json"
+    shutil.copyfile(source_manifest, manifest_destination)
+    return model_destination, manifest_destination, {
+        "ok": True,
+        "manifest_sha256": sha256_file(manifest_destination),
+        "training_repository_commit": repository["commit"],
+        "artifacts": copied,
+    }
+
+
+def execute(args: argparse.Namespace) -> dict[str, Any]:
+    specs = [parse_dataset_spec(value) for value in args.dataset_spec]
+    if len({spec.label for spec in specs}) != len(specs):
+        raise ValueError("dataset labels must be unique")
+    budgets = parse_csv_ints(args.budgets)
+    if args.phase != "offline" and len(budgets) != 1:
+        raise ValueError("pilot and confirmation phases require exactly one frozen budget")
+    if args.phase == "offline" and args.provider != "heuristic":
+        raise ValueError("offline phase must use the heuristic provider")
+    if args.phase != "offline" and (
+        not args.learned_retention_model or not args.learned_retention_training_manifest
+    ):
+        raise ValueError(
+            "pilot and confirmation require a frozen learned-retention model and training manifest"
+        )
+    if args.learned_retention_training_manifest and not args.learned_retention_model:
+        raise ValueError("a learned-retention training manifest requires its model")
+
+    output_root = Path(args.output_dir).expanduser().resolve()
+    if output_root.exists() and any(output_root.iterdir()):
+        raise ValueError(f"output directory must be empty: {output_root}")
+    output_root.mkdir(parents=True, exist_ok=True)
+    loom_root = Path(args.loom_root).expanduser().resolve() if args.loom_root else None
+    source_learned_model = (
+        Path(args.learned_retention_model).expanduser().resolve()
+        if args.learned_retention_model
+        else None
+    )
+    source_training_manifest = (
+        Path(args.learned_retention_training_manifest).expanduser().resolve()
+        if args.learned_retention_training_manifest
+        else None
+    )
+    learned_model: Path | None = None
+    training_manifest: Path | None = None
+    training_bundle_validation: dict[str, Any] | None = None
+    if source_learned_model is not None:
+        if not source_learned_model.is_file():
+            raise ValueError(f"learned-retention model does not exist: {source_learned_model}")
+        if source_training_manifest is not None:
+            if not source_training_manifest.is_file():
+                raise ValueError(
+                    f"learned-retention training manifest does not exist: {source_training_manifest}"
+                )
+            learned_model, training_manifest, training_bundle_validation = copy_learned_training_bundle(
+                source_training_manifest,
+                source_learned_model,
+                output_root,
+            )
+        else:
+            learned_model = output_root / "artifacts" / "learned_retention_model.json"
+            learned_model.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_learned_model, learned_model)
+    examples = load_spec_examples(
+        specs,
+        limit=args.limit,
+        start_index=args.start_index,
+        seed=args.seed,
+        repo_root=args.repo_root,
+    )
+    ordered_tasks = round_robin_tasks(specs, examples)
+    if not ordered_tasks:
+        raise ValueError("dataset specs produced no tasks")
+
+    code_snapshot = git_snapshot(ROOT)
+    loom_snapshot = git_snapshot(loom_root) if loom_root else None
+    dataset_records = copy_dataset_sources(output_root, specs)
+    task_records = [
+        example_record(spec, index, example)
+        for index, (spec, example) in enumerate(ordered_tasks)
+    ]
+    task_manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "seed": args.seed,
+        "start_index": args.start_index,
+        "limit_per_family": args.limit,
+        "ordering": "round_robin_family_then_source_index",
+        "answer_evaluator": {
+            "name": "normalized_required_substring_all",
+            "implementation": "bench.score_answer",
+            "case_sensitive": False,
+        },
+        "tasks": task_records,
+    }
+    write_json(output_root / "task_manifest.json", task_manifest)
+
+    budget_results = []
+    for budget in budgets:
+        budget_root = output_root / f"budget-{budget:03d}"
+        budget_root.mkdir(parents=True, exist_ok=True)
+        result = run_budget(
+            phase=args.phase,
+            specs=specs,
+            examples=examples,
+            budget=budget,
+            budget_root=budget_root,
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url or None,
+            learned_model=learned_model,
+            seed=args.seed,
+            depth=args.depth,
+            max_output_tokens=args.max_output_tokens,
+            max_estimated_cost=args.max_estimated_cost,
+        )
+        result["determinism"] = (
+            determinism_check(
+                result,
+                first_spec=ordered_tasks[0][0],
+                first_example=ordered_tasks[0][1],
+                provider=args.provider,
+                model=args.model,
+                base_url=args.base_url or None,
+                learned_model=learned_model,
+                seed=args.seed,
+                depth=args.depth,
+                max_output_tokens=args.max_output_tokens,
+            )
+            if args.phase == "offline"
+            else {"ok": True, "not_run": "real-model phase uses frozen offline determinism evidence"}
+        )
+        trace_paths = sorted(budget_root.glob("reports/*/loom_traces/*/*.jsonl"))
+        result["loom_validation"] = validate_loom_traces(
+            loom_root,
+            trace_paths,
+            expected_count=len(result["rows"]),
+        )
+        write_json(
+            budget_root / "validation.json",
+            {
+                "diagnostics": result["diagnostics"],
+                "determinism": result["determinism"],
+                "loom_validation": result["loom_validation"],
+            },
+        )
+        budget_results.append(result)
+
+    eligible_budgets = sorted(
+        int(result["budget"])
+        for result in budget_results
+        if result["diagnostics"]["eligible"]
+        and result["determinism"]["ok"]
+        and result["loom_validation"]["all_valid"]
+    )
+    candidate_budget = eligible_budgets[0] if eligible_budgets else None
+    frozen_learned_artifact = bool(
+        learned_model is not None
+        and training_manifest is not None
+        and training_bundle_validation
+        and training_bundle_validation["ok"]
+        and training_bundle_validation["training_repository_commit"] == code_snapshot["commit"]
+    )
+    selected_budget = candidate_budget if frozen_learned_artifact else None
+    commit_bindings = {
+        "nanorlm": commit_binding(code_snapshot, args.expected_nanorlm_commit),
+        "loom": commit_binding(loom_snapshot, args.expected_loom_commit),
+    }
+    gate_checks = {
+        "nanorlm_repository": bool(code_snapshot["is_repository"]),
+        "nanorlm_clean": bool(code_snapshot["clean"]),
+        "loom_repository": bool(loom_snapshot and loom_snapshot["is_repository"]),
+        "loom_clean": bool(loom_snapshot and loom_snapshot["clean"]),
+        "commit_bindings": all(binding["ok"] for binding in commit_bindings.values()),
+        "frozen_learned_model": learned_model is not None,
+        "frozen_learned_training_manifest": frozen_learned_artifact,
+        "training_code_matches_runtime": bool(
+            training_bundle_validation
+            and training_bundle_validation.get("training_repository_commit") == code_snapshot["commit"]
+        ),
+        "eligible_budget": selected_budget is not None,
+        "all_determinism_checks": all(result["determinism"]["ok"] for result in budget_results),
+        "all_loom_traces_valid": all(result["loom_validation"]["all_valid"] for result in budget_results),
+        "all_phase_diagnostics": (
+            args.phase == "offline"
+            or all(result["diagnostics"]["eligible"] for result in budget_results)
+        ),
+    }
+    inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
+    inventory = artifact_inventory(output_root, excluded=inventory_exclusions)
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "phase": args.phase,
+        "status": "pending_release_audit",
+        "repositories": {"nanorlm": code_snapshot, "loom": loom_snapshot},
+        "commit_bindings": commit_bindings,
+        "environment": {
+            "python": platform.python_version(),
+            "implementation": platform.python_implementation(),
+            "platform": platform.platform(),
+            "uv_lock_sha256": sha256_file(ROOT / "uv.lock"),
+        },
+        "reproduction": {
+            "argv_template": reproduction_argv_template(args, specs, budgets),
+            "note": "Replace angle-bracket placeholders with paths or the endpoint matching the recorded hashes.",
+        },
+        "configuration": {
+            "policies": MATCHED_POLICIES,
+            "retention_judge": "heuristic",
+            "provider": args.provider,
+            "model": args.model,
+            "base_url_sha256": sha256_bytes((args.base_url or "").encode("utf-8")),
+            "max_depth": args.depth,
+            "max_steps": 256,
+            "max_output_tokens": args.max_output_tokens,
+            "budgets": budgets,
+            "max_estimated_cost": args.max_estimated_cost,
+            "seed": args.seed,
+            "learned_model_sha256": sha256_file(learned_model) if learned_model else None,
+            "learned_model_source": "external_frozen_artifact" if learned_model else "built_in_development_default",
+            "learned_training_manifest": (
+                {
+                    "path": training_manifest.relative_to(output_root).as_posix(),
+                    "sha256": sha256_file(training_manifest),
+                    "validation": training_bundle_validation,
+                }
+                if training_manifest
+                else None
+            ),
+        },
+        "datasets": dataset_records,
+        "task_manifest": {
+            "path": "task_manifest.json",
+            "sha256": sha256_file(output_root / "task_manifest.json"),
+            "tasks": len(task_records),
+        },
+        "budget_results": [
+            {
+                "budget": result["budget"],
+                "diagnostics": result["diagnostics"],
+                "determinism": result["determinism"],
+                "loom_validation": result["loom_validation"],
+                "reports": result["reports"],
+                "execution_order": result["execution_order"],
+            }
+            for result in budget_results
+        ],
+        "eligible_budgets": eligible_budgets,
+        "smallest_eligible_budget_candidate": candidate_budget,
+        "selected_budget": selected_budget,
+        "gate_checks": gate_checks,
+        "artifact_inventory": inventory,
+        "release_audit": {"pending": True},
+        "checksums": "checksums.txt",
+    }
+    write_json(output_root / "manifest.json", manifest)
+    audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
+    gate_checks["release_audit"] = audit["ok"]
+    gate_pass = all(gate_checks.values())
+    manifest["release_audit"] = audit
+    manifest["status"] = "passed" if gate_pass else "failed"
+    write_json(output_root / "manifest.json", manifest)
+    final_audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
+    write_json(output_root / "release_audit.json", final_audit)
+    if final_audit["ok"] != audit["ok"]:
+        manifest["release_audit"] = final_audit
+        manifest["status"] = "failed"
+        write_json(output_root / "manifest.json", manifest)
+    write_checksums(output_root, output_root / "checksums.txt")
+    return manifest
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the preregistered matched-retention bundle workflow.")
+    parser.add_argument("--phase", choices=PHASES, default="offline")
+    parser.add_argument(
+        "--dataset-spec",
+        action="append",
+        default=[],
+        help="Repeat LABEL:DATASET[:PATH]; defaults to the three protocol development families.",
+    )
+    parser.add_argument("--limit", type=int, default=4)
+    parser.add_argument("--start-index", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--budgets", default=",".join(map(str, DEFAULT_BUDGETS)))
+    parser.add_argument("--depth", type=int, default=3)
+    parser.add_argument("--max-output-tokens", type=int, default=512)
+    parser.add_argument("--provider", choices=["heuristic", "openai_compatible"], default="heuristic")
+    parser.add_argument("--model", default="demo/heuristic")
+    parser.add_argument("--base-url", default="")
+    parser.add_argument("--learned-retention-model", default="")
+    parser.add_argument("--learned-retention-training-manifest", default="")
+    parser.add_argument("--max-estimated-cost", type=float, default=None)
+    parser.add_argument("--repo-root", default="/tmp/nanorlm-verifiers")
+    parser.add_argument("--loom-root", default="")
+    parser.add_argument("--expected-nanorlm-commit", default="")
+    parser.add_argument("--expected-loom-commit", default="")
+    parser.add_argument("--output-dir", required=True)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.dataset_spec:
+        args.dataset_spec = [
+            "dossierbench:dossierbench",
+            "ruler-synthetic:ruler_synthetic",
+            "babilong-synthetic:babilong_synthetic",
+        ]
+    try:
+        manifest = execute(args)
+    except (OSError, RuntimeError, ValueError) as exc:
+        parser.error(str(exc))
+    print(json.dumps({"status": manifest["status"], "selected_budget": manifest["selected_budget"]}, indent=2))
+    return 0 if manifest["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

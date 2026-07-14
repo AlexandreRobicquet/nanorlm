@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import tempfile
@@ -287,6 +288,15 @@ class NanoRLMTests(unittest.TestCase):
             )
             model_path = Path(manifest["model_path"])
             self.assertTrue(model_path.exists())
+            portable_manifest_text = (Path(tmpdir) / "manifest.json").read_text()
+            portable_manifest = json.loads(portable_manifest_text)
+            self.assertNotIn(tmpdir, portable_manifest_text)
+            self.assertEqual(portable_manifest["model_path"], "learned_retention_model.json")
+            self.assertEqual(len(portable_manifest["repository"]["commit"]), 40)
+            self.assertEqual(
+                portable_manifest["artifacts"]["model"]["sha256"],
+                hashlib.sha256(model_path.read_bytes()).hexdigest(),
+            )
             self.assertEqual(manifest["training"]["training_source"], "traces")
             self.assertEqual(manifest["training"]["objective"], "pairwise")
             self.assertGreater(manifest["training"]["training_pairs"], 0)
