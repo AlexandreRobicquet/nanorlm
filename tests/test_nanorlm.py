@@ -282,6 +282,7 @@ class NanoRLMTests(unittest.TestCase):
 
     def test_learned_retention_training_writes_model_consumed_by_benchmark(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_path = Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"
             manifest = run_learned_retention_training(
                 [
                     "--datasets",
@@ -293,7 +294,7 @@ class NanoRLMTests(unittest.TestCase):
                     "--output-dir",
                     tmpdir,
                     "--dataset-path",
-                    str(Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"),
+                    str(dataset_path),
                 ]
             )
             model_path = Path(manifest["model_path"])
@@ -301,7 +302,17 @@ class NanoRLMTests(unittest.TestCase):
             portable_manifest_text = (Path(tmpdir) / "manifest.json").read_text()
             portable_manifest = json.loads(portable_manifest_text)
             self.assertNotIn(tmpdir, portable_manifest_text)
+            self.assertNotIn(str(ROOT), portable_manifest_text)
+            self.assertNotIn(str(ROOT), model_path.read_text())
             self.assertEqual(portable_manifest["model_path"], "learned_retention_model.json")
+            self.assertEqual(
+                portable_manifest["training"]["repo_root"],
+                "<source-repo>/verifiers-mini",
+            )
+            self.assertEqual(
+                portable_manifest["training"]["dataset_path"],
+                f"<source-dataset>/{dataset_path.name}",
+            )
             self.assertEqual(len(portable_manifest["repository"]["commit"]), 40)
             self.assertEqual(
                 portable_manifest["artifacts"]["model"]["sha256"],

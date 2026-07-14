@@ -413,6 +413,13 @@ def repository_record() -> dict[str, Any]:
     }
 
 
+def portable_source_reference(value: str | None, label: str) -> str | None:
+    if not value:
+        return None
+    name = Path(value).name or label
+    return f"<{label}>/{name}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train a small offline learned_retention model from retention traces.")
     parser.add_argument("--datasets", default=DEFAULT_DATASETS)
@@ -478,8 +485,8 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
             "train_seeds": train_seeds,
             "limit": args.limit,
             "feature_budget": args.feature_budget,
-            "repo_root": args.repo_root,
-            "dataset_path": args.dataset_path,
+            "repo_root": portable_source_reference(args.repo_root, "source-repo"),
+            "dataset_path": portable_source_reference(args.dataset_path, "source-dataset"),
             "training_source": args.training_source,
             "collection_policy": args.collection_policy,
             "trace_trajectories": len(trace_records),
