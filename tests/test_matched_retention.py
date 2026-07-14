@@ -133,6 +133,8 @@ class MatchedRetentionTests(unittest.TestCase):
                     "training.json",
                     "--offline-manifest",
                     "offline.json",
+                    "--expected-offline-sha256",
+                    "a" * 64,
                     "--output-dir",
                     str(output),
                 ]
@@ -346,13 +348,38 @@ class MatchedRetentionTests(unittest.TestCase):
                     },
                 },
                 "task_manifest": {"sha256": "e" * 64},
+                "checksums": "checksums.txt",
             }
-            source = root / "offline.json"
-            source.write_text(json.dumps(payload))
+            source_root = root / "offline"
+            source_root.mkdir()
+            task_artifact = source_root / "task_manifest.json"
+            task_artifact.write_text('{"tasks": []}\n')
+            payload["artifact_inventory"] = [
+                {
+                    "path": "task_manifest.json",
+                    "bytes": task_artifact.stat().st_size,
+                    "sha256": sha256_file(task_artifact),
+                }
+            ]
+            source = source_root / "manifest.json"
+            source.write_text(json.dumps(payload, sort_keys=True))
+            (source_root / "release_audit.json").write_text(
+                json.dumps(payload["release_audit"], sort_keys=True)
+            )
+            checksum_path = source_root / "checksums.txt"
+            checksum_path.write_text(
+                "\n".join(
+                    f"{sha256_file(path)}  {path.relative_to(source_root).as_posix()}"
+                    for path in sorted(source_root.rglob("*"))
+                    if path.is_file() and path != checksum_path
+                )
+                + "\n"
+            )
 
             evidence = copy_and_validate_offline_manifest(
                 source,
                 root / "pilot",
+                expected_manifest_sha256=sha256_file(source),
                 expected_budget=96,
                 expected_loom_commit=loom_commit,
                 learned_model_sha256=model_hash,
@@ -363,11 +390,35 @@ class MatchedRetentionTests(unittest.TestCase):
             self.assertEqual(evidence["offline_nanorlm_commit"], offline_commit)
             self.assertTrue((root / "pilot" / evidence["path"]).is_file())
 
+            with self.assertRaisesRegex(ValueError, "offline manifest SHA-256 mismatch"):
+                copy_and_validate_offline_manifest(
+                    source,
+                    root / "wrong-hash",
+                    expected_manifest_sha256="0" * 64,
+                    expected_budget=96,
+                    expected_loom_commit=loom_commit,
+                    learned_model_sha256=model_hash,
+                    learned_training_manifest_sha256=training_hash,
+                )
+
             with self.assertRaisesRegex(ValueError, "different memory budget"):
                 copy_and_validate_offline_manifest(
                     source,
                     root / "rejected",
+                    expected_manifest_sha256=sha256_file(source),
                     expected_budget=128,
+                    expected_loom_commit=loom_commit,
+                    learned_model_sha256=model_hash,
+                    learned_training_manifest_sha256=training_hash,
+                )
+
+            task_artifact.write_text("tampered\n")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                copy_and_validate_offline_manifest(
+                    source,
+                    root / "tampered",
+                    expected_manifest_sha256=sha256_file(source),
+                    expected_budget=96,
                     expected_loom_commit=loom_commit,
                     learned_model_sha256=model_hash,
                     learned_training_manifest_sha256=training_hash,
@@ -398,6 +449,15 @@ class MatchedRetentionTests(unittest.TestCase):
                     "normalization": "canonical_json_and_portable_local_path_metadata_v1",
                 }
             ]
+            dataset_path = source / "datasets" / "ruler.jsonl"
+            dataset_path.parent.mkdir()
+            dataset_path.write_text('{"name": "case"}\n')
+            task_path = source / "task_manifest.json"
+            task_path.write_text('{"tasks": []}\n')
+            prior_path = source / "prior_evidence" / "offline_manifest.json"
+            prior_path.parent.mkdir()
+            prior_path.write_text('{"status": "passed"}\n')
+            inventory_paths = [dataset_path, task_path, prior_path]
             payload = {
                 "phase": "pilot_preflight",
                 "requested_phase": "pilot",
@@ -415,12 +475,29 @@ class MatchedRetentionTests(unittest.TestCase):
                 "configuration": configuration,
                 "datasets": datasets,
                 "prior_offline_evidence": {"ok": True, "sha256": offline_hash},
+                "artifact_inventory": [
+                    {
+                        "path": path.relative_to(source).as_posix(),
+                        "bytes": path.stat().st_size,
+                        "sha256": sha256_file(path),
+                    }
+                    for path in inventory_paths
+                ],
                 "checksums": "checksums.txt",
             }
             manifest = source / "manifest.json"
             manifest.write_text(json.dumps(payload, sort_keys=True))
-            (source / "checksums.txt").write_text(
-                f"{sha256_file(manifest)}  manifest.json\n"
+            (source / "release_audit.json").write_text(
+                json.dumps(payload["release_audit"], sort_keys=True)
+            )
+            checksum_path = source / "checksums.txt"
+            checksum_path.write_text(
+                "\n".join(
+                    f"{sha256_file(path)}  {path.relative_to(source).as_posix()}"
+                    for path in sorted(source.rglob("*"))
+                    if path.is_file() and path != checksum_path
+                )
+                + "\n"
             )
 
             evidence = copy_and_validate_preflight_manifest(
@@ -438,8 +515,34 @@ class MatchedRetentionTests(unittest.TestCase):
             )
 
             self.assertTrue(evidence["ok"])
-            self.assertEqual(evidence["checksum_index"]["verified_files"], 1)
+            self.assertEqual(evidence["checksum_index"]["verified_files"], 5)
+            self.assertTrue(evidence["checksum_index"]["complete_coverage"])
             self.assertTrue((root / "actual" / evidence["path"]).is_file())
+
+            complete_checksums = checksum_path.read_text()
+            checksum_path.write_text(
+                "\n".join(
+                    line
+                    for line in complete_checksums.splitlines()
+                    if line.endswith("manifest.json") or line.endswith("release_audit.json")
+                )
+                + "\n"
+            )
+            with self.assertRaisesRegex(ValueError, "does not cover the release bundle"):
+                copy_and_validate_preflight_manifest(
+                    manifest,
+                    root / "incomplete",
+                    expected_manifest_sha256=sha256_file(manifest),
+                    phase="pilot",
+                    expected_nanorlm_commit=nanorlm_commit,
+                    expected_loom_commit=loom_commit,
+                    expected_budget=96,
+                    expected_task_manifest_sha256=task_hash,
+                    expected_configuration=configuration,
+                    expected_datasets=datasets,
+                    expected_offline_manifest_sha256=offline_hash,
+                )
+            checksum_path.write_text(complete_checksums)
 
             manifest.write_text("{}\n")
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):

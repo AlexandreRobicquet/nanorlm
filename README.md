@@ -184,15 +184,16 @@ uv run python scripts/run_matched_retention.py \
   --learned-retention-model outputs/protocol-model/learned_retention_model.json \
   --learned-retention-training-manifest outputs/protocol-model/manifest.json \
   --offline-manifest outputs/matched-retention-offline/manifest.json \
+  --expected-offline-sha256 <64-character-offline-manifest-sha256> \
   --loom-root ../loom \
   --expected-nanorlm-commit "$(git rev-parse HEAD)" \
   --expected-loom-commit "$(git -C ../loom rev-parse HEAD)" \
   --output-dir outputs/matched-retention-pilot-preflight
 ```
 
-Preflight validates the source hashes, RULER/BABILong family metadata, task conversion, frozen model and training bundle, passed offline evidence, exact clean commits, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes.
+Preflight validates the source hashes, RULER/BABILong family metadata, task conversion, frozen model and training bundle, expected offline-manifest hash and complete offline-bundle checksum coverage, exact clean commits, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes.
 
-The paid command must use the same arguments without `--preflight-only`, a new empty output directory, and both `--preflight-manifest <passed-preflight>/manifest.json` and `--expected-preflight-sha256 <64-character-manifest-sha256>`. Execution fails before network access unless that passed zero-network bundle has the same nanoRLM/LOOM commits, task manifest, dataset artifacts, model/training hashes, configuration, offline evidence, and valid checksum index. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence.
+The paid command must use the same arguments without `--preflight-only`, a new empty output directory, and both `--preflight-manifest <passed-preflight>/manifest.json` and `--expected-preflight-sha256 <64-character-manifest-sha256>`. Execution fails before network access unless that passed zero-network bundle has the same nanoRLM/LOOM commits, task manifest, dataset artifacts, model/training hashes, configuration, offline evidence, and a checksum index that exactly covers the manifest inventory and release bundle. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence.
 
 The command exits nonzero whenever a release gate fails. Inspect `manifest.json` and each `budget-*/validation.json`; do not treat `smallest_eligible_budget_candidate` as frozen unless `selected_budget` is populated and the manifest status is `passed`.
 

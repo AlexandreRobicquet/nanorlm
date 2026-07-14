@@ -945,6 +945,8 @@ def reproduction_argv_template(
         )
     if args.offline_manifest:
         argv.extend(["--offline-manifest", "<passed-offline-bundle>/manifest.json"])
+    if args.expected_offline_sha256:
+        argv.extend(["--expected-offline-sha256", args.expected_offline_sha256])
     if args.preflight_manifest:
         argv.extend(["--preflight-manifest", f"<passed-{args.phase}-preflight-bundle>/manifest.json"])
     if args.expected_preflight_sha256:
@@ -1041,11 +1043,17 @@ def copy_and_validate_offline_manifest(
     source_manifest: Path,
     output_root: Path,
     *,
+    expected_manifest_sha256: str,
     expected_budget: int,
     expected_loom_commit: str,
     learned_model_sha256: str,
     learned_training_manifest_sha256: str,
 ) -> dict[str, Any]:
+    if SHA256_RE.fullmatch(expected_manifest_sha256) is None:
+        raise ValueError("expected offline manifest SHA-256 must be 64 lowercase hex characters")
+    source_hash = sha256_file(source_manifest)
+    if source_hash != expected_manifest_sha256:
+        raise ValueError("offline manifest SHA-256 mismatch")
     payload = json.loads(source_manifest.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("phase") != "offline" or payload.get("status") != "passed":
         raise ValueError("prior offline manifest must be a passed offline bundle")
@@ -1090,6 +1098,19 @@ def copy_and_validate_offline_manifest(
         str(task_manifest.get("sha256", ""))
     ) is None:
         raise ValueError("prior offline manifest is missing its task-manifest hash")
+    checksum_name = str(payload.get("checksums", ""))
+    checksum_relative = Path(checksum_name)
+    if (
+        not checksum_relative.parts
+        or checksum_relative.is_absolute()
+        or ".." in checksum_relative.parts
+    ):
+        raise ValueError("prior offline manifest has an unsafe checksum index path")
+    checksum_validation = verify_checksum_index(
+        source_manifest.parent.resolve(),
+        (source_manifest.parent / checksum_relative).resolve(),
+        artifact_inventory=payload.get("artifact_inventory"),
+    )
 
     destination = output_root / "prior_evidence" / "offline_manifest.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -1103,44 +1124,104 @@ def copy_and_validate_offline_manifest(
         "offline_task_manifest_sha256": task_manifest["sha256"],
         "training_repository_commit": training_validation["training_repository_commit"],
         "selected_budget": expected_budget,
+        "checksum_index": checksum_validation,
     }
 
 
-def verify_checksum_index(root: Path, index_path: Path) -> dict[str, Any]:
+def verify_checksum_index(
+    root: Path,
+    index_path: Path,
+    *,
+    artifact_inventory: Any,
+) -> dict[str, Any]:
     resolved_root = root.resolve()
     resolved_index = index_path.resolve()
     try:
         resolved_index.relative_to(resolved_root)
     except ValueError as exc:
-        raise ValueError("preflight checksum index escapes its bundle") from exc
+        raise ValueError("checksum index escapes its bundle") from exc
     if not resolved_index.is_file():
-        raise ValueError("preflight bundle is missing its checksum index")
-    verified = []
+        raise ValueError("release bundle is missing its checksum index")
+    if not isinstance(artifact_inventory, list):
+        raise ValueError("release manifest is missing its artifact inventory")
+
+    inventory_hashes: dict[str, str] = {}
+    reserved_paths = {
+        resolved_index.relative_to(resolved_root).as_posix(),
+        "manifest.json",
+        "release_audit.json",
+    }
+    for position, record in enumerate(artifact_inventory, start=1):
+        if not isinstance(record, dict):
+            raise ValueError(f"invalid artifact inventory entry at position {position}")
+        relative_value = str(record.get("path", ""))
+        digest = str(record.get("sha256", ""))
+        relative = Path(relative_value)
+        if (
+            not relative.parts
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or relative.as_posix() in reserved_paths
+            or SHA256_RE.fullmatch(digest) is None
+        ):
+            raise ValueError(f"invalid artifact inventory entry at position {position}")
+        relative_name = relative.as_posix()
+        if relative_name in inventory_hashes:
+            raise ValueError(f"duplicate artifact inventory path: {relative_name}")
+        inventory_hashes[relative_name] = digest
+
+    verified: dict[str, str] = {}
     for line_number, line in enumerate(resolved_index.read_text(encoding="utf-8").splitlines(), start=1):
         digest, separator, relative_value = line.partition("  ")
         if not separator or SHA256_RE.fullmatch(digest) is None:
-            raise ValueError(f"invalid preflight checksum entry at line {line_number}")
+            raise ValueError(f"invalid checksum entry at line {line_number}")
         relative = Path(relative_value)
         if not relative.parts or relative.is_absolute() or ".." in relative.parts:
-            raise ValueError(f"unsafe preflight checksum path at line {line_number}")
+            raise ValueError(f"unsafe checksum path at line {line_number}")
         artifact = (resolved_root / relative).resolve()
         try:
             artifact.relative_to(resolved_root)
         except ValueError as exc:
-            raise ValueError(f"preflight checksum path escapes bundle at line {line_number}") from exc
+            raise ValueError(f"checksum path escapes bundle at line {line_number}") from exc
         if not artifact.is_file() or sha256_file(artifact) != digest:
-            raise ValueError(f"preflight checksum mismatch: {relative.as_posix()}")
+            raise ValueError(f"checksum mismatch: {relative.as_posix()}")
         relative_name = relative.as_posix()
         if relative_name in verified:
-            raise ValueError(f"duplicate preflight checksum path: {relative_name}")
-        verified.append(relative_name)
-    if "manifest.json" not in verified:
-        raise ValueError("preflight checksum index does not bind manifest.json")
+            raise ValueError(f"duplicate checksum path: {relative_name}")
+        verified[relative_name] = digest
+
+    actual_paths = {
+        item.relative_to(resolved_root).as_posix()
+        for item in resolved_root.rglob("*")
+        if item.is_file() and item.resolve() != resolved_index
+    }
+    indexed_paths = set(verified)
+    if indexed_paths != actual_paths:
+        missing = sorted(actual_paths - indexed_paths)
+        unexpected = sorted(indexed_paths - actual_paths)
+        raise ValueError(
+            "checksum index does not cover the release bundle exactly: "
+            f"missing={missing[:5]}, unexpected={unexpected[:5]}"
+        )
+
+    expected_paths = set(inventory_hashes) | {"manifest.json", "release_audit.json"}
+    if indexed_paths != expected_paths:
+        missing = sorted(expected_paths - indexed_paths)
+        unexpected = sorted(indexed_paths - expected_paths)
+        raise ValueError(
+            "checksum index does not match the manifest artifact inventory: "
+            f"missing={missing[:5]}, unexpected={unexpected[:5]}"
+        )
+    for relative_name, expected_digest in inventory_hashes.items():
+        if verified[relative_name] != expected_digest:
+            raise ValueError(f"artifact inventory hash mismatch: {relative_name}")
     return {
         "ok": True,
         "path": resolved_index.relative_to(resolved_root).as_posix(),
         "sha256": sha256_file(resolved_index),
         "verified_files": len(verified),
+        "inventory_files": len(inventory_hashes),
+        "complete_coverage": True,
     }
 
 
@@ -1222,6 +1303,7 @@ def copy_and_validate_preflight_manifest(
     checksum_validation = verify_checksum_index(
         source_manifest.parent.resolve(),
         (source_manifest.parent / checksum_relative).resolve(),
+        artifact_inventory=payload.get("artifact_inventory"),
     )
 
     destination = output_root / "prior_evidence" / f"{phase}_preflight_manifest.json"
@@ -1295,8 +1377,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             "pilot and confirmation require a frozen learned-retention model and training manifest"
         )
-    if args.phase != "offline" and not args.offline_manifest:
-        raise ValueError("pilot and confirmation require the passed offline manifest")
+    if args.phase != "offline" and (
+        not args.offline_manifest or not args.expected_offline_sha256
+    ):
+        raise ValueError(
+            "pilot and confirmation require the passed offline manifest and its SHA-256"
+        )
     if args.phase != "offline" and args.preflight_only and (
         args.preflight_manifest or args.expected_preflight_sha256
     ):
@@ -1423,6 +1509,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         prior_offline_evidence = copy_and_validate_offline_manifest(
             source_offline_manifest,
             output_root,
+            expected_manifest_sha256=args.expected_offline_sha256,
             expected_budget=budgets[0],
             expected_loom_commit=str(loom_snapshot["commit"]),
             learned_model_sha256=sha256_file(learned_model),
@@ -1783,6 +1870,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-retention-model", default="")
     parser.add_argument("--learned-retention-training-manifest", default="")
     parser.add_argument("--offline-manifest", default="")
+    parser.add_argument("--expected-offline-sha256", default="")
     parser.add_argument("--preflight-manifest", default="")
     parser.add_argument("--expected-preflight-sha256", default="")
     parser.add_argument("--max-estimated-cost", type=float, default=None)
