@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import statistics
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
+from inspection_replay import InspectionReplayBackend, REPLAY_MODES
+from loom_trace import build_loom_trace, write_loom_trace
 from nanorlm import (
     ContextBlock,
     RLM,
     RLMConfig,
     RLMResult,
+    build_backend,
     item_source_paths,
     load_text_blocks,
     normalize_text,
+    slugify,
     supports_cost_estimate,
     write_trace,
 )
@@ -897,6 +903,9 @@ def run_policy_case(
     max_output_tokens: int,
     learned_retention_model: str | None,
     seed: int,
+    retention_judge: str = "backend",
+    inspection_replay_path: str | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> RLMResult:
     config = RLMConfig(
         model=model,
@@ -909,10 +918,27 @@ def run_policy_case(
         max_steps=256,
         memory_budget_tokens=budget,
         retention_policy="keep_recent" if policy == "direct_full_context" else policy,
+        retention_judge=retention_judge,
         retention_model_path=learned_retention_model if policy == "learned_retention" else None,
         seed=seed,
     )
-    engine = RLM(config=config)
+    if inspection_replay_path:
+        backend = InspectionReplayBackend(
+            build_backend(config),
+            inspection_replay_path,
+            mode=inspection_replay_mode,
+            namespace={
+                "engine": "nanorlm-inspect-v1",
+                "provider": provider,
+                "model": model,
+                "base_url_sha256": hashlib.sha256((base_url or "").encode("utf-8")).hexdigest(),
+                "max_output_tokens": max_output_tokens,
+                "seed": seed,
+            },
+        )
+        engine = RLM(config=config, backend=backend)
+    else:
+        engine = RLM(config=config)
     if policy == "direct_full_context":
         return engine.direct_completion(example.query, example.context)
     return engine.completion(example.query, example.context)
@@ -937,6 +963,9 @@ def run_dataset(
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> dict[str, Any]:
     provider = resolve_provider_arg(provider, use_openai_backend)
     validate_benchmark_cost_support(provider, model, base_url)
@@ -944,16 +973,30 @@ def run_dataset(
     stop_reason: str | None = None
     cumulative_cost = round(initial_cost_estimate, 6)
     trace_root: Path | None = None
+    loom_trace_root: Path | None = None
     if output_dir is not None:
         trace_root = Path(output_dir) / "trace_examples" / policy
         trace_root.mkdir(parents=True, exist_ok=True)
+        loom_trace_root = Path(output_dir) / "loom_traces" / policy
+        loom_trace_root.mkdir(parents=True, exist_ok=True)
     if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost and examples:
         stop_reason = "cost_cap"
     for example in examples:
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             stop_reason = "cost_cap"
             break
+        case_started_at = datetime.now(timezone.utc)
         started = time.perf_counter()
+        inspection_replay_path: str | None = None
+        if inspection_replay_dir is not None and policy != "direct_full_context":
+            case_digest = hashlib.sha256(
+                f"{dataset_name}\0{example.name}\0{example.query}".encode("utf-8")
+            ).hexdigest()[:12]
+            inspection_replay_path = str(
+                Path(inspection_replay_dir)
+                / slugify(dataset_name)
+                / f"{slugify(example.name)}-{case_digest}.json"
+            )
         result = run_policy_case(
             example,
             policy,
@@ -967,6 +1010,9 @@ def run_dataset(
             max_output_tokens=max_output_tokens,
             learned_retention_model=str(learned_retention_model) if learned_retention_model else None,
             seed=seed,
+            retention_judge=retention_judge,
+            inspection_replay_path=inspection_replay_path,
+            inspection_replay_mode=inspection_replay_mode,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
         cumulative_cost = round(cumulative_cost + result.cost_estimate, 6)
@@ -987,6 +1033,7 @@ def run_dataset(
             "name": example.name,
             "task_class": example.task_class,
             "policy": policy,
+            "retention_judge": retention_judge,
             "query": example.query,
             "answer": result.answer,
             "expected": example.answer,
@@ -1013,18 +1060,57 @@ def run_dataset(
             "retained_summaries": [item.summary for item in result.kept_items],
             "retained_provenance": [item.provenance for item in result.kept_items],
             "retention_decisions": result.retention_decisions,
+            "stage_budgets": result.stage_budgets,
         }
         if trace_root is not None:
             write_trace(result, trace_root / f"{example.name}.jsonl")
             result.trace.write_tree(trace_root / f"{example.name}.tree.txt")
+        if loom_trace_root is not None:
+            loom_events = build_loom_trace(
+                result,
+                dataset=dataset_name,
+                case_name=example.name,
+                query=example.query,
+                policy=policy,
+                provider=provider,
+                model=model,
+                seed=seed,
+                budget_tokens=budget,
+                answer_score=answer_accuracy,
+                provenance_score=provenance_score,
+                expected_answer=example.answer,
+                expected_provenance=example.expected_provenance,
+                started_at=case_started_at,
+            )
+            write_loom_trace(loom_trace_root / f"{example.name}.jsonl", loom_events)
         results.append(row)
 
     def mean(key: str) -> float:
         return round(statistics.fmean(float(row[key]) for row in results), 3) if results else 0.0
 
+    replay_rows = [
+        row["retention_stats"]["inspection_replay"]
+        for row in results
+        if isinstance(row.get("retention_stats", {}).get("inspection_replay"), dict)
+    ]
+
     summary = {
         "dataset": dataset_name,
         "policy": policy,
+        "retention_judge": retention_judge,
+        "inspection_replay": {
+            "mode": inspection_replay_mode,
+            "captured": sum(int(row.get("captured", 0)) for row in replay_rows),
+            "replayed": sum(int(row.get("replayed", 0)) for row in replay_rows),
+            "stores": len(replay_rows),
+            "store_sha256": sorted(
+                str(row["store_sha256"])
+                for row in replay_rows
+                if row.get("store_sha256")
+            ),
+        }
+        if inspection_replay_dir is not None
+        else None,
         "examples": len(results),
         "requested_examples": len(examples),
         "accuracy": mean("answer_accuracy"),
@@ -1065,6 +1151,9 @@ def policy_sweep(
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     cumulative_cost = 0.0
@@ -1087,6 +1176,9 @@ def policy_sweep(
             use_openai_backend=use_openai_backend,
             seed=seed,
             dataset_name=dataset_name,
+            retention_judge=retention_judge,
+            inspection_replay_dir=inspection_replay_dir,
+            inspection_replay_mode=inspection_replay_mode,
         )
         summaries.append(summary)
         cumulative_cost = float(summary["final_cumulative_cost_estimate"])
@@ -1108,6 +1200,9 @@ def generate_curves(
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
     learned_retention_model: str | Path | None = None,
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for seed in seeds:
@@ -1129,6 +1224,9 @@ def generate_curves(
                     learned_retention_model=learned_retention_model,
                     seed=seed,
                     dataset_name=dataset_name,
+                    retention_judge=retention_judge,
+                    inspection_replay_dir=inspection_replay_dir,
+                    inspection_replay_mode=inspection_replay_mode,
                 )
                 for summary in summaries:
                     points.append(
@@ -1530,6 +1628,7 @@ def format_experiment_report(
             "- `per_case.jsonl`: one scored row per policy and case",
             "- `curves.json`: sweep points and aggregates",
             "- `trace_examples/`: retained recursive traces when `--output-dir` is set",
+            "- `loom_traces/`: the same runs exported as LOOM trace-contract v0.1 JSONL",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -1575,6 +1674,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", type=str, default="")
     parser.add_argument("--cache-dir", type=str, default="")
     parser.add_argument("--learned-retention-model", type=str, default="")
+    parser.add_argument(
+        "--retention-judge",
+        choices=["backend", "heuristic"],
+        default="backend",
+        help="Use the generation backend or a local deterministic judge for retention scoring.",
+    )
+    parser.add_argument(
+        "--inspection-replay-dir",
+        type=str,
+        default="",
+        help="Capture leaf inspections once per case and replay them across policies.",
+    )
+    parser.add_argument(
+        "--inspection-replay-mode",
+        choices=list(REPLAY_MODES),
+        default="capture_or_replay",
+    )
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=1024)
     parser.add_argument(
@@ -1622,6 +1738,9 @@ def main() -> None:
         max_estimated_cost=args.max_estimated_cost,
         seed=args.seed,
         dataset_name=args.dataset,
+        retention_judge=args.retention_judge,
+        inspection_replay_dir=args.inspection_replay_dir or None,
+        inspection_replay_mode=args.inspection_replay_mode,
     )
     print(format_table(summaries))
 
@@ -1650,6 +1769,9 @@ def main() -> None:
             cache_dir=cache_dir,
             max_output_tokens=args.max_output_tokens,
             learned_retention_model=args.learned_retention_model or None,
+            retention_judge=args.retention_judge,
+            inspection_replay_dir=args.inspection_replay_dir or None,
+            inspection_replay_mode=args.inspection_replay_mode,
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
@@ -1671,6 +1793,9 @@ def main() -> None:
                 f"--base-url {args.base_url}" if args.base_url else "",
                 f"--cache-dir {args.cache_dir}" if cache_dir else "",
                 f"--learned-retention-model {args.learned_retention_model}" if args.learned_retention_model else "",
+                f"--retention-judge {args.retention_judge}",
+                f"--inspection-replay-dir {args.inspection_replay_dir}" if args.inspection_replay_dir else "",
+                f"--inspection-replay-mode {args.inspection_replay_mode}" if args.inspection_replay_dir else "",
                 f"--max-output-tokens {args.max_output_tokens}",
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),

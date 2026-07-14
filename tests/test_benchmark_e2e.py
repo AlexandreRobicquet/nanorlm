@@ -46,6 +46,7 @@ class BenchmarkE2ETests(unittest.TestCase):
                 self.assertTrue((report_dir / "curves.json").exists())
                 self.assertTrue((report_dir / "experiment_report.md").exists())
                 self.assertTrue((report_dir / "trace_examples").exists())
+                self.assertTrue((report_dir / "loom_traces").exists())
 
     def test_assets_phase_generates_artifact_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

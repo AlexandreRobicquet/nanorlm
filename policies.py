@@ -34,7 +34,7 @@ def _fit_budget(items: Sequence[MemoryItem], budget: int, reserve_recent: bool =
     used = 0
     recent = max(items, key=lambda item: item.timestamp) if reserve_recent else None
     for item in items:
-        if used + item.tokens > budget and kept:
+        if used + item.tokens > budget:
             continue
         kept.append(item)
         used += item.tokens
@@ -43,9 +43,6 @@ def _fit_budget(items: Sequence[MemoryItem], budget: int, reserve_recent: bool =
             while kept and sum(item.tokens for item in kept) + recent.tokens > budget:
                 kept.pop()
             kept.append(recent)
-    if not kept:
-        smallest = min(items, key=lambda item: item.tokens)
-        return [smallest]
     seen: set[tuple[str, str]] = set()
     deduped: list[MemoryItem] = []
     for item in kept:
@@ -189,7 +186,7 @@ class PairwiseTournamentPolicy(RetentionPolicy):
             remaining.remove(best)
         if recent not in kept and recent.tokens <= budget - used:
             kept.append(recent)
-        return kept or [min(ranked, key=lambda item: item.tokens)]
+        return kept
 
     def _marginal_value(self, root_query: str, item: MemoryItem, covered_terms: set[str]) -> float:
         terms = self._evidence_terms(item)

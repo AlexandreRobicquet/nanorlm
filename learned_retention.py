@@ -390,9 +390,7 @@ class LearnedRetentionPolicy:
             covered_terms.update(item_terms(best))
             remaining.remove(best)
 
-        if kept:
-            return kept
-        return [min(candidates, key=lambda item: item.tokens)]
+        return kept
 
     def _dedupe(self, candidates: Sequence[MemoryItem]) -> list[MemoryItem]:
         seen: set[tuple[str, str]] = set()
