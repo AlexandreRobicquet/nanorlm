@@ -652,8 +652,24 @@ def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, 
     return failures
 
 
+def _is_learned_acceptance_win(
+    *,
+    acceptance_eligible: bool,
+    reward_delta: float,
+    answer_delta: float,
+    provenance_delta: float,
+) -> bool:
+    return (
+        acceptance_eligible
+        and reward_delta >= LEARNED_MIN_REWARD_DELTA
+        and answer_delta >= 0.0
+        and provenance_delta >= 0.0
+    )
+
+
 def write_learned_report(run_root: Path, training_manifest: dict[str, Any], reports: Sequence[dict[str, Any]]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
+    non_toy_wins: list[dict[str, Any]] = []
     failure_evidence: list[dict[str, Any]] = []
     for report in reports:
         report_path = Path(str(report["path"]))
@@ -662,9 +678,9 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
         pairwise = by_policy.get("pairwise_tournament")
         if not learned or not pairwise:
             continue
-        reward_delta = round(float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0)), 3)
-        answer_delta = round(float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0)), 3)
-        provenance_delta = round(float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0)), 3)
+        reward_delta = float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0))
+        answer_delta = float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0))
+        provenance_delta = float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0))
         learned_examples = int(learned.get("examples", 0))
         pairwise_examples = int(pairwise.get("examples", 0))
         acceptance_eligible = (
@@ -674,38 +690,36 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
             and bool(learned.get("completed"))
             and bool(pairwise.get("completed"))
         )
-        rows.append(
-            {
-                "dataset": report.get("dataset"),
-                "report": str(report_path),
-                "examples": learned_examples,
-                "budget": report.get("budget"),
-                "depth": report.get("depth"),
-                "start_index": report.get("start_index", 0),
-                "learned_reward": learned.get("reward_score", 0.0),
-                "pairwise_reward": pairwise.get("reward_score", 0.0),
-                "reward_delta": reward_delta,
-                "answer_delta": answer_delta,
-                "provenance_delta": provenance_delta,
-                "learned_answer": learned.get("answer_accuracy", 0.0),
-                "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
-                "learned_provenance": learned.get("provenance_score", 0.0),
-                "pairwise_provenance": pairwise.get("provenance_score", 0.0),
-                "learned_compactness": learned.get("compactness", 0.0),
-                "pairwise_compactness": pairwise.get("compactness", 0.0),
-                "acceptance_eligible": acceptance_eligible,
-            }
-        )
+        row = {
+            "dataset": report.get("dataset"),
+            "report": str(report_path),
+            "examples": learned_examples,
+            "budget": report.get("budget"),
+            "depth": report.get("depth"),
+            "start_index": report.get("start_index", 0),
+            "learned_reward": learned.get("reward_score", 0.0),
+            "pairwise_reward": pairwise.get("reward_score", 0.0),
+            "reward_delta": round(reward_delta, 3),
+            "answer_delta": round(answer_delta, 3),
+            "provenance_delta": round(provenance_delta, 3),
+            "learned_answer": learned.get("answer_accuracy", 0.0),
+            "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
+            "learned_provenance": learned.get("provenance_score", 0.0),
+            "pairwise_provenance": pairwise.get("provenance_score", 0.0),
+            "learned_compactness": learned.get("compactness", 0.0),
+            "pairwise_compactness": pairwise.get("compactness", 0.0),
+            "acceptance_eligible": acceptance_eligible,
+        }
+        rows.append(row)
+        if _is_learned_acceptance_win(
+            acceptance_eligible=acceptance_eligible,
+            reward_delta=reward_delta,
+            answer_delta=answer_delta,
+            provenance_delta=provenance_delta,
+        ):
+            non_toy_wins.append(row)
         for failure in _underperforming_cases(report_path):
             failure_evidence.append({"dataset": report.get("dataset"), **failure})
-    non_toy_wins = [
-        row
-        for row in rows
-        if row["acceptance_eligible"]
-        and row["reward_delta"] >= LEARNED_MIN_REWARD_DELTA
-        and row["answer_delta"] >= 0.0
-        and row["provenance_delta"] >= 0.0
-    ]
     verdict = "positive" if len(non_toy_wins) >= LEARNED_REQUIRED_WINS else "negative_or_inconclusive"
     training = training_manifest.get("training", {})
     model = LearnedRetentionModel.load(training_manifest["model_path"])

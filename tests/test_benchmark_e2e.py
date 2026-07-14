@@ -123,6 +123,32 @@ class BenchmarkE2ETests(unittest.TestCase):
             smoke_comparisons = result["learned_report"]["comparisons"]
             self.assertFalse(any(row["acceptance_eligible"] for row in smoke_comparisons))
 
+    def test_learned_acceptance_gate_uses_unrounded_deltas(self) -> None:
+        self.assertFalse(
+            run_benchmark_e2e._is_learned_acceptance_win(
+                acceptance_eligible=True,
+                reward_delta=0.0096,
+                answer_delta=0.0,
+                provenance_delta=0.0,
+            )
+        )
+        self.assertFalse(
+            run_benchmark_e2e._is_learned_acceptance_win(
+                acceptance_eligible=True,
+                reward_delta=0.02,
+                answer_delta=-0.0004,
+                provenance_delta=0.0,
+            )
+        )
+        self.assertTrue(
+            run_benchmark_e2e._is_learned_acceptance_win(
+                acceptance_eligible=True,
+                reward_delta=0.01,
+                answer_delta=0.0,
+                provenance_delta=0.0,
+            )
+        )
+
     def test_smoke_phase_resolves_fixture_defaults_from_non_repo_cwd(self) -> None:
         previous_cwd = Path.cwd()
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as launch_cwd:
