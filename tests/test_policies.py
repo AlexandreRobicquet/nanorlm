@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nanorlm import MemoryItem
-from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy
+from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy, train_linear_retention_model
 from policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTopKPolicy, SummaryOnlyPolicy
 
 
@@ -178,6 +178,30 @@ class PolicyTests(unittest.TestCase):
             path.write_text(json.dumps(payload))
             with self.assertRaisesRegex(ValueError, "version mismatch"):
                 LearnedRetentionModel.load(path)
+
+    def test_pairwise_training_records_ranking_diagnostics(self) -> None:
+        rows = [
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": "case-1:0",
+                "label": True,
+                "features": {"confidence": 1.0},
+            },
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": "case-1:0",
+                "label": False,
+                "features": {"confidence": 0.0},
+            },
+        ]
+        model = train_linear_retention_model(rows, objective="pairwise", epochs=2, learning_rate=0.05)
+        self.assertEqual(model.metadata["objective"], "pairwise")
+        self.assertEqual(model.metadata["training_pairs"], 1)
+        self.assertEqual(model.metadata["pairwise_accuracy_after"], 1.0)
 
 
 if __name__ == "__main__":

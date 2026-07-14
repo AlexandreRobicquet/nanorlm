@@ -178,7 +178,7 @@ Treat dossier results as an internal synthetic regression surface, not as headli
 
 ### 3. Learned Retention
 
-`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer builds labeled candidate rows from benchmark examples, writes the rows as JSONL for auditability, and saves a JSON model that the retention policy can load.
+`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
 ```bash
 uv run python scripts/train_learned_retention.py \
@@ -339,7 +339,9 @@ Hosted OpenAI-compatible runs fail fast when the model has no cost table entry o
 
 - `nanorlm.py`: recursion loop, trace recorder, OpenAI-compatible backend, Anthropic backend, deterministic backend
 - `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, `pairwise_tournament`
+- `learned_retention.py`: feature extraction, pairwise/pointwise offline training, and the learned policy
 - `bench.py`: datasets, evaluation harness, curve generation, report bundle writer
+- `scripts/train_learned_retention.py`: retention-trace collection and offline model training
 - `scripts/run_benchmark_e2e.py`: e2e benchmark orchestration, manifests, and artifact checks
 - `examples/`: minimal runnable demos
 - `showcases/`: launch-facing demos, planning suite, asset generation
@@ -361,7 +363,7 @@ CI intentionally does not run real-model jobs, networked benchmark jobs, or full
 Implemented now:
 
 - small recursive inference engine with stable public API
-- four retention policies
+- five retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends
 - richer `RLMResult` metadata for retention analysis
 - synthetic `PairBench`, `NeedlePairs`, and dossier fixtures for smoke and regression use
@@ -372,7 +374,7 @@ Implemented now:
 
 Still intentionally out of scope for this phase:
 
-- training infrastructure
+- large-scale online RL and distributed training infrastructure
 - framework-style agent abstractions
 - Docker sandbox execution
 - fully autonomous coding loops

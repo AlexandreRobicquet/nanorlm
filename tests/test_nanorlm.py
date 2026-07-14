@@ -231,6 +231,14 @@ class NanoRLMTests(unittest.TestCase):
             )
             model_path = Path(manifest["model_path"])
             self.assertTrue(model_path.exists())
+            self.assertEqual(manifest["training"]["training_source"], "traces")
+            self.assertEqual(manifest["training"]["objective"], "pairwise")
+            self.assertGreater(manifest["training"]["training_pairs"], 0)
+            self.assertEqual(
+                manifest["training"]["reward_weighted_pairs"],
+                manifest["training"]["training_pairs"],
+            )
+            self.assertTrue(Path(manifest["training_traces_path"]).exists())
             summary = run_dataset(
                 build_ruler_synthetic(n=2, seed=1),
                 "learned_retention",
