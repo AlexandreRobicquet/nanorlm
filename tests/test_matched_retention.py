@@ -220,6 +220,31 @@ class MatchedRetentionTests(unittest.TestCase):
                     {"schema_version": "nanorlm-response-cache-binding-v1"},
                 )
 
+    def test_response_cache_rejects_non_object_json_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = Path(tmpdir) / "cache"
+            binding = {"schema_version": "nanorlm-response-cache-binding-v1"}
+            prepare_response_cache(cache, binding)
+            record_path = cache / f"{'f' * 64}.json"
+            record_path.write_text("[]")
+
+            with self.assertRaisesRegex(ValueError, "invalid structure"):
+                prepare_response_cache(cache, binding)
+
+            record_path.write_text(
+                json.dumps(
+                    {
+                        "cache_key": "f" * 64,
+                        "provider": "openai_compatible",
+                        "cache_namespace": response_cache_namespace(binding),
+                        "request": {"messages": [{"role": "user", "content": "hello"}]},
+                        "response": [],
+                    }
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "invalid structure"):
+                prepare_response_cache(cache, binding)
+
     def test_hosted_budget_preserves_usage_from_bound_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -90,10 +90,14 @@ def validate_response_cache_record(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid response-cache record: {path.name}") from exc
-    request = payload.get("request") if isinstance(payload, dict) else None
-    response = payload.get("response") if isinstance(payload, dict) else None
-    usage = response.get("usage") if isinstance(response, dict) else None
-    messages = request.get("messages") if isinstance(request, dict) else None
+    if not isinstance(payload, dict):
+        raise ValueError(f"response-cache record has invalid structure: {path.name}")
+    request = payload.get("request")
+    response = payload.get("response")
+    if not isinstance(request, dict) or not isinstance(response, dict):
+        raise ValueError(f"response-cache record has invalid structure: {path.name}")
+    usage = response.get("usage")
+    messages = request.get("messages")
     if (
         payload.get("provider") != "openai_compatible"
         or payload.get("cache_key") != path.stem
