@@ -25,7 +25,13 @@ from bench import (  # noqa: E402
     run_dataset,
     write_report_bundle,
 )
-from nanorlm import slugify  # noqa: E402
+from nanorlm import (  # noqa: E402
+    REMOTE_MODEL_PRICES,
+    estimate_tokens,
+    is_local_base_url,
+    normalize_provider_name,
+    slugify,
+)
 
 
 MATCHED_POLICIES = [
@@ -40,6 +46,7 @@ DEFAULT_BUDGETS = [96, 128, 192]
 PHASES = ("offline", "pilot", "confirmation")
 SCHEMA_VERSION = "0.1"
 FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +95,44 @@ def parse_dataset_spec(value: str) -> DatasetSpec:
     if dataset != "external_jsonl" and path is not None:
         raise ValueError(f"only external_jsonl specs accept a path: {value}")
     return DatasetSpec(label=label, dataset=dataset, path=path)
+
+
+def parse_expected_dataset_hashes(values: Sequence[str]) -> dict[str, str]:
+    expected: dict[str, str] = {}
+    for value in values:
+        label, separator, digest = value.partition("=")
+        if not separator or not label or SHA256_RE.fullmatch(digest) is None:
+            raise ValueError("expected dataset hash must be LABEL=64_HEX_SHA256")
+        if label in expected:
+            raise ValueError(f"duplicate expected dataset hash: {label}")
+        expected[label] = digest
+    return expected
+
+
+def validate_dataset_hashes(
+    specs: Sequence[DatasetSpec],
+    expected: Mapping[str, str],
+    *,
+    required: bool,
+) -> dict[str, str]:
+    observed: dict[str, str] = {}
+    external_labels = {spec.label for spec in specs if spec.path is not None}
+    unknown_labels = set(expected) - external_labels
+    if unknown_labels:
+        raise ValueError(f"expected dataset hash has no external dataset: {sorted(unknown_labels)[0]}")
+    for spec in specs:
+        if spec.path is None:
+            continue
+        if not spec.path.is_file():
+            raise ValueError(f"external dataset does not exist: {spec.path}")
+        digest = sha256_file(spec.path)
+        observed[spec.label] = digest
+        expected_digest = expected.get(spec.label)
+        if required and expected_digest is None:
+            raise ValueError(f"external dataset requires an expected SHA-256: {spec.label}")
+        if expected_digest is not None and digest != expected_digest:
+            raise ValueError(f"external dataset SHA-256 mismatch: {spec.label}")
+    return observed
 
 
 def git_snapshot(path: Path) -> dict[str, Any]:
@@ -151,6 +196,34 @@ def example_record(spec: DatasetSpec, index: int, example: BenchmarkExample) -> 
     return {"task_id": f"task_{sha256_bytes(canonical_json(payload).encode('utf-8'))[:20]}", **payload}
 
 
+def conversion_audit(
+    tasks: Sequence[tuple[DatasetSpec, BenchmarkExample]],
+) -> dict[str, Any]:
+    violations = []
+    for spec, example in tasks:
+        context = "\n".join(block.text for block in example.context).lower()
+        reasons = []
+        if not example.query.strip():
+            reasons.append("empty_query")
+        if not example.answer.strip() or not example.must_contain:
+            reasons.append("empty_answer_rule")
+        if any(fragment.lower() not in context for fragment in example.must_contain):
+            reasons.append("answer_fragment_absent_from_context")
+        if reasons:
+            violations.append(
+                {
+                    "family": spec.label,
+                    "name": example.name,
+                    "reasons": reasons,
+                }
+            )
+    return {
+        "ok": not violations,
+        "tasks_checked": len(tasks),
+        "violations": violations,
+    }
+
+
 def load_spec_examples(
     specs: Sequence[DatasetSpec],
     *,
@@ -188,6 +261,51 @@ def round_robin_tasks(
             if index < len(family):
                 ordered.append((spec, family[index]))
     return ordered
+
+
+def conservative_cost_upper_bound(
+    tasks: Sequence[tuple[DatasetSpec, BenchmarkExample]],
+    *,
+    provider: str,
+    model: str,
+    base_url: str | None,
+    budget: int,
+    depth: int,
+    max_output_tokens: int,
+) -> dict[str, Any]:
+    normalized_provider = normalize_provider_name(provider)
+    if normalized_provider == "heuristic" or is_local_base_url(base_url):
+        return {
+            "formula_version": 1,
+            "logical_policy_upper_bound_usd": 0.0,
+            "prompt_safety_factor": 4,
+            "tasks": len(tasks),
+        }
+    price_key = (normalized_provider, model)
+    if price_key not in REMOTE_MODEL_PRICES:
+        raise ValueError(f"no cost table entry for pilot model: {provider}/{model}")
+    prompt_price, completion_price = REMOTE_MODEL_PRICES[price_key]
+    prompt_tokens_upper = 0
+    completion_tokens_upper = 0
+    for _, example in tasks:
+        leaf_calls = min(max(1, len(example.context)), 2**depth)
+        context_tokens = sum(block.tokens for block in example.context)
+        query_tokens = estimate_tokens(example.query)
+        inspection_prompt = context_tokens + leaf_calls * (query_tokens + 512)
+        final_prompt = budget + query_tokens + 512
+        prompt_tokens_upper += 4 * (inspection_prompt + final_prompt) * len(MATCHED_POLICIES)
+        completion_tokens_upper += (
+            (leaf_calls + 1) * max_output_tokens * len(MATCHED_POLICIES)
+        )
+    cost = prompt_tokens_upper * prompt_price + completion_tokens_upper * completion_price
+    return {
+        "formula_version": 1,
+        "logical_policy_upper_bound_usd": round(cost, 6),
+        "prompt_tokens_upper_bound": prompt_tokens_upper,
+        "completion_tokens_upper_bound": completion_tokens_upper,
+        "prompt_safety_factor": 4,
+        "tasks": len(tasks),
+    }
 
 
 def combine_policy_summaries(
@@ -283,12 +401,15 @@ def budget_diagnostics(
     *,
     budget: int,
     expected_tasks: int,
+    require_response_model_identifier: bool = False,
 ) -> dict[str, Any]:
     expected_rows = expected_tasks * len(MATCHED_POLICIES)
     pressures = []
     budget_violations = []
     judge_call_violations = []
     final_call_violations = []
+    model_identifier_violations = []
+    observed_model_identifiers: set[str] = set()
     for row in rows:
         decisions = list(row.get("retention_decisions", []))
         pressures.append(
@@ -313,6 +434,13 @@ def budget_diagnostics(
         final_calls = int(row.get("stage_budgets", {}).get("final_answer", {}).get("calls", 0))
         if final_calls != 1:
             final_call_violations.append(f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}")
+        identifiers = row.get("retention_stats", {}).get("response_model_identifiers", [])
+        normalized_identifiers = sorted(str(item) for item in identifiers) if isinstance(identifiers, list) else []
+        observed_model_identifiers.update(normalized_identifiers)
+        if require_response_model_identifier and len(normalized_identifiers) != 1:
+            model_identifier_violations.append(
+                f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}"
+            )
 
     by_task: dict[tuple[str, str], dict[str, Mapping[str, Any]]] = {}
     for row in rows:
@@ -372,6 +500,7 @@ def budget_diagnostics(
         and not budget_violations
         and not judge_call_violations
         and not final_call_violations
+        and not model_identifier_violations
         and not matched_ledger_violations
         and not replay_hash_violations
         and distinct
@@ -388,6 +517,8 @@ def budget_diagnostics(
         "budget_violations": budget_violations,
         "remote_retention_judge_call_violations": judge_call_violations,
         "final_answer_call_violations": final_call_violations,
+        "response_model_identifier_violations": model_identifier_violations,
+        "observed_response_model_identifiers": sorted(observed_model_identifiers),
         "matched_inspection_ledger_violations": matched_ledger_violations,
         "replay_hash_violations": replay_hash_violations,
         "pairwise_difference_rates": difference_rates,
@@ -508,6 +639,23 @@ def write_checksums(root: Path, path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def finalize_release_manifest(output_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    write_json(output_root / "manifest.json", manifest)
+    audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
+    manifest["gate_checks"]["release_audit"] = audit["ok"]
+    manifest["release_audit"] = audit
+    manifest["status"] = "passed" if all(manifest["gate_checks"].values()) else "failed"
+    write_json(output_root / "manifest.json", manifest)
+    final_audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
+    write_json(output_root / "release_audit.json", final_audit)
+    if final_audit["ok"] != audit["ok"]:
+        manifest["release_audit"] = final_audit
+        manifest["status"] = "failed"
+        write_json(output_root / "manifest.json", manifest)
+    write_checksums(output_root, output_root / "checksums.txt")
+    return manifest
+
+
 def run_budget(
     *,
     phase: str,
@@ -602,7 +750,12 @@ def run_budget(
             }
         )
 
-    diagnostics = budget_diagnostics(all_rows, budget=budget, expected_tasks=len(ordered_tasks))
+    diagnostics = budget_diagnostics(
+        all_rows,
+        budget=budget,
+        expected_tasks=len(ordered_tasks),
+        require_response_model_identifier=phase != "offline" and provider != "heuristic",
+    )
     diagnostics["cost_cap_exceeded"] = cost_cap_exceeded
     diagnostics["total_estimated_cost"] = cumulative_cost
     diagnostics["eligible"] = diagnostics["eligible"] and not cost_cap_exceeded
@@ -662,6 +815,20 @@ def determinism_check(
 
 
 def copy_dataset_sources(output_root: Path, specs: Sequence[DatasetSpec]) -> list[dict[str, Any]]:
+    def portable_value(value: Any, key: str = "") -> Any:
+        if isinstance(value, dict):
+            return {name: portable_value(item, str(name)) for name, item in value.items()}
+        if isinstance(value, list):
+            return [portable_value(item, key) for item in value]
+        if isinstance(value, str) and key in {"path", "source_path", "repo_root", "dataset_path"}:
+            if any(
+                pattern.search(value)
+                for code, pattern in AUDIT_PATTERNS.items()
+                if code.endswith("_path")
+            ):
+                return f"<portable-source>/{Path(value).name}"
+        return value
+
     records = []
     for spec in specs:
         if spec.path is None:
@@ -669,14 +836,27 @@ def copy_dataset_sources(output_root: Path, specs: Sequence[DatasetSpec]) -> lis
             continue
         destination = output_root / "datasets" / f"{spec.label}.jsonl"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(spec.path, destination)
+        portable_rows = []
+        for line_number, raw_line in enumerate(spec.path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not raw_line.strip():
+                continue
+            try:
+                row = json.loads(raw_line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"external dataset line {line_number} is not valid JSON: {spec.label}"
+                ) from exc
+            portable_rows.append(canonical_json(portable_value(row)))
+        destination.write_text("\n".join(portable_rows) + "\n", encoding="utf-8")
         records.append(
             {
                 "label": spec.label,
                 "dataset": spec.dataset,
                 "embedded": True,
                 "path": destination.relative_to(output_root).as_posix(),
+                "source_sha256": sha256_file(spec.path),
                 "sha256": sha256_file(destination),
+                "normalization": "canonical_json_and_portable_local_path_metadata_v1",
             }
         )
     return records
@@ -686,13 +866,18 @@ def reproduction_argv_template(
     args: argparse.Namespace,
     specs: Sequence[DatasetSpec],
     budgets: Sequence[int],
+    dataset_hashes: Mapping[str, str],
 ) -> list[str]:
     argv = ["uv", "run", "python", "scripts/run_matched_retention.py", "--phase", args.phase]
+    if args.preflight_only:
+        argv.append("--preflight-only")
     for spec in specs:
         value = f"{spec.label}:{spec.dataset}"
         if spec.path is not None:
             value += f":<bundle>/datasets/{spec.label}.jsonl"
         argv.extend(["--dataset-spec", value])
+    for label, digest in sorted(dataset_hashes.items()):
+        argv.extend(["--expected-dataset-sha256", f"{label}={digest}"])
     argv.extend(
         [
             "--limit",
@@ -730,6 +915,8 @@ def reproduction_argv_template(
                 "<bundle>/artifacts/learned_retention_training/manifest.json",
             ]
         )
+    if args.offline_manifest:
+        argv.extend(["--offline-manifest", "<passed-offline-bundle>/manifest.json"])
     if args.max_estimated_cost is not None:
         argv.extend(["--max-estimated-cost", str(args.max_estimated_cost)])
     if any(spec.dataset == "verifiers_smoke" for spec in specs):
@@ -818,11 +1005,114 @@ def copy_learned_training_bundle(
     }
 
 
+def copy_and_validate_offline_manifest(
+    source_manifest: Path,
+    output_root: Path,
+    *,
+    expected_budget: int,
+    expected_loom_commit: str,
+    learned_model_sha256: str,
+    learned_training_manifest_sha256: str,
+) -> dict[str, Any]:
+    payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("phase") != "offline" or payload.get("status") != "passed":
+        raise ValueError("prior offline manifest must be a passed offline bundle")
+    if int(payload.get("selected_budget", -1)) != expected_budget:
+        raise ValueError("prior offline manifest selected a different memory budget")
+    gate_checks = payload.get("gate_checks")
+    if not isinstance(gate_checks, dict) or not gate_checks or not all(gate_checks.values()):
+        raise ValueError("prior offline manifest has an incomplete gate")
+    release_audit = payload.get("release_audit")
+    if not isinstance(release_audit, dict) or release_audit.get("ok") is not True:
+        raise ValueError("prior offline manifest did not pass its release audit")
+    repositories = payload.get("repositories")
+    if not isinstance(repositories, dict):
+        raise ValueError("prior offline manifest is missing repository bindings")
+    offline_loom = repositories.get("loom")
+    offline_nanorlm = repositories.get("nanorlm")
+    if not isinstance(offline_loom, dict) or offline_loom.get("commit") != expected_loom_commit:
+        raise ValueError("prior offline manifest used a different LOOM commit")
+    if not isinstance(offline_nanorlm, dict) or FULL_GIT_SHA_RE.fullmatch(
+        str(offline_nanorlm.get("commit", ""))
+    ) is None:
+        raise ValueError("prior offline manifest is missing its nanoRLM commit")
+    configuration = payload.get("configuration")
+    if not isinstance(configuration, dict):
+        raise ValueError("prior offline manifest is missing configuration bindings")
+    if configuration.get("learned_model_sha256") != learned_model_sha256:
+        raise ValueError("prior offline manifest used a different learned model")
+    training_record = configuration.get("learned_training_manifest")
+    if (
+        not isinstance(training_record, dict)
+        or training_record.get("sha256") != learned_training_manifest_sha256
+    ):
+        raise ValueError("prior offline manifest used a different learned training manifest")
+    training_validation = training_record.get("validation")
+    if (
+        not isinstance(training_validation, dict)
+        or training_validation.get("training_repository_commit") != offline_nanorlm.get("commit")
+    ):
+        raise ValueError("prior offline manifest did not bind training code to its runtime")
+    task_manifest = payload.get("task_manifest")
+    if not isinstance(task_manifest, dict) or SHA256_RE.fullmatch(
+        str(task_manifest.get("sha256", ""))
+    ) is None:
+        raise ValueError("prior offline manifest is missing its task-manifest hash")
+
+    destination = output_root / "prior_evidence" / "offline_manifest.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_manifest, destination)
+    return {
+        "ok": True,
+        "path": destination.relative_to(output_root).as_posix(),
+        "sha256": sha256_file(destination),
+        "offline_nanorlm_commit": offline_nanorlm["commit"],
+        "offline_loom_commit": offline_loom["commit"],
+        "offline_task_manifest_sha256": task_manifest["sha256"],
+        "training_repository_commit": training_validation["training_repository_commit"],
+        "selected_budget": expected_budget,
+    }
+
+
+def validate_phase_configuration(
+    args: argparse.Namespace,
+    specs: Sequence[DatasetSpec],
+    budgets: Sequence[int],
+) -> None:
+    if args.phase == "offline":
+        return
+    expected_limit = 8 if args.phase == "pilot" else 25
+    expected_cap = 5.0 if args.phase == "pilot" else 20.0
+    if budgets != [96]:
+        raise ValueError(f"{args.phase} must use the frozen 96-token budget")
+    if args.provider != "openai_compatible" or args.model != "gpt-5.4-mini":
+        raise ValueError(f"{args.phase} must use openai_compatible/gpt-5.4-mini")
+    if args.base_url.rstrip("/") not in {"", "https://api.openai.com/v1"}:
+        raise ValueError(f"{args.phase} must use the frozen OpenAI API endpoint")
+    if args.depth != 3 or args.max_output_tokens != 512 or args.seed != 0:
+        raise ValueError(f"{args.phase} must use depth=3, output cap=512, and seed=0")
+    if args.start_index != 0 or args.limit != expected_limit:
+        raise ValueError(f"{args.phase} must use start-index=0 and limit={expected_limit}")
+    if len(specs) != 2 or any(spec.dataset != "external_jsonl" for spec in specs):
+        raise ValueError(f"{args.phase} requires exactly two external_jsonl families")
+    if args.max_estimated_cost != expected_cap:
+        raise ValueError(f"{args.phase} must use the frozen USD {expected_cap:g} cost cap")
+
+
 def execute(args: argparse.Namespace) -> dict[str, Any]:
     specs = [parse_dataset_spec(value) for value in args.dataset_spec]
     if len({spec.label for spec in specs}) != len(specs):
         raise ValueError("dataset labels must be unique")
+    expected_dataset_hashes = parse_expected_dataset_hashes(args.expected_dataset_sha256)
+    observed_dataset_hashes = validate_dataset_hashes(
+        specs,
+        expected_dataset_hashes,
+        required=args.phase != "offline",
+    )
     budgets = parse_csv_ints(args.budgets)
+    validate_phase_configuration(args, specs, budgets)
+    if args.preflight_only and args.phase == "offline":
+        raise ValueError("preflight-only is for pilot or confirmation phases")
     if args.phase != "offline" and len(budgets) != 1:
         raise ValueError("pilot and confirmation phases require exactly one frozen budget")
     if args.phase == "offline" and args.provider != "heuristic":
@@ -833,6 +1123,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             "pilot and confirmation require a frozen learned-retention model and training manifest"
         )
+    if args.phase != "offline" and not args.offline_manifest:
+        raise ValueError("pilot and confirmation require the passed offline manifest")
     if args.learned_retention_training_manifest and not args.learned_retention_model:
         raise ValueError("a learned-retention training manifest requires its model")
 
@@ -850,6 +1142,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         Path(args.learned_retention_training_manifest).expanduser().resolve()
         if args.learned_retention_training_manifest
         else None
+    )
+    source_offline_manifest = (
+        Path(args.offline_manifest).expanduser().resolve() if args.offline_manifest else None
     )
     learned_model: Path | None = None
     training_manifest: Path | None = None
@@ -881,9 +1176,48 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     ordered_tasks = round_robin_tasks(specs, examples)
     if not ordered_tasks:
         raise ValueError("dataset specs produced no tasks")
+    conversion_audit_result = conversion_audit(ordered_tasks)
+    if args.phase != "offline" and not conversion_audit_result["ok"]:
+        raise ValueError("external task conversion audit failed before execution")
+    if args.phase != "offline":
+        expected_per_family = 8 if args.phase == "pilot" else 25
+        if any(len(examples[spec.label]) != expected_per_family for spec in specs):
+            raise ValueError(
+                f"{args.phase} requires exactly {expected_per_family} tasks per family"
+            )
+    cost_preflight = conservative_cost_upper_bound(
+        ordered_tasks,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url or None,
+        budget=budgets[0],
+        depth=args.depth,
+        max_output_tokens=args.max_output_tokens,
+    )
+    if (
+        args.max_estimated_cost is not None
+        and cost_preflight["logical_policy_upper_bound_usd"] > args.max_estimated_cost
+    ):
+        raise ValueError(
+            "conservative task-block cost reservation exceeds the frozen cost cap before execution"
+        )
 
     code_snapshot = git_snapshot(ROOT)
     loom_snapshot = git_snapshot(loom_root) if loom_root else None
+    prior_offline_evidence: dict[str, Any] | None = None
+    if source_offline_manifest is not None:
+        if not source_offline_manifest.is_file():
+            raise ValueError(f"prior offline manifest does not exist: {source_offline_manifest}")
+        if learned_model is None or training_manifest is None or loom_snapshot is None:
+            raise ValueError("prior offline binding requires learned and LOOM artifacts")
+        prior_offline_evidence = copy_and_validate_offline_manifest(
+            source_offline_manifest,
+            output_root,
+            expected_budget=budgets[0],
+            expected_loom_commit=str(loom_snapshot["commit"]),
+            learned_model_sha256=sha256_file(learned_model),
+            learned_training_manifest_sha256=sha256_file(training_manifest),
+        )
     dataset_records = copy_dataset_sources(output_root, specs)
     task_records = [
         example_record(spec, index, example)
@@ -900,9 +1234,107 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "implementation": "bench.score_answer",
             "case_sensitive": False,
         },
+        "conversion_audit": conversion_audit_result,
         "tasks": task_records,
     }
     write_json(output_root / "task_manifest.json", task_manifest)
+
+    if args.preflight_only:
+        commit_bindings = {
+            "nanorlm": commit_binding(code_snapshot, args.expected_nanorlm_commit),
+            "loom": commit_binding(loom_snapshot, args.expected_loom_commit),
+        }
+        frozen_training_bundle = bool(
+            learned_model is not None
+            and training_manifest is not None
+            and training_bundle_validation
+            and training_bundle_validation["ok"]
+        )
+        gate_checks = {
+            "nanorlm_repository": bool(code_snapshot["is_repository"]),
+            "nanorlm_clean": bool(code_snapshot["clean"]),
+            "loom_repository": bool(loom_snapshot and loom_snapshot["is_repository"]),
+            "loom_clean": bool(loom_snapshot and loom_snapshot["clean"]),
+            "commit_bindings": all(binding["ok"] for binding in commit_bindings.values()),
+            "frozen_learned_training_bundle": frozen_training_bundle,
+            "prior_offline_evidence": bool(
+                prior_offline_evidence and prior_offline_evidence["ok"]
+            ),
+            "dataset_hashes": all(
+                expected_dataset_hashes.get(label) == digest
+                for label, digest in observed_dataset_hashes.items()
+            ),
+            "task_count": len(task_records) == (16 if args.phase == "pilot" else 50),
+            "conversion_audit": conversion_audit_result["ok"],
+            "cost_cap_reservation": (
+                args.max_estimated_cost is not None
+                and cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
+            ),
+            "zero_network_calls": True,
+        }
+        inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
+        preflight_manifest = {
+            "schema_version": SCHEMA_VERSION,
+            "phase": f"{args.phase}_preflight",
+            "requested_phase": args.phase,
+            "preflight_only": True,
+            "network_calls_issued": 0,
+            "status": "pending_release_audit",
+            "repositories": {"nanorlm": code_snapshot, "loom": loom_snapshot},
+            "commit_bindings": commit_bindings,
+            "prior_offline_evidence": prior_offline_evidence,
+            "environment": {
+                "python": platform.python_version(),
+                "implementation": platform.python_implementation(),
+                "platform": platform.platform(),
+                "uv_lock_sha256": sha256_file(ROOT / "uv.lock"),
+            },
+            "reproduction": {
+                "argv_template": reproduction_argv_template(
+                    args,
+                    specs,
+                    budgets,
+                    {
+                        str(record["label"]): str(record["sha256"])
+                        for record in dataset_records
+                        if record.get("embedded")
+                    },
+                ),
+                "note": "Replace angle-bracket path placeholders with the matching frozen artifacts.",
+            },
+            "configuration": {
+                "provider": args.provider,
+                "model": args.model,
+                "base_url_sha256": sha256_bytes((args.base_url or "").encode("utf-8")),
+                "budget": budgets[0],
+                "max_depth": args.depth,
+                "max_output_tokens": args.max_output_tokens,
+                "max_estimated_cost": args.max_estimated_cost,
+                "cost_preflight": cost_preflight,
+                "seed": args.seed,
+                "expected_dataset_sha256": expected_dataset_hashes,
+                "observed_dataset_sha256": observed_dataset_hashes,
+                "learned_model_sha256": sha256_file(learned_model) if learned_model else None,
+                "learned_training_manifest_sha256": (
+                    sha256_file(training_manifest) if training_manifest else None
+                ),
+            },
+            "datasets": dataset_records,
+            "task_manifest": {
+                "path": "task_manifest.json",
+                "sha256": sha256_file(output_root / "task_manifest.json"),
+                "tasks": len(task_records),
+            },
+            "selected_budget": budgets[0],
+            "gate_checks": gate_checks,
+            "artifact_inventory": artifact_inventory(
+                output_root,
+                excluded=inventory_exclusions,
+            ),
+            "release_audit": {"pending": True},
+            "checksums": "checksums.txt",
+        }
+        return finalize_release_manifest(output_root, preflight_manifest)
 
     budget_results = []
     for budget in budgets:
@@ -968,7 +1400,10 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         and training_manifest is not None
         and training_bundle_validation
         and training_bundle_validation["ok"]
-        and training_bundle_validation["training_repository_commit"] == code_snapshot["commit"]
+        and (
+            args.phase != "offline"
+            or training_bundle_validation["training_repository_commit"] == code_snapshot["commit"]
+        )
     )
     selected_budget = candidate_budget if frozen_learned_artifact else None
     commit_bindings = {
@@ -983,9 +1418,16 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "commit_bindings": all(binding["ok"] for binding in commit_bindings.values()),
         "frozen_learned_model": learned_model is not None,
         "frozen_learned_training_manifest": frozen_learned_artifact,
-        "training_code_matches_runtime": bool(
-            training_bundle_validation
-            and training_bundle_validation.get("training_repository_commit") == code_snapshot["commit"]
+        "training_code_binding": bool(
+            (
+                args.phase == "offline"
+                and training_bundle_validation
+                and training_bundle_validation.get("training_repository_commit") == code_snapshot["commit"]
+            )
+            or (args.phase != "offline" and prior_offline_evidence and prior_offline_evidence["ok"])
+        ),
+        "prior_offline_evidence": args.phase == "offline" or bool(
+            prior_offline_evidence and prior_offline_evidence["ok"]
         ),
         "eligible_budget": selected_budget is not None,
         "all_determinism_checks": all(result["determinism"]["ok"] for result in budget_results),
@@ -993,6 +1435,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "all_phase_diagnostics": (
             args.phase == "offline"
             or all(result["diagnostics"]["eligible"] for result in budget_results)
+        ),
+        "conversion_audit": conversion_audit_result["ok"],
+        "cost_cap_reservation": (
+            args.max_estimated_cost is None
+            or cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
         ),
     }
     inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
@@ -1003,6 +1450,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "status": "pending_release_audit",
         "repositories": {"nanorlm": code_snapshot, "loom": loom_snapshot},
         "commit_bindings": commit_bindings,
+        "prior_offline_evidence": prior_offline_evidence,
         "environment": {
             "python": platform.python_version(),
             "implementation": platform.python_implementation(),
@@ -1010,7 +1458,16 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "uv_lock_sha256": sha256_file(ROOT / "uv.lock"),
         },
         "reproduction": {
-            "argv_template": reproduction_argv_template(args, specs, budgets),
+            "argv_template": reproduction_argv_template(
+                args,
+                specs,
+                budgets,
+                {
+                    str(record["label"]): str(record["sha256"])
+                    for record in dataset_records
+                    if record.get("embedded")
+                },
+            ),
             "note": "Replace angle-bracket placeholders with paths or the endpoint matching the recorded hashes.",
         },
         "configuration": {
@@ -1024,7 +1481,10 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "max_output_tokens": args.max_output_tokens,
             "budgets": budgets,
             "max_estimated_cost": args.max_estimated_cost,
+            "cost_preflight": cost_preflight,
             "seed": args.seed,
+            "expected_dataset_sha256": expected_dataset_hashes,
+            "observed_dataset_sha256": observed_dataset_hashes,
             "learned_model_sha256": sha256_file(learned_model) if learned_model else None,
             "learned_model_source": "external_frozen_artifact" if learned_model else "built_in_development_default",
             "learned_training_manifest": (
@@ -1062,32 +1522,20 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "release_audit": {"pending": True},
         "checksums": "checksums.txt",
     }
-    write_json(output_root / "manifest.json", manifest)
-    audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
-    gate_checks["release_audit"] = audit["ok"]
-    gate_pass = all(gate_checks.values())
-    manifest["release_audit"] = audit
-    manifest["status"] = "passed" if gate_pass else "failed"
-    write_json(output_root / "manifest.json", manifest)
-    final_audit = release_audit(output_root, excluded=["release_audit.json", "checksums.txt"])
-    write_json(output_root / "release_audit.json", final_audit)
-    if final_audit["ok"] != audit["ok"]:
-        manifest["release_audit"] = final_audit
-        manifest["status"] = "failed"
-        write_json(output_root / "manifest.json", manifest)
-    write_checksums(output_root, output_root / "checksums.txt")
-    return manifest
+    return finalize_release_manifest(output_root, manifest)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the preregistered matched-retention bundle workflow.")
     parser.add_argument("--phase", choices=PHASES, default="offline")
+    parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument(
         "--dataset-spec",
         action="append",
         default=[],
         help="Repeat LABEL:DATASET[:PATH]; defaults to the three protocol development families.",
     )
+    parser.add_argument("--expected-dataset-sha256", action="append", default=[])
     parser.add_argument("--limit", type=int, default=4)
     parser.add_argument("--start-index", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
@@ -1099,6 +1547,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="")
     parser.add_argument("--learned-retention-model", default="")
     parser.add_argument("--learned-retention-training-manifest", default="")
+    parser.add_argument("--offline-manifest", default="")
     parser.add_argument("--max-estimated-cost", type=float, default=None)
     parser.add_argument("--repo-root", default="/tmp/nanorlm-verifiers")
     parser.add_argument("--loom-root", default="")

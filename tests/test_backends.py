@@ -44,6 +44,7 @@ class FakeHTTPResponse:
 
 def openai_payload(content: str, prompt_tokens: int = 3, completion_tokens: int = 2) -> dict[str, object]:
     return {
+        "model": "gpt-4.1-mini-2026-06-01",
         "choices": [{"message": {"content": content}}],
         "usage": {
             "prompt_tokens": prompt_tokens,
@@ -54,6 +55,7 @@ def openai_payload(content: str, prompt_tokens: int = 3, completion_tokens: int 
 
 def anthropic_payload(content: str, input_tokens: int = 4, output_tokens: int = 3) -> dict[str, object]:
     return {
+        "model": "claude-3-5-sonnet-20241022",
         "content": [{"type": "text", "text": content}],
         "usage": {
             "input_tokens": input_tokens,
@@ -134,6 +136,7 @@ class BackendTransportTests(unittest.TestCase):
         self.assertEqual(judge_usage.prompt_tokens, 6)
         self.assertEqual(judge_usage.completion_tokens, 4)
         self.assertEqual(judge_usage.calls, 2)
+        self.assertEqual(backend.response_model_identifiers(), ["gpt-4.1-mini-2026-06-01"])
         self.assertEqual(len(requests), 4)
         first = requests[0]
         first_body = json.loads(first.data.decode("utf-8"))
@@ -162,6 +165,7 @@ class BackendTransportTests(unittest.TestCase):
             self.assertEqual(first.answer, "alpha.txt: beta")
             self.assertEqual(second.answer, "alpha.txt: beta")
             self.assertEqual(second.usage.calls, 0)
+            self.assertEqual(backend.response_model_identifiers(), ["gpt-4.1-mini-2026-06-01"])
             self.assertEqual(len(requests), 1)
             cache_files = list(Path(tmpdir).glob("*.json"))
             self.assertEqual(len(cache_files), 1)
@@ -268,6 +272,7 @@ class BackendTransportTests(unittest.TestCase):
         self.assertEqual(answer.answer, "alpha.txt: beta")
         self.assertEqual(score, 6.5)
         self.assertEqual(winner, 1)
+        self.assertEqual(backend.response_model_identifiers(), ["claude-3-5-sonnet-20241022"])
         self.assertEqual(len(requests), 4)
         first = requests[0]
         first_body = json.loads(first.data.decode("utf-8"))

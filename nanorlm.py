@@ -477,6 +477,7 @@ class StructuredOutputBackend:
     def __init__(self, config: RLMConfig) -> None:
         self.config = config
         self._auxiliary_usage = Usage()
+        self._response_model_identifiers: set[str] = set()
 
     def drain_usage(self) -> Usage:
         usage = self._auxiliary_usage
@@ -485,6 +486,14 @@ class StructuredOutputBackend:
 
     def _record_auxiliary_usage(self, usage: Usage) -> None:
         self._auxiliary_usage.add(usage.prompt_tokens, usage.completion_tokens, usage.calls)
+
+    def _record_response_model_identifier(self, value: Any) -> None:
+        identifier = str(value or "").strip()
+        if identifier:
+            self._response_model_identifiers.add(identifier)
+
+    def response_model_identifiers(self) -> list[str]:
+        return sorted(self._response_model_identifiers)
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         joined = "\n\n".join(f"### {document.name}\n{document.text}" for document in documents)
@@ -640,7 +649,14 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             return None
         return json.loads(path.read_text())
 
-    def _write_cache(self, key: str, payload: dict[str, Any], content: str, usage: Usage) -> None:
+    def _write_cache(
+        self,
+        key: str,
+        payload: dict[str, Any],
+        content: str,
+        usage: Usage,
+        response_model_identifier: str,
+    ) -> None:
         if not self.config.cache_dir:
             return
         cache_dir = Path(self.config.cache_dir)
@@ -656,6 +672,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             },
             "response": {
                 "content": content,
+                "model": response_model_identifier,
                 "usage": {
                     "prompt_tokens": usage.prompt_tokens,
                     "completion_tokens": usage.completion_tokens,
@@ -694,6 +711,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         if cached is not None:
             cached_response = cached.get("response", {})
             usage_payload = cached_response.get("usage", {})
+            self._record_response_model_identifier(cached_response.get("model"))
             return {
                 "content": str(cached_response.get("content", "")),
                 "usage": Usage(
@@ -728,7 +746,9 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("completion_tokens", 0)),
             calls=1,
         )
-        self._write_cache(cache_key, payload, content, usage)
+        response_model_identifier = str(raw.get("model", "")).strip()
+        self._record_response_model_identifier(response_model_identifier)
+        self._write_cache(cache_key, payload, content, usage, response_model_identifier)
         return {"content": content, "usage": usage}
 
 
@@ -769,6 +789,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("output_tokens", 0)),
             calls=1,
         )
+        self._record_response_model_identifier(raw.get("model"))
         return {"content": content, "usage": usage}
 
 
@@ -853,6 +874,9 @@ class RLM:
         replay_stats = getattr(self.backend, "replay_stats", None)
         if callable(replay_stats):
             retention_stats["inspection_replay"] = replay_stats()
+        response_model_identifiers = getattr(self.backend, "response_model_identifiers", None)
+        if callable(response_model_identifiers):
+            retention_stats["response_model_identifiers"] = response_model_identifiers()
         return RLMResult(
             answer=final.answer,
             trace=trace,
@@ -919,6 +943,9 @@ class RLM:
         replay_stats = getattr(self.backend, "replay_stats", None)
         if callable(replay_stats):
             retention_stats["inspection_replay"] = replay_stats()
+        response_model_identifiers = getattr(self.backend, "response_model_identifiers", None)
+        if callable(response_model_identifiers):
+            retention_stats["response_model_identifiers"] = response_model_identifiers()
         return RLMResult(
             answer=final.answer,
             trace=trace,

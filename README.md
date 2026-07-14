@@ -166,6 +166,32 @@ uv run python scripts/run_matched_retention.py \
   --output-dir outputs/matched-retention-offline
 ```
 
+Before a hosted-model pilot, build a no-network preflight bundle from the passed offline manifest and the exact external JSONL exports. The pilot configuration is frozen to two eight-task families, the 96-token budget, `gpt-5.4-mini`, depth 3, a 512-token output cap, seed 0, and a USD 5 conservative reservation cap:
+
+```bash
+uv run python scripts/run_matched_retention.py \
+  --phase pilot \
+  --preflight-only \
+  --dataset-spec ruler:external_jsonl:/path/to/ruler.jsonl \
+  --dataset-spec babilong:external_jsonl:/path/to/babilong.jsonl \
+  --expected-dataset-sha256 ruler=<64-character-source-sha256> \
+  --expected-dataset-sha256 babilong=<64-character-source-sha256> \
+  --limit 8 \
+  --budgets 96 \
+  --provider openai_compatible \
+  --model gpt-5.4-mini \
+  --max-estimated-cost 5 \
+  --learned-retention-model outputs/protocol-model/learned_retention_model.json \
+  --learned-retention-training-manifest outputs/protocol-model/manifest.json \
+  --offline-manifest outputs/matched-retention-offline/manifest.json \
+  --loom-root ../loom \
+  --expected-nanorlm-commit "$(git rev-parse HEAD)" \
+  --expected-loom-commit "$(git -C ../loom rev-parse HEAD)" \
+  --output-dir outputs/matched-retention-pilot-preflight
+```
+
+Preflight validates the source hashes, task conversion, frozen model and training bundle, passed offline evidence, exact clean commits, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes. Run the same command without `--preflight-only` and with a new empty output directory only after the preflight manifest passes. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence.
+
 The command exits nonzero whenever a release gate fails. Inspect `manifest.json` and each `budget-*/validation.json`; do not treat `smallest_eligible_budget_candidate` as frozen unless `selected_budget` is populated and the manifest status is `passed`.
 
 `direct_full_context` remains an unmatched descriptive reference because it skips recursive inspection and retention. Do not include it in a matched-policy significance claim.
