@@ -61,6 +61,16 @@ class NoScoreBackend(HeuristicBackend):
 
 
 class NanoRLMTests(unittest.TestCase):
+    def test_curve_replay_directory_is_isolated_from_main_trace_store(self) -> None:
+        main = Path("outputs") / "inspection-replay"
+
+        self.assertEqual(
+            bench.curve_replay_directory(main),
+            Path("outputs") / "inspection-replay-curves",
+        )
+        self.assertNotEqual(bench.curve_replay_directory(main), main)
+        self.assertIsNone(bench.curve_replay_directory(None))
+
     def test_completion_returns_answer_trace_and_budgeted_memory(self) -> None:
         context = [
             ContextBlock(name="incident-1.txt", text="api gateway rollout blocker is stale endpoint registry cache after deploy validation retry failure on startup."),
