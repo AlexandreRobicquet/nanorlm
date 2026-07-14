@@ -85,6 +85,7 @@ print(result.trace.tree)
 - `retention_stats`
 - `drop_reasons`
 - `per_step_budget`
+- `retention_decisions`, with the complete candidate set, selected ranks, and budget for each retention step
 
 Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
 

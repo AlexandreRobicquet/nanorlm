@@ -1011,6 +1011,8 @@ def run_dataset(
             "drop_reasons": result.drop_reasons,
             "per_step_budget": result.per_step_budget,
             "retained_summaries": [item.summary for item in result.kept_items],
+            "retained_provenance": [item.provenance for item in result.kept_items],
+            "retention_decisions": result.retention_decisions,
         }
         if trace_root is not None:
             write_trace(result, trace_root / f"{example.name}.jsonl")

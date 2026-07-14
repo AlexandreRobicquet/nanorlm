@@ -23,6 +23,9 @@ class RetentionPolicy:
     def select(self, root_query: str, candidates: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
         raise NotImplementedError
 
+    def decision_candidates(self) -> Sequence[MemoryItem]:
+        return ()
+
 
 def _fit_budget(items: Sequence[MemoryItem], budget: int, reserve_recent: bool = False) -> list[MemoryItem]:
     if not items:
@@ -88,14 +91,20 @@ class SingleCriticTopKPolicy(RetentionPolicy):
 
     def __init__(self, judge: Judge) -> None:
         self.judge = judge
+        self._decision_candidates: list[MemoryItem] = []
+
+    def decision_candidates(self) -> Sequence[MemoryItem]:
+        return tuple(self._decision_candidates)
 
     def select(self, root_query: str, candidates: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
+        self._decision_candidates = []
         if sum(item.tokens for item in candidates) <= budget:
             return _fit_budget(candidates, budget, reserve_recent=True)
         ranked = sorted(
             (replace(item, score=self.judge.score_candidate(root_query, item)) for item in candidates),
             key=lambda item: (-item.score, item.depth, -item.timestamp),
         )
+        self._decision_candidates = ranked
         return _fit_budget(ranked, budget, reserve_recent=True)
 
 
@@ -106,8 +115,13 @@ class PairwiseTournamentPolicy(RetentionPolicy):
         self.judge = judge
         self.random = random.Random(seed)
         self.rounds = rounds
+        self._decision_candidates: list[MemoryItem] = []
+
+    def decision_candidates(self) -> Sequence[MemoryItem]:
+        return tuple(self._decision_candidates)
 
     def select(self, root_query: str, candidates: Sequence[MemoryItem], budget: int) -> list[MemoryItem]:
+        self._decision_candidates = []
         if not candidates:
             return []
         if sum(item.tokens for item in candidates) <= budget:
@@ -137,6 +151,7 @@ class PairwiseTournamentPolicy(RetentionPolicy):
                     left.wins += 1
                     right.wins += 1
             ranked.sort(key=lambda item: (-item.wins, item.losses, -self._diversity_bonus(root_query, item), -item.score, -item.timestamp))
+        self._decision_candidates = ranked
         diversified = self._prefer_complementary_items(ranked)
         return self._select_with_budget(root_query, diversified, budget)
 

@@ -85,6 +85,18 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual(result.retention_stats["policy"], "pairwise_tournament")
         self.assertGreaterEqual(result.retention_stats["total_retention_steps"], 1)
         self.assertTrue(result.per_step_budget)
+        self.assertTrue(result.retention_decisions)
+        decision = result.retention_decisions[-1]
+        self.assertEqual(decision["decision_index"], result.per_step_budget[-1]["decision_index"])
+        self.assertTrue(decision["candidates"])
+        selected = [candidate for candidate in decision["candidates"] if candidate["selected"]]
+        dropped = [candidate for candidate in decision["candidates"] if not candidate["selected"]]
+        self.assertTrue(selected)
+        self.assertTrue(dropped)
+        self.assertTrue(any(candidate["score"] > 0.0 for candidate in selected))
+        self.assertTrue(any(candidate["wins"] > 0 or candidate["losses"] > 0 for candidate in selected))
+        self.assertTrue(any(candidate["score"] > 0.0 for candidate in dropped))
+        self.assertTrue(any(candidate["wins"] > 0 or candidate["losses"] > 0 for candidate in dropped))
         self.assertIsInstance(result.drop_reasons, list)
 
     def test_pairwise_differs_from_single_critic_on_dossierbench_internal_regression(self) -> None:
@@ -229,6 +241,8 @@ class NanoRLMTests(unittest.TestCase):
             )
         self.assertEqual(summary["examples"], 2)
         self.assertIn("reward_score", summary)
+        self.assertIn("retention_decisions", summary["results"][0])
+        self.assertIn("retained_provenance", summary["results"][0])
 
     def test_direct_full_context_keeps_raw_context_without_retention(self) -> None:
         example = bench.BenchmarkExample(
@@ -311,6 +325,20 @@ class NanoRLMTests(unittest.TestCase):
         )
         self.assertEqual(result.retention_stats["total_dropped_items"], 0)
         self.assertEqual(result.per_step_budget[-1]["before_count"], result.per_step_budget[-1]["after_count"])
+        decision = result.retention_decisions[-1]
+        selected = [candidate for candidate in decision["candidates"] if candidate["selected"]]
+        self.assertEqual(sum(candidate["tokens"] for candidate in selected), decision["after_tokens"])
+        for retained_item in result.kept_items:
+            candidate = next(
+                row
+                for row in selected
+                if (row["raw_pointer"], row["provenance"], row["timestamp"])
+                == (retained_item.raw_pointer, retained_item.provenance, retained_item.timestamp)
+            )
+            self.assertEqual(candidate["summary"], retained_item.summary)
+            self.assertEqual(candidate["tokens"], retained_item.tokens)
+            self.assertEqual(candidate["answer_candidate"], retained_item.answer_candidate)
+            self.assertEqual(candidate["metadata"], retained_item.metadata)
 
     def test_report_bundle_writes_schema_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
