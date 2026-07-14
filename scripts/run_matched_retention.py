@@ -10,7 +10,7 @@ import statistics
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -843,18 +843,24 @@ def determinism_check(
 
 
 def copy_dataset_sources(output_root: Path, specs: Sequence[DatasetSpec]) -> list[dict[str, Any]]:
+    def portable_path(value: str) -> str | None:
+        posix_path = PurePosixPath(value)
+        windows_path = PureWindowsPath(value)
+        if posix_path.is_absolute():
+            return f"<portable-source>/{posix_path.name or 'source'}"
+        if windows_path.is_absolute():
+            return f"<portable-source>/{windows_path.name or 'source'}"
+        return None
+
     def portable_value(value: Any, key: str = "") -> Any:
         if isinstance(value, dict):
             return {name: portable_value(item, str(name)) for name, item in value.items()}
         if isinstance(value, list):
             return [portable_value(item, key) for item in value]
         if isinstance(value, str) and key in {"path", "source_path", "repo_root", "dataset_path"}:
-            if any(
-                pattern.search(value)
-                for code, pattern in AUDIT_PATTERNS.items()
-                if code.endswith("_path")
-            ):
-                return f"<portable-source>/{Path(value).name}"
+            scrubbed = portable_path(value)
+            if scrubbed is not None:
+                return scrubbed
         return value
 
     records = []

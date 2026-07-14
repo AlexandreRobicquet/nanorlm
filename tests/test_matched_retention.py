@@ -191,7 +191,10 @@ class MatchedRetentionTests(unittest.TestCase):
                         "query": "Where?",
                         "answer": "there",
                         "context": [{"name": "context.txt", "text": "keep /tmp in task text"}],
-                        "metadata": {"source_path": "/tmp/private/raw.jsonl"},
+                        "metadata": {
+                            "source_path": "/workspace/private/raw.jsonl",
+                            "dataset_path": "C:\\private\\dataset.jsonl",
+                        },
                     }
                 )
                 + "\n"
@@ -203,6 +206,10 @@ class MatchedRetentionTests(unittest.TestCase):
             payload = json.loads(embedded.read_text())
 
             self.assertEqual(payload["metadata"]["source_path"], "<portable-source>/raw.jsonl")
+            self.assertEqual(
+                payload["metadata"]["dataset_path"],
+                "<portable-source>/dataset.jsonl",
+            )
             self.assertEqual(payload["context"][0]["text"], "keep /tmp in task text")
             self.assertNotEqual(records[0]["source_sha256"], records[0]["sha256"])
 
