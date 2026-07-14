@@ -226,6 +226,20 @@ class MemoryItem:
         return replace(self, **updates)
 
 
+def memory_item_record(item: MemoryItem) -> dict[str, Any]:
+    return {
+        "summary": item.summary,
+        "provenance": item.provenance,
+        "raw_pointer": item.raw_pointer,
+        "tokens": item.tokens,
+        "depth": item.depth,
+        "timestamp": item.timestamp,
+        "answer_candidate": item.answer_candidate,
+        "confidence": item.confidence,
+        "metadata": dict(item.metadata),
+    }
+
+
 @dataclass(slots=True)
 class TraceEvent:
     kind: str
@@ -289,6 +303,7 @@ class RLMResult:
     retention_stats: dict[str, Any] = field(default_factory=dict)
     drop_reasons: list[dict[str, Any]] = field(default_factory=list)
     per_step_budget: list[dict[str, Any]] = field(default_factory=list)
+    retention_decisions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -779,6 +794,7 @@ class RLM:
         usage = Usage()
         drop_reasons: list[dict[str, Any]] = []
         per_step_budget: list[dict[str, Any]] = []
+        retention_decisions: list[dict[str, Any]] = []
         step_counter = [0]
         recorder.emit("inspect", 0, "root query", query=truncate_words(query, 16), blocks=len(blocks))
         kept_items = self._walk(
@@ -791,6 +807,7 @@ class RLM:
             step_counter=step_counter,
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
+            retention_decisions=retention_decisions,
         )
         final = self.backend.answer(query, kept_items)
         usage.add(final.usage.prompt_tokens, final.usage.completion_tokens, final.usage.calls)
@@ -814,6 +831,7 @@ class RLM:
             retention_stats=retention_stats,
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
+            retention_decisions=retention_decisions,
         )
 
     def direct_completion(self, query: str, context: str | Sequence[ContextBlock | dict[str, Any] | tuple[str, str]]) -> RLMResult:
@@ -870,6 +888,7 @@ class RLM:
             retention_stats=retention_stats,
             drop_reasons=[],
             per_step_budget=[],
+            retention_decisions=[],
         )
 
     def _walk(
@@ -883,6 +902,7 @@ class RLM:
         step_counter: list[int],
         drop_reasons: list[dict[str, Any]],
         per_step_budget: list[dict[str, Any]],
+        retention_decisions: list[dict[str, Any]],
     ) -> list[MemoryItem]:
         step_counter[0] += 1
         if step_counter[0] > self.config.max_steps:
@@ -923,7 +943,20 @@ class RLM:
         for index, group in enumerate(groups):
             child_branch = f"{branch}.{index}"
             recorder.emit("recurse", depth + 1, child_branch, blocks=len(group), tokens=sum(block.tokens for block in group))
-            memory.extend(self._walk(query, group, depth + 1, child_branch, recorder, usage, step_counter, drop_reasons, per_step_budget))
+            memory.extend(
+                self._walk(
+                    query,
+                    group,
+                    depth + 1,
+                    child_branch,
+                    recorder,
+                    usage,
+                    step_counter,
+                    drop_reasons,
+                    per_step_budget,
+                    retention_decisions,
+                )
+            )
             before = len(memory)
             before_items = list(memory)
             memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
@@ -932,8 +965,31 @@ class RLM:
                 extra_usage = drain_usage()
                 usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
             kept_ids = {memory_identity(item) for item in memory}
+            selection_ranks = {memory_identity(item): index for index, item in enumerate(memory)}
             dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
+            decision_index = len(retention_decisions)
+            retention_decisions.append(
+                {
+                    "decision_index": decision_index,
+                    "step": step_counter[0],
+                    "depth": depth,
+                    "branch": branch,
+                    "policy": self.policy.name,
+                    "budget": self.config.memory_budget_tokens,
+                    "before_tokens": sum(item.tokens for item in before_items),
+                    "after_tokens": sum(item.tokens for item in memory),
+                    "candidates": [
+                        {
+                            **memory_item_record(item),
+                            "selected": memory_identity(item) in kept_ids,
+                            "selection_rank": selection_ranks.get(memory_identity(item)),
+                        }
+                        for item in before_items
+                    ],
+                }
+            )
             step_budget = {
+                "decision_index": decision_index,
                 "step": step_counter[0],
                 "depth": depth,
                 "branch": branch,

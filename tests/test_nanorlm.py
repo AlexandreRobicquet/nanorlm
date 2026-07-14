@@ -85,6 +85,11 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual(result.retention_stats["policy"], "pairwise_tournament")
         self.assertGreaterEqual(result.retention_stats["total_retention_steps"], 1)
         self.assertTrue(result.per_step_budget)
+        self.assertTrue(result.retention_decisions)
+        decision = result.retention_decisions[-1]
+        self.assertEqual(decision["decision_index"], result.per_step_budget[-1]["decision_index"])
+        self.assertTrue(decision["candidates"])
+        self.assertTrue(any(candidate["selected"] for candidate in decision["candidates"]))
         self.assertIsInstance(result.drop_reasons, list)
 
     def test_pairwise_differs_from_single_critic_on_dossierbench_internal_regression(self) -> None:
@@ -229,6 +234,8 @@ class NanoRLMTests(unittest.TestCase):
             )
         self.assertEqual(summary["examples"], 2)
         self.assertIn("reward_score", summary)
+        self.assertIn("retention_decisions", summary["results"][0])
+        self.assertIn("retained_provenance", summary["results"][0])
 
     def test_direct_full_context_keeps_raw_context_without_retention(self) -> None:
         example = bench.BenchmarkExample(
