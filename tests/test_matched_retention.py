@@ -264,17 +264,36 @@ class MatchedRetentionTests(unittest.TestCase):
             budget=96,
             expected_tasks=1,
             require_response_model_identifier=True,
+            configured_model_alias="gpt-5.4-mini",
         )
         self.assertFalse(missing["eligible"])
         self.assertEqual(len(missing["response_model_identifier_violations"]), len(MATCHED_POLICIES))
 
         for row in rows:
-            row["retention_stats"]["response_model_identifiers"] = ["gpt-5.4-mini-2026-07-01"]
+            row["retention_stats"]["response_model_identifiers"] = ["gpt-5.4-mini"]
+        alias_only = budget_diagnostics(
+            rows,
+            budget=96,
+            expected_tasks=1,
+            require_response_model_identifier=True,
+            configured_model_alias="gpt-5.4-mini",
+        )
+        self.assertFalse(alias_only["eligible"])
+        self.assertEqual(
+            len(alias_only["response_model_identifier_violations"]),
+            len(MATCHED_POLICIES),
+        )
+
+        for row in rows:
+            row["retention_stats"]["response_model_identifiers"] = [
+                "gpt-5.4-mini-2026-07-01"
+            ]
         bound = budget_diagnostics(
             rows,
             budget=96,
             expected_tasks=1,
             require_response_model_identifier=True,
+            configured_model_alias="gpt-5.4-mini",
         )
         self.assertTrue(bound["eligible"])
         self.assertEqual(

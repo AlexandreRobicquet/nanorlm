@@ -430,6 +430,7 @@ def budget_diagnostics(
     budget: int,
     expected_tasks: int,
     require_response_model_identifier: bool = False,
+    configured_model_alias: str = "",
 ) -> dict[str, Any]:
     expected_rows = expected_tasks * len(MATCHED_POLICIES)
     pressures = []
@@ -465,7 +466,14 @@ def budget_diagnostics(
         identifiers = row.get("retention_stats", {}).get("response_model_identifiers", [])
         normalized_identifiers = sorted(str(item) for item in identifiers) if isinstance(identifiers, list) else []
         observed_model_identifiers.update(normalized_identifiers)
-        if require_response_model_identifier and len(normalized_identifiers) != 1:
+        alias_only = (
+            len(normalized_identifiers) == 1
+            and bool(configured_model_alias)
+            and normalized_identifiers[0] == configured_model_alias
+        )
+        if require_response_model_identifier and (
+            len(normalized_identifiers) != 1 or alias_only
+        ):
             model_identifier_violations.append(
                 f"{row.get('dataset')}:{row.get('name')}:{row.get('policy')}"
             )
@@ -547,6 +555,7 @@ def budget_diagnostics(
         "final_answer_call_violations": final_call_violations,
         "response_model_identifier_violations": model_identifier_violations,
         "observed_response_model_identifiers": sorted(observed_model_identifiers),
+        "configured_model_alias": configured_model_alias or None,
         "matched_inspection_ledger_violations": matched_ledger_violations,
         "replay_hash_violations": replay_hash_violations,
         "pairwise_difference_rates": difference_rates,
@@ -783,6 +792,7 @@ def run_budget(
         budget=budget,
         expected_tasks=len(ordered_tasks),
         require_response_model_identifier=phase != "offline" and provider != "heuristic",
+        configured_model_alias=model,
     )
     diagnostics["cost_cap_exceeded"] = cost_cap_exceeded
     diagnostics["total_estimated_cost"] = cumulative_cost
