@@ -328,6 +328,8 @@ class RLMConfig:
     base_url: str | None = None
     api_key: str | None = None
     cache_dir: str | None = None
+    cache_preserve_usage: bool = False
+    cache_namespace: str = ""
     max_output_tokens: int = 1024
     max_depth: int = 1
     max_steps: int = 64
@@ -636,6 +638,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             "provider": self.provider_name,
             "url": url,
             "model": self.config.model,
+            "cache_namespace": self.config.cache_namespace,
             "payload": payload,
         }
         blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
@@ -662,8 +665,10 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         cache_dir = Path(self.config.cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_payload = {
+            "cache_key": key,
             "provider": self.provider_name,
             "model": self.config.model,
+            "cache_namespace": self.config.cache_namespace,
             "created_at": time.time(),
             "request": {
                 "messages": payload.get("messages", []),
@@ -717,7 +722,11 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
                 "usage": Usage(
                     prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
                     completion_tokens=int(usage_payload.get("completion_tokens", 0)),
-                    calls=0,
+                    calls=(
+                        int(usage_payload.get("calls", 0))
+                        if self.config.cache_preserve_usage
+                        else 0
+                    ),
                 ),
             }
         body = json.dumps(payload).encode("utf-8")

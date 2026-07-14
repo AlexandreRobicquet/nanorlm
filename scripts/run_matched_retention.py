@@ -47,6 +47,8 @@ PHASES = ("offline", "pilot", "confirmation")
 SCHEMA_VERSION = "0.1"
 FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+CACHE_RECORD_RE = re.compile(r"[0-9a-f]{64}\.json")
+CACHE_BINDING_NAME = "binding.json"
 HOSTED_FAMILY_METADATA = {"ruler": "RULER", "babilong": "BABILong"}
 
 
@@ -72,6 +74,126 @@ def sha256_file(path: Path) -> str:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def response_cache_namespace(binding: Mapping[str, Any]) -> str:
+    return sha256_bytes(canonical_json(binding).encode("utf-8"))
+
+
+def validate_response_cache_record(
+    path: Path,
+    *,
+    expected_namespace: str,
+    expected_model: str = "",
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid response-cache record: {path.name}") from exc
+    request = payload.get("request") if isinstance(payload, dict) else None
+    response = payload.get("response") if isinstance(payload, dict) else None
+    usage = response.get("usage") if isinstance(response, dict) else None
+    messages = request.get("messages") if isinstance(request, dict) else None
+    if (
+        payload.get("provider") != "openai_compatible"
+        or payload.get("cache_key") != path.stem
+        or (expected_model and payload.get("model") != expected_model)
+        or payload.get("cache_namespace") != expected_namespace
+        or not isinstance(messages, list)
+        or not messages
+        or not isinstance(response.get("content"), str)
+        or not str(response.get("model", "")).strip()
+        or not isinstance(usage, dict)
+    ):
+        raise ValueError(f"response-cache record has invalid structure: {path.name}")
+    for key in ("prompt_tokens", "completion_tokens", "calls"):
+        value = usage.get(key)
+        if not isinstance(value, int) or value < 0:
+            raise ValueError(f"response-cache record has invalid usage: {path.name}")
+    if usage["calls"] < 1:
+        raise ValueError(f"response-cache record has no logical model call: {path.name}")
+    serialized = canonical_json(payload).lower()
+    if "authorization" in serialized or "api_key" in serialized or "api-key" in serialized:
+        raise ValueError(f"response-cache record contains credential material: {path.name}")
+    return {
+        "path": path.name,
+        "sha256": sha256_file(path),
+        "response_model": str(response["model"]),
+        "prompt_tokens": int(usage["prompt_tokens"]),
+        "completion_tokens": int(usage["completion_tokens"]),
+        "calls": int(usage["calls"]),
+    }
+
+
+def prepare_response_cache(
+    cache_root: Path,
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    if cache_root.is_symlink():
+        raise ValueError("response-cache directory must not be a symlink")
+    cache_root.mkdir(parents=True, exist_ok=True)
+    if not cache_root.is_dir():
+        raise ValueError("response-cache path is not a directory")
+    marker = cache_root / CACHE_BINDING_NAME
+    namespace = response_cache_namespace(binding)
+    configuration = binding.get("configuration")
+    expected_model = (
+        str(configuration.get("model", "")) if isinstance(configuration, dict) else ""
+    )
+    if marker.exists():
+        if marker.is_symlink() or not marker.is_file():
+            raise ValueError("response-cache binding is not a regular file")
+        try:
+            observed_binding = json.loads(marker.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("response-cache binding is not valid JSON") from exc
+        if observed_binding != binding:
+            raise ValueError("response-cache binding does not match this frozen execution")
+    else:
+        write_json(marker, binding)
+
+    records = []
+    for item in sorted(cache_root.iterdir()):
+        if item.name == CACHE_BINDING_NAME:
+            continue
+        if item.is_symlink() or not item.is_file() or CACHE_RECORD_RE.fullmatch(item.name) is None:
+            raise ValueError(f"unexpected response-cache entry: {item.name}")
+        records.append(
+            validate_response_cache_record(
+                item,
+                expected_namespace=namespace,
+                expected_model=expected_model,
+            )
+        )
+    return {
+        "path": "artifacts/response_cache",
+        "namespace": namespace,
+        "binding_sha256": sha256_file(marker),
+        "record_count": len(records),
+        "logical_calls": sum(record["calls"] for record in records),
+        "prompt_tokens": sum(record["prompt_tokens"] for record in records),
+        "completion_tokens": sum(record["completion_tokens"] for record in records),
+        "response_models": sorted({record["response_model"] for record in records}),
+        "records_sha256": sha256_bytes(canonical_json(records).encode("utf-8")),
+    }
+
+
+def snapshot_response_cache(
+    cache_root: Path,
+    output_root: Path,
+    binding: Mapping[str, Any],
+) -> dict[str, Any]:
+    validation = prepare_response_cache(cache_root, binding)
+    destination = output_root / validation["path"]
+    if destination.exists():
+        raise ValueError("response-cache snapshot destination already exists")
+    destination.mkdir(parents=True)
+    for item in sorted(cache_root.iterdir()):
+        shutil.copyfile(item, destination / item.name)
+    copied = prepare_response_cache(destination, binding)
+    if copied != validation:
+        raise ValueError("response-cache snapshot changed during publication copy")
+    return copied
 
 
 def parse_csv_ints(value: str) -> list[int]:
@@ -708,6 +830,8 @@ def run_budget(
     depth: int,
     max_output_tokens: int,
     max_estimated_cost: float | None,
+    response_cache_dir: Path | None,
+    response_cache_namespace_value: str,
 ) -> dict[str, Any]:
     parts: dict[str, dict[str, list[dict[str, Any]]]] = {
         spec.label: {policy: [] for policy in MATCHED_POLICIES} for spec in specs
@@ -729,7 +853,9 @@ def run_budget(
                 provider=provider,
                 model=model,
                 base_url=base_url,
-                cache_dir=None,
+                cache_dir=response_cache_dir,
+                cache_preserve_usage=response_cache_dir is not None,
+                cache_namespace=response_cache_namespace_value,
                 max_output_tokens=max_output_tokens,
                 learned_retention_model=learned_model,
                 output_dir=budget_root / "reports" / spec.label,
@@ -967,6 +1093,8 @@ def reproduction_argv_template(
         argv.extend(["--preflight-manifest", f"<passed-{args.phase}-preflight-bundle>/manifest.json"])
     if args.expected_preflight_sha256:
         argv.extend(["--expected-preflight-sha256", args.expected_preflight_sha256])
+    if args.cache_dir:
+        argv.extend(["--cache-dir", "<bound-response-cache-dir>"])
     if args.max_estimated_cost is not None:
         argv.extend(["--max-estimated-cost", str(args.max_estimated_cost)])
     if any(spec.dataset == "verifiers_smoke" for spec in specs):
@@ -1347,6 +1475,8 @@ def validate_phase_configuration(
     budgets: Sequence[int],
 ) -> None:
     if args.phase == "offline":
+        if args.cache_dir:
+            raise ValueError("offline phase does not accept a response cache")
         return
     expected_limit = 8 if args.phase == "pilot" else 25
     expected_cap = 5.0 if args.phase == "pilot" else 20.0
@@ -1369,6 +1499,8 @@ def validate_phase_configuration(
         )
     if args.max_estimated_cost != expected_cap:
         raise ValueError(f"{args.phase} must use the frozen USD {expected_cap:g} cost cap")
+    if not args.cache_dir:
+        raise ValueError(f"{args.phase} requires a bound persistent response cache")
 
 
 def execute(args: argparse.Namespace) -> dict[str, Any]:
@@ -1418,6 +1550,24 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     if output_root.exists() and any(output_root.iterdir()):
         raise ValueError(f"output directory must be empty: {output_root}")
     output_root.mkdir(parents=True, exist_ok=True)
+    response_cache_root: Path | None = None
+    if args.cache_dir:
+        raw_cache_root = Path(args.cache_dir).expanduser()
+        if raw_cache_root.is_symlink():
+            raise ValueError("response-cache directory must not be a symlink")
+        response_cache_root = raw_cache_root.resolve()
+        try:
+            response_cache_root.relative_to(output_root)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("response-cache directory must be outside the output bundle")
+        try:
+            output_root.relative_to(response_cache_root)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("output bundle must not be inside the response-cache directory")
     loom_root = Path(args.loom_root).expanduser().resolve() if args.loom_root else None
     source_learned_model = (
         Path(args.learned_retention_model).expanduser().resolve()
@@ -1514,6 +1664,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "learned_training_manifest_sha256": (
             sha256_file(training_manifest) if training_manifest else None
         ),
+        "response_cache": {
+            "required": args.phase != "offline",
+            "mode": "exact_binding_read_write_v1" if args.phase != "offline" else "disabled",
+            "preserve_logical_usage_on_hit": args.phase != "offline",
+            "publish_snapshot": args.phase != "offline",
+        },
     }
 
     code_snapshot = git_snapshot(ROOT)
@@ -1557,6 +1713,8 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     write_json(output_root / "task_manifest.json", task_manifest)
 
     prior_preflight_evidence: dict[str, Any] | None = None
+    response_cache_binding_payload: dict[str, Any] | None = None
+    response_cache_initial_state: dict[str, Any] | None = None
     if source_preflight_manifest is not None:
         if not source_preflight_manifest.is_file():
             raise ValueError(f"prior preflight manifest does not exist: {source_preflight_manifest}")
@@ -1589,6 +1747,22 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(
                 "hosted execution requires clean repositories and exact commit bindings before network access"
             )
+        if response_cache_root is None:
+            raise ValueError("hosted execution requires a persistent response cache")
+        response_cache_binding_payload = {
+            "schema_version": "nanorlm-response-cache-binding-v1",
+            "phase": args.phase,
+            "nanorlm_commit": str(code_snapshot["commit"]),
+            "loom_commit": str(loom_snapshot["commit"]),
+            "task_manifest_sha256": sha256_file(output_root / "task_manifest.json"),
+            "offline_manifest_sha256": str(prior_offline_evidence["sha256"]),
+            "preflight_manifest_sha256": str(prior_preflight_evidence["sha256"]),
+            "configuration": preflight_configuration,
+        }
+        response_cache_initial_state = prepare_response_cache(
+            response_cache_root,
+            response_cache_binding_payload,
+        )
 
     if args.preflight_only:
         commit_bindings = {
@@ -1622,6 +1796,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 args.max_estimated_cost is not None
                 and cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
             ),
+            "bound_response_cache_configuration": bool(args.cache_dir),
             "zero_network_calls": True,
         }
         inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
@@ -1693,6 +1868,12 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             depth=args.depth,
             max_output_tokens=args.max_output_tokens,
             max_estimated_cost=args.max_estimated_cost,
+            response_cache_dir=response_cache_root,
+            response_cache_namespace_value=(
+                response_cache_namespace(response_cache_binding_payload)
+                if response_cache_binding_payload is not None
+                else ""
+            ),
         )
         result["determinism"] = (
             determinism_check(
@@ -1785,6 +1966,22 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             or cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
         ),
     }
+    response_cache_snapshot: dict[str, Any] | None = None
+    if response_cache_root is not None and response_cache_binding_payload is not None:
+        response_cache_snapshot = snapshot_response_cache(
+            response_cache_root,
+            output_root,
+            response_cache_binding_payload,
+        )
+    gate_checks["bound_response_cache"] = (
+        args.phase == "offline"
+        or bool(
+            response_cache_snapshot
+            and response_cache_snapshot["record_count"] > 0
+            and response_cache_snapshot["namespace"]
+            == response_cache_namespace(response_cache_binding_payload or {})
+        )
+    )
     inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
     inventory = artifact_inventory(output_root, excluded=inventory_exclusions)
     manifest = {
@@ -1844,6 +2041,19 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 if training_manifest
                 else None
             ),
+            "response_cache": (
+                {
+                    "binding": response_cache_binding_payload,
+                    "initial_record_count": int(
+                        response_cache_initial_state["record_count"]
+                        if response_cache_initial_state
+                        else 0
+                    ),
+                    "snapshot": response_cache_snapshot,
+                }
+                if response_cache_snapshot is not None
+                else None
+            ),
         },
         "datasets": dataset_records,
         "task_manifest": {
@@ -1899,6 +2109,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expected-offline-sha256", default="")
     parser.add_argument("--preflight-manifest", default="")
     parser.add_argument("--expected-preflight-sha256", default="")
+    parser.add_argument(
+        "--cache-dir",
+        default="",
+        help="External persistent response cache; required and exact-bound for hosted phases.",
+    )
     parser.add_argument("--max-estimated-cost", type=float, default=None)
     parser.add_argument("--repo-root", default="/tmp/nanorlm-verifiers")
     parser.add_argument("--loom-root", default="")

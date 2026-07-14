@@ -198,6 +198,30 @@ class BackendTransportTests(unittest.TestCase):
             self.assertEqual(len(requests), 2)
             self.assertEqual(len(list(Path(tmpdir).glob("*.json"))), 2)
 
+    def test_openai_compatible_cache_can_preserve_logical_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OpenAICompatibleBackend(
+                RLMConfig(
+                    model="gpt-4.1-mini",
+                    provider="openai_compatible",
+                    base_url="https://api.openai.com/v1",
+                    api_key="test-openai-key",
+                    cache_dir=tmpdir,
+                    cache_preserve_usage=True,
+                    cache_namespace="publication-run-a",
+                )
+            )
+            requests, fake_urlopen = self._capture_requests([openai_payload("alpha.txt: beta")])
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                first = backend.answer("What happened?", [memory_item()])
+                second = backend.answer("What happened?", [memory_item()])
+
+            self.assertEqual(second.answer, first.answer)
+            self.assertEqual(second.usage, first.usage)
+            self.assertEqual(len(requests), 1)
+            cache_payload = json.loads(next(Path(tmpdir).glob("*.json")).read_text())
+            self.assertEqual(cache_payload["cache_namespace"], "publication-run-a")
+
     def test_openai_compatible_retries_rate_limit_response(self) -> None:
         backend = OpenAICompatibleBackend(
             RLMConfig(

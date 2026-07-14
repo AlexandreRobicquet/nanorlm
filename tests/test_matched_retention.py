@@ -25,9 +25,13 @@ from scripts.run_matched_retention import (
     hosted_family_audit,
     parse_dataset_spec,
     parse_expected_dataset_hashes,
+    prepare_response_cache,
     release_audit,
     reproduction_argv_template,
+    response_cache_namespace,
+    run_budget,
     sha256_file,
+    snapshot_response_cache,
     validate_dataset_hashes,
     validate_phase_configuration,
     validate_loom_traces,
@@ -117,6 +121,7 @@ class MatchedRetentionTests(unittest.TestCase):
             expected_offline_sha256="b" * 64,
             preflight_manifest="",
             expected_preflight_sha256="",
+            cache_dir="/tmp/bound-cache",
             max_estimated_cost=5.0,
             expected_nanorlm_commit="c" * 40,
             expected_loom_commit="d" * 40,
@@ -130,7 +135,131 @@ class MatchedRetentionTests(unittest.TestCase):
 
         self.assertIn("ruler:external_jsonl:<source-dataset>/ruler.jsonl", argv)
         self.assertIn(f"ruler={source_hash}", argv)
+        self.assertIn("<bound-response-cache-dir>", argv)
         self.assertFalse(any("<bundle>/datasets/" in value for value in argv))
+
+    def test_response_cache_is_exact_bound_and_snapshotted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cache = root / "cache"
+            binding = {
+                "schema_version": "nanorlm-response-cache-binding-v1",
+                "nanorlm_commit": "a" * 40,
+                "task_manifest_sha256": "b" * 64,
+            }
+            empty = prepare_response_cache(cache, binding)
+            self.assertEqual(empty["record_count"], 0)
+
+            namespace = response_cache_namespace(binding)
+            record = {
+                "cache_key": "c" * 64,
+                "provider": "openai_compatible",
+                "model": "gpt-5.4-mini",
+                "cache_namespace": namespace,
+                "created_at": 1.0,
+                "request": {
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "temperature": 0.0,
+                    "max_completion_tokens": 512,
+                },
+                "response": {
+                    "content": "answer",
+                    "model": "gpt-5.4-mini-2026-07-01",
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 2, "calls": 1},
+                },
+            }
+            (cache / f"{'c' * 64}.json").write_text(json.dumps(record))
+
+            populated = prepare_response_cache(cache, binding)
+            self.assertEqual(populated["record_count"], 1)
+            self.assertEqual(populated["logical_calls"], 1)
+            self.assertEqual(populated["response_models"], ["gpt-5.4-mini-2026-07-01"])
+
+            copied = snapshot_response_cache(cache, root / "bundle", binding)
+            self.assertEqual(copied, populated)
+            self.assertTrue((root / "bundle" / "artifacts" / "response_cache" / "binding.json").is_file())
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                prepare_response_cache(cache, {**binding, "nanorlm_commit": "d" * 40})
+
+    def test_response_cache_rejects_unexpected_or_credential_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = Path(tmpdir) / "cache"
+            binding = {"schema_version": "nanorlm-response-cache-binding-v1"}
+            prepare_response_cache(cache, binding)
+            (cache / "notes.txt").write_text("not a cache record")
+            with self.assertRaisesRegex(ValueError, "unexpected response-cache entry"):
+                prepare_response_cache(cache, binding)
+
+            (cache / "notes.txt").unlink()
+            namespace = response_cache_namespace(binding)
+            record = {
+                "cache_key": "e" * 64,
+                "provider": "openai_compatible",
+                "cache_namespace": namespace,
+                "request": {"messages": [{"role": "user", "content": "api_key"}]},
+                "response": {
+                    "content": "answer",
+                    "model": "dated-model",
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "calls": 1},
+                },
+            }
+            (cache / f"{'e' * 64}.json").write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "credential material"):
+                prepare_response_cache(cache, binding)
+
+    def test_hosted_budget_preserves_usage_from_bound_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            spec = DatasetSpec("ruler", "external_jsonl", root / "ruler.jsonl")
+            example = BenchmarkExample(
+                name="case-1",
+                query="What?",
+                context=[ContextBlock(name="context.txt", text="alpha")],
+                answer="alpha",
+                must_contain=["alpha"],
+            )
+            observed_kwargs = []
+
+            def fake_run_dataset(_examples, policy, **kwargs):
+                observed_kwargs.append(kwargs)
+                row = result_row(
+                    policy,
+                    selected_pointer="root.1" if policy == "pairwise_tournament" else "root.0",
+                )
+                row["dataset"] = "ruler"
+                row["cost_estimate"] = 0.001
+                row["retention_stats"]["response_model_identifiers"] = [
+                    "gpt-5.4-mini-2026-07-01"
+                ]
+                return {"completed": True, "results": [row]}
+
+            with (
+                patch("scripts.run_matched_retention.run_dataset", side_effect=fake_run_dataset),
+                patch("scripts.run_matched_retention.curves_from_summaries", return_value={}),
+                patch("scripts.run_matched_retention.write_report_bundle"),
+            ):
+                result = run_budget(
+                    phase="pilot",
+                    specs=[spec],
+                    examples={"ruler": [example]},
+                    budget=96,
+                    budget_root=root / "budget-096",
+                    provider="openai_compatible",
+                    model="gpt-5.4-mini",
+                    base_url=None,
+                    learned_model=root / "model.json",
+                    seed=0,
+                    depth=3,
+                    max_output_tokens=512,
+                    max_estimated_cost=5.0,
+                    response_cache_dir=root / "cache",
+                    response_cache_namespace_value="f" * 64,
+                )
+
+            self.assertTrue(result["diagnostics"]["eligible"])
+            self.assertEqual(len(observed_kwargs), len(MATCHED_POLICIES))
+            self.assertTrue(all(item["cache_preserve_usage"] for item in observed_kwargs))
+            self.assertTrue(all(item["cache_namespace"] == "f" * 64 for item in observed_kwargs))
 
     def test_hosted_execution_rejects_missing_preflight_before_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -170,6 +299,8 @@ class MatchedRetentionTests(unittest.TestCase):
                     "offline.json",
                     "--expected-offline-sha256",
                     "a" * 64,
+                    "--cache-dir",
+                    str(root / "cache"),
                     "--output-dir",
                     str(output),
                 ]
@@ -665,6 +796,7 @@ class MatchedRetentionTests(unittest.TestCase):
             start_index=0,
             limit=8,
             max_estimated_cost=5.0,
+            cache_dir="/tmp/bound-cache",
         )
         specs = [
             DatasetSpec("ruler", "external_jsonl", Path("ruler.jsonl")),
