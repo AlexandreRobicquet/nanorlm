@@ -227,7 +227,18 @@ def train_linear_retention_model(
 
     def row_decision_key(row: dict[str, Any]) -> Any:
         decision_id = row.get("decision_id")
-        return decision_id if decision_id not in (None, "") else row.get("step")
+        if decision_id not in (None, ""):
+            return ("decision_id", decision_id)
+        step = row.get("step")
+        if step is None:
+            return None
+        return (
+            "step",
+            step,
+            row.get("branch"),
+            row.get("depth"),
+            row.get("decision_index"),
+        )
 
     training_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     if objective == "pairwise":
