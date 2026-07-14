@@ -902,7 +902,7 @@ def reproduction_argv_template(
     for spec in specs:
         value = f"{spec.label}:{spec.dataset}"
         if spec.path is not None:
-            value += f":<bundle>/datasets/{spec.label}.jsonl"
+            value += f":<source-dataset>/{spec.label}.jsonl"
         argv.extend(["--dataset-spec", value])
     for label, digest in sorted(dataset_hashes.items()):
         argv.extend(["--expected-dataset-sha256", f"{label}={digest}"])
@@ -1631,12 +1631,15 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                     specs,
                     budgets,
                     {
-                        str(record["label"]): str(record["sha256"])
+                        str(record["label"]): str(record["source_sha256"])
                         for record in dataset_records
                         if record.get("embedded")
                     },
                 ),
-                "note": "Replace angle-bracket path placeholders with the matching frozen artifacts.",
+                "note": (
+                    "Source-dataset placeholders require the exact original exports matching "
+                    "source_sha256; bundle placeholders refer to copied frozen artifacts."
+                ),
             },
             "configuration": preflight_configuration,
             "datasets": dataset_records,
@@ -1788,12 +1791,16 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 specs,
                 budgets,
                 {
-                    str(record["label"]): str(record["sha256"])
+                    str(record["label"]): str(record["source_sha256"])
                     for record in dataset_records
                     if record.get("embedded")
                 },
             ),
-            "note": "Replace angle-bracket placeholders with paths or the endpoint matching the recorded hashes.",
+            "note": (
+                "Source-dataset placeholders require the exact original exports matching "
+                "source_sha256; replace other placeholders with artifacts or the endpoint "
+                "matching the recorded hashes."
+            ),
         },
         "configuration": {
             "policies": MATCHED_POLICIES,

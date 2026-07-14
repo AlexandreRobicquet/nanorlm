@@ -26,6 +26,7 @@ from scripts.run_matched_retention import (
     parse_dataset_spec,
     parse_expected_dataset_hashes,
     release_audit,
+    reproduction_argv_template,
     sha256_file,
     validate_dataset_hashes,
     validate_phase_configuration,
@@ -96,6 +97,40 @@ class MatchedRetentionTests(unittest.TestCase):
                 validate_dataset_hashes([spec], {}, required=True)
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
                 validate_dataset_hashes([spec], {"ruler": "0" * 64}, required=True)
+
+    def test_reproduction_template_preserves_original_dataset_hashes(self) -> None:
+        source_hash = "a" * 64
+        args = SimpleNamespace(
+            phase="pilot",
+            preflight_only=True,
+            limit=8,
+            start_index=0,
+            seed=0,
+            depth=3,
+            max_output_tokens=512,
+            provider="openai_compatible",
+            model="gpt-5.4-mini",
+            base_url="",
+            learned_retention_model="model.json",
+            learned_retention_training_manifest="training.json",
+            offline_manifest="offline.json",
+            expected_offline_sha256="b" * 64,
+            preflight_manifest="",
+            expected_preflight_sha256="",
+            max_estimated_cost=5.0,
+            expected_nanorlm_commit="c" * 40,
+            expected_loom_commit="d" * 40,
+        )
+        argv = reproduction_argv_template(
+            args,
+            [DatasetSpec("ruler", "external_jsonl", Path("/tmp/source-ruler.jsonl"))],
+            [96],
+            {"ruler": source_hash},
+        )
+
+        self.assertIn("ruler:external_jsonl:<source-dataset>/ruler.jsonl", argv)
+        self.assertIn(f"ruler={source_hash}", argv)
+        self.assertFalse(any("<bundle>/datasets/" in value for value in argv))
 
     def test_hosted_execution_rejects_missing_preflight_before_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
