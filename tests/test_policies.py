@@ -220,6 +220,23 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "require decision_id or step"):
             train_linear_retention_model(rows, objective="pairwise", epochs=1)
 
+    def test_pairwise_training_falls_back_to_step_for_null_decision_ids(self) -> None:
+        rows = [
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": None,
+                "step": step,
+                "label": label,
+                "features": {"confidence": confidence},
+            }
+            for step in [1, 2]
+            for label, confidence in [(True, 1.0), (False, 0.0)]
+        ]
+        model = train_linear_retention_model(rows, objective="pairwise", epochs=1)
+        self.assertEqual(model.metadata["training_pairs"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

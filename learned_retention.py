@@ -225,13 +225,13 @@ def train_linear_retention_model(
     def row_features(row: dict[str, Any]) -> dict[str, float]:
         return {name: float(row["features"].get(name, 0.0)) for name in FEATURE_NAMES}
 
+    def row_decision_key(row: dict[str, Any]) -> Any:
+        decision_id = row.get("decision_id")
+        return decision_id if decision_id not in (None, "") else row.get("step")
+
     training_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     if objective == "pairwise":
-        rows_without_decisions = [
-            row
-            for row in training_rows
-            if not row.get("decision_id") and row.get("step") is None
-        ]
+        rows_without_decisions = [row for row in training_rows if row_decision_key(row) is None]
         if rows_without_decisions:
             raise ValueError("pairwise learned retention rows require decision_id or step")
         grouped_rows: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
@@ -240,7 +240,7 @@ def train_linear_retention_model(
                 row.get("dataset"),
                 row.get("seed"),
                 row.get("case"),
-                row.get("decision_id", row.get("step")),
+                row_decision_key(row),
             )
             grouped_rows.setdefault(group_key, []).append(row)
         training_pairs = [
