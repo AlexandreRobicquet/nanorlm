@@ -225,23 +225,32 @@ def train_linear_retention_model(
     def row_features(row: dict[str, Any]) -> dict[str, float]:
         return {name: float(row["features"].get(name, 0.0)) for name in FEATURE_NAMES}
 
-    grouped_rows: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    for row in training_rows:
-        group_key = (
-            row.get("dataset"),
-            row.get("seed"),
-            row.get("case"),
-            row.get("decision_id", row.get("step")),
-        )
-        grouped_rows.setdefault(group_key, []).append(row)
-    training_pairs = [
-        (positive, negative)
-        for group in grouped_rows.values()
-        for positive in group
-        if positive.get("label")
-        for negative in group
-        if not negative.get("label")
-    ]
+    training_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    if objective == "pairwise":
+        rows_without_decisions = [
+            row
+            for row in training_rows
+            if not row.get("decision_id") and row.get("step") is None
+        ]
+        if rows_without_decisions:
+            raise ValueError("pairwise learned retention rows require decision_id or step")
+        grouped_rows: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+        for row in training_rows:
+            group_key = (
+                row.get("dataset"),
+                row.get("seed"),
+                row.get("case"),
+                row.get("decision_id", row.get("step")),
+            )
+            grouped_rows.setdefault(group_key, []).append(row)
+        training_pairs = [
+            (positive, negative)
+            for group in grouped_rows.values()
+            for positive in group
+            if positive.get("label")
+            for negative in group
+            if not negative.get("label")
+        ]
 
     def pairwise_accuracy(current_weights: dict[str, float]) -> float | None:
         if not training_pairs:

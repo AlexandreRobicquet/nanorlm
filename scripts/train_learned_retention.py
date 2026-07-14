@@ -115,7 +115,8 @@ def label_memory_item(item: MemoryItem, example: BenchmarkExample) -> bool:
     fragments = list(example.must_contain)
     if example.answer:
         fragments.extend(part.strip() for part in example.answer.split("|") if part.strip())
-    return any(normalize_text(fragment) and normalize_text(fragment) in item_blob for fragment in fragments)
+    normalized_fragments = [normalize_text(fragment) for fragment in fragments]
+    return any(fragment and fragment in item_blob for fragment in normalized_fragments)
 
 
 def memory_item_from_record(record: dict[str, Any]) -> MemoryItem:

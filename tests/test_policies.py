@@ -203,6 +203,23 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(model.metadata["training_pairs"], 1)
         self.assertEqual(model.metadata["pairwise_accuracy_after"], 1.0)
 
+    def test_pointwise_training_does_not_materialize_decision_pairs(self) -> None:
+        rows = [
+            {"dataset": "mini", "case": "case-1", "label": True, "features": {"confidence": 1.0}},
+            {"dataset": "mini", "case": "case-1", "label": False, "features": {"confidence": 0.0}},
+        ]
+        model = train_linear_retention_model(rows, objective="pointwise", epochs=1)
+        self.assertEqual(model.metadata["training_pairs"], 0)
+        self.assertIsNone(model.metadata["pairwise_accuracy_before"])
+
+    def test_pairwise_training_requires_decision_keys(self) -> None:
+        rows = [
+            {"dataset": "mini", "case": "case-1", "label": True, "features": {"confidence": 1.0}},
+            {"dataset": "mini", "case": "case-1", "label": False, "features": {"confidence": 0.0}},
+        ]
+        with self.assertRaisesRegex(ValueError, "require decision_id or step"):
+            train_linear_retention_model(rows, objective="pairwise", epochs=1)
+
 
 if __name__ == "__main__":
     unittest.main()
