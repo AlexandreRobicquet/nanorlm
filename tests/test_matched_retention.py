@@ -207,6 +207,19 @@ class MatchedRetentionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "credential material"):
                 prepare_response_cache(cache, binding)
 
+    def test_response_cache_rejects_dangling_binding_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cache = root / "cache"
+            cache.mkdir()
+            (cache / "binding.json").symlink_to(root / "missing-binding.json")
+
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                prepare_response_cache(
+                    cache,
+                    {"schema_version": "nanorlm-response-cache-binding-v1"},
+                )
+
     def test_hosted_budget_preserves_usage_from_bound_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

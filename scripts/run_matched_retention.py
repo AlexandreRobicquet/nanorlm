@@ -140,8 +140,10 @@ def prepare_response_cache(
     expected_model = (
         str(configuration.get("model", "")) if isinstance(configuration, dict) else ""
     )
+    if marker.is_symlink():
+        raise ValueError("response-cache binding must not be a symlink")
     if marker.exists():
-        if marker.is_symlink() or not marker.is_file():
+        if not marker.is_file():
             raise ValueError("response-cache binding is not a regular file")
         try:
             observed_binding = json.loads(marker.read_text(encoding="utf-8"))
