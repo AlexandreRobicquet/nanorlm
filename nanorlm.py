@@ -964,9 +964,21 @@ class RLM:
             if callable(drain_usage):
                 extra_usage = drain_usage()
                 usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
-            kept_ids = {memory_identity(item) for item in memory}
+            kept_by_identity = {memory_identity(item): item for item in memory}
+            kept_ids = set(kept_by_identity)
             selection_ranks = {memory_identity(item): index for index, item in enumerate(memory)}
             dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
+            candidates = []
+            for item in before_items:
+                identity = memory_identity(item)
+                retained_item = kept_by_identity.get(identity)
+                candidates.append(
+                    {
+                        **memory_item_record(retained_item if retained_item is not None else item),
+                        "selected": retained_item is not None,
+                        "selection_rank": selection_ranks.get(identity),
+                    }
+                )
             decision_index = len(retention_decisions)
             retention_decisions.append(
                 {
@@ -978,14 +990,7 @@ class RLM:
                     "budget": self.config.memory_budget_tokens,
                     "before_tokens": sum(item.tokens for item in before_items),
                     "after_tokens": sum(item.tokens for item in memory),
-                    "candidates": [
-                        {
-                            **memory_item_record(item),
-                            "selected": memory_identity(item) in kept_ids,
-                            "selection_rank": selection_ranks.get(memory_identity(item)),
-                        }
-                        for item in before_items
-                    ],
+                    "candidates": candidates,
                 }
             )
             step_budget = {

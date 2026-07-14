@@ -318,6 +318,20 @@ class NanoRLMTests(unittest.TestCase):
         )
         self.assertEqual(result.retention_stats["total_dropped_items"], 0)
         self.assertEqual(result.per_step_budget[-1]["before_count"], result.per_step_budget[-1]["after_count"])
+        decision = result.retention_decisions[-1]
+        selected = [candidate for candidate in decision["candidates"] if candidate["selected"]]
+        self.assertEqual(sum(candidate["tokens"] for candidate in selected), decision["after_tokens"])
+        for retained_item in result.kept_items:
+            candidate = next(
+                row
+                for row in selected
+                if (row["raw_pointer"], row["provenance"], row["timestamp"])
+                == (retained_item.raw_pointer, retained_item.provenance, retained_item.timestamp)
+            )
+            self.assertEqual(candidate["summary"], retained_item.summary)
+            self.assertEqual(candidate["tokens"], retained_item.tokens)
+            self.assertEqual(candidate["answer_candidate"], retained_item.answer_candidate)
+            self.assertEqual(candidate["metadata"], retained_item.metadata)
 
     def test_report_bundle_writes_schema_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
