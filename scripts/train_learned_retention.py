@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Sequence
@@ -374,6 +376,50 @@ def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+def artifact_record(path: Path, output_dir: Path) -> dict[str, Any]:
+    resolved_path = path.resolve()
+    resolved_output = output_dir.resolve()
+    try:
+        portable_path = resolved_path.relative_to(resolved_output).as_posix()
+        external = False
+    except ValueError:
+        portable_path = f"<external-artifact>/{path.name}"
+        external = True
+    return {
+        "path": portable_path,
+        "external": external,
+        "bytes": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def repository_record() -> dict[str, Any]:
+    def run(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    commit = run("rev-parse", "HEAD")
+    status = run("status", "--porcelain")
+    return {
+        "commit": commit,
+        "clean": bool(commit) and not bool(status),
+        "status_entries": len(status.splitlines()) if status else 0,
+    }
+
+
+def portable_source_reference(value: str | None, label: str) -> str | None:
+    if not value:
+        return None
+    name = Path(value).name or label
+    return f"<{label}>/{name}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train a small offline learned_retention model from retention traces.")
     parser.add_argument("--datasets", default=DEFAULT_DATASETS)
@@ -439,8 +485,8 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
             "train_seeds": train_seeds,
             "limit": args.limit,
             "feature_budget": args.feature_budget,
-            "repo_root": args.repo_root,
-            "dataset_path": args.dataset_path,
+            "repo_root": portable_source_reference(args.repo_root, "source-repo"),
+            "dataset_path": portable_source_reference(args.dataset_path, "source-dataset"),
             "training_source": args.training_source,
             "collection_policy": args.collection_policy,
             "trace_trajectories": len(trace_records),
@@ -450,16 +496,34 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
     if trace_records:
         write_jsonl(traces_path, trace_records)
     model.save(model_path)
+    artifacts = {
+        "model": artifact_record(model_path, output_dir),
+        "training_examples": artifact_record(examples_path, output_dir),
+        "training_traces": artifact_record(traces_path, output_dir) if trace_records else None,
+    }
     manifest = {
+        "schema_version": 1,
         "status": "trained",
+        "repository": repository_record(),
         "model_path": str(model_path),
         "training_examples_path": str(examples_path),
         "training_traces_path": str(traces_path) if trace_records else None,
+        "artifacts": artifacts,
         "datasets": dataset_records,
         "training": model.metadata,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    portable_manifest = {
+        **manifest,
+        "model_path": artifacts["model"]["path"],
+        "training_examples_path": artifacts["training_examples"]["path"],
+        "training_traces_path": (
+            artifacts["training_traces"]["path"] if artifacts["training_traces"] else None
+        ),
+    }
+    (output_dir / "manifest.json").write_text(
+        json.dumps(portable_manifest, indent=2, sort_keys=True) + "\n"
+    )
     return manifest
 
 

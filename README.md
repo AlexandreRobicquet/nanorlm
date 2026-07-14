@@ -140,6 +140,66 @@ uv run python bench.py \
 
 Because replay preserves the captured usage ledger, `--max-estimated-cost` remains a conservative counterfactual allocation across policies; it is an upper bound on the API work actually issued by a replayed sweep, not a billing receipt.
 
+For a protocol-bound sweep, use `scripts/run_matched_retention.py`. It runs the five frozen policies task-by-task, selects the smallest structurally eligible budget from the development grid, reruns a fixed task in replay-only mode, validates every exported trace with a clean LOOM checkout, and writes a manifest, privacy audit, and checksums. Accuracy is deliberately excluded from budget selection.
+
+The default protocol sweep uses `dossierbench`, `ruler_synthetic`, and `babilong_synthetic`. PairBench remains an engineering fixture and is not included in the protocol model or budget-selection evidence.
+
+The release gate requires a hash-bound learned-retention model and portable training manifest, clean nanoRLM and LOOM commits, and exact 40-character commit bindings. Hosted preflight and execution additionally require the offline bundle's nanoRLM commit to equal the current runner commit. A convenient offline sequence is:
+
+```bash
+uv run python scripts/train_learned_retention.py \
+  --datasets dossierbench,ruler_synthetic,babilong_synthetic \
+  --train-seeds 0,1 \
+  --limit 12 \
+  --repo-root tests/fixtures/verifiers-mini \
+  --dataset-path tests/fixtures/external-benchmark-mini.jsonl \
+  --output-dir outputs/protocol-model
+
+uv run python scripts/run_matched_retention.py \
+  --phase offline \
+  --budgets 96,128,192 \
+  --learned-retention-model outputs/protocol-model/learned_retention_model.json \
+  --learned-retention-training-manifest outputs/protocol-model/manifest.json \
+  --loom-root ../loom \
+  --expected-nanorlm-commit "$(git rev-parse HEAD)" \
+  --expected-loom-commit "$(git -C ../loom rev-parse HEAD)" \
+  --output-dir outputs/matched-retention-offline
+```
+
+Before a hosted-model pilot, build a no-network preflight bundle from the passed offline manifest and the exact external JSONL exports. The pilot configuration is frozen to two eight-task families, the 96-token budget, `gpt-5.4-mini`, depth 3, a 512-token output cap, seed 0, and a USD 5 conservative reservation cap:
+
+```bash
+uv run python scripts/run_matched_retention.py \
+  --phase pilot \
+  --preflight-only \
+  --dataset-spec ruler:external_jsonl:/path/to/ruler.jsonl \
+  --dataset-spec babilong:external_jsonl:/path/to/babilong.jsonl \
+  --expected-dataset-sha256 ruler=<64-character-source-sha256> \
+  --expected-dataset-sha256 babilong=<64-character-source-sha256> \
+  --limit 8 \
+  --budgets 96 \
+  --provider openai_compatible \
+  --model gpt-5.4-mini \
+  --max-estimated-cost 5 \
+  --learned-retention-model outputs/protocol-model/learned_retention_model.json \
+  --learned-retention-training-manifest outputs/protocol-model/manifest.json \
+  --offline-manifest outputs/matched-retention-offline/manifest.json \
+  --expected-offline-sha256 <64-character-offline-manifest-sha256> \
+  --cache-dir outputs/cache/matched-retention-pilot \
+  --loom-root ../loom \
+  --expected-nanorlm-commit "$(git rev-parse HEAD)" \
+  --expected-loom-commit "$(git -C ../loom rev-parse HEAD)" \
+  --output-dir outputs/matched-retention-pilot-preflight
+```
+
+Preflight validates the source hashes, RULER/BABILong family metadata, task conversion, frozen model and training bundle, expected offline-manifest hash and complete offline-bundle checksum coverage, exact clean commits, persistent-cache mode, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes.
+
+The paid command must use the same arguments without `--preflight-only`, a new empty output directory, and both `--preflight-manifest <passed-preflight>/manifest.json` and `--expected-preflight-sha256 <64-character-manifest-sha256>`. Use a dedicated external `--cache-dir` for that frozen execution. Execution creates an exact binding over the nanoRLM/LOOM commits, task manifest, offline evidence, preflight evidence, and model configuration before network access. If a provider quota interrupts the run, keep that cache unchanged and rerun the identical command with another empty output directory; successful responses are reused without duplicate requests while their logical token and call usage remains in the matched ledger. The completed release copies the validated cache into `artifacts/response_cache` and includes every record in its inventory and checksum index.
+
+Execution fails before network access unless the passed zero-network bundle has the same nanoRLM/LOOM commits, task manifest, dataset artifacts, model/training hashes, configuration, offline evidence, and a checksum index that exactly covers the manifest inventory and release bundle. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence. Do not edit, merge, or reuse a bound cache for a different execution.
+
+The command exits nonzero whenever a release gate fails. Inspect `manifest.json` and each `budget-*/validation.json`; do not treat `smallest_eligible_budget_candidate` as frozen unless `selected_budget` is populated and the manifest status is `passed`.
+
 `direct_full_context` remains an unmatched descriptive reference because it skips recursive inspection and retention. Do not include it in a matched-policy significance claim.
 
 The exporter has no runtime dependency on LOOM. When both repos are available, validate generated traces with LOOM itself:

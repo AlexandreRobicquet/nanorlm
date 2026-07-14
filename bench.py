@@ -906,6 +906,8 @@ def run_policy_case(
     retention_judge: str = "backend",
     inspection_replay_path: str | None = None,
     inspection_replay_mode: str = "capture_or_replay",
+    cache_preserve_usage: bool = False,
+    cache_namespace: str = "",
 ) -> RLMResult:
     config = RLMConfig(
         model=model,
@@ -913,6 +915,8 @@ def run_policy_case(
         base_url=base_url,
         api_key=api_key,
         cache_dir=cache_dir,
+        cache_preserve_usage=cache_preserve_usage,
+        cache_namespace=cache_namespace,
         max_output_tokens=max_output_tokens,
         max_depth=max_depth,
         max_steps=256,
@@ -966,6 +970,8 @@ def run_dataset(
     retention_judge: str = "backend",
     inspection_replay_dir: str | Path | None = None,
     inspection_replay_mode: str = "capture_or_replay",
+    cache_preserve_usage: bool = False,
+    cache_namespace: str = "",
 ) -> dict[str, Any]:
     provider = resolve_provider_arg(provider, use_openai_backend)
     validate_benchmark_cost_support(provider, model, base_url)
@@ -1013,6 +1019,8 @@ def run_dataset(
             retention_judge=retention_judge,
             inspection_replay_path=inspection_replay_path,
             inspection_replay_mode=inspection_replay_mode,
+            cache_preserve_usage=cache_preserve_usage,
+            cache_namespace=cache_namespace,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
         cumulative_cost = round(cumulative_cost + result.cost_estimate, 6)

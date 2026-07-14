@@ -141,6 +141,12 @@ class InspectionReplayBackend:
             return Usage()
         return drain()
 
+    def response_model_identifiers(self) -> list[str]:
+        identifiers = getattr(self.backend, "response_model_identifiers", None)
+        if not callable(identifiers):
+            return []
+        return list(identifiers())
+
     def replay_stats(self) -> dict[str, Any]:
         return {
             "mode": self.mode,

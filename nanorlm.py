@@ -26,6 +26,24 @@ REMOTE_MODEL_PRICES = {
 }
 
 
+def openai_compatible_cache_key(
+    *,
+    url: str,
+    model: str,
+    cache_namespace: str,
+    payload: dict[str, Any],
+) -> str:
+    cache_payload = {
+        "provider": "openai_compatible",
+        "url": url,
+        "model": model,
+        "cache_namespace": cache_namespace,
+        "payload": payload,
+    }
+    blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(WORD_RE.findall(text)) * 1.3))
 
@@ -328,6 +346,8 @@ class RLMConfig:
     base_url: str | None = None
     api_key: str | None = None
     cache_dir: str | None = None
+    cache_preserve_usage: bool = False
+    cache_namespace: str = ""
     max_output_tokens: int = 1024
     max_depth: int = 1
     max_steps: int = 64
@@ -477,6 +497,7 @@ class StructuredOutputBackend:
     def __init__(self, config: RLMConfig) -> None:
         self.config = config
         self._auxiliary_usage = Usage()
+        self._response_model_identifiers: set[str] = set()
 
     def drain_usage(self) -> Usage:
         usage = self._auxiliary_usage
@@ -485,6 +506,14 @@ class StructuredOutputBackend:
 
     def _record_auxiliary_usage(self, usage: Usage) -> None:
         self._auxiliary_usage.add(usage.prompt_tokens, usage.completion_tokens, usage.calls)
+
+    def _record_response_model_identifier(self, value: Any) -> None:
+        identifier = str(value or "").strip()
+        if identifier:
+            self._response_model_identifiers.add(identifier)
+
+    def response_model_identifiers(self) -> list[str]:
+        return sorted(self._response_model_identifiers)
 
     def inspect(self, query: str, documents: Sequence[ContextBlock], depth: int, branch: str) -> InspectionResult:
         joined = "\n\n".join(f"### {document.name}\n{document.text}" for document in documents)
@@ -623,14 +652,12 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
     retryable_status_codes = {429, 500, 502, 503, 504}
 
     def _cache_key(self, url: str, payload: dict[str, Any]) -> str:
-        cache_payload = {
-            "provider": self.provider_name,
-            "url": url,
-            "model": self.config.model,
-            "payload": payload,
-        }
-        blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        return openai_compatible_cache_key(
+            url=url,
+            model=self.config.model,
+            cache_namespace=self.config.cache_namespace,
+            payload=payload,
+        )
 
     def _read_cache(self, key: str) -> dict[str, Any] | None:
         if not self.config.cache_dir:
@@ -638,24 +665,67 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         path = Path(self.config.cache_dir) / f"{key}.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text())
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"invalid cached response entry: {path.name}")
+        cached = json.loads(path.read_text())
+        if not isinstance(cached, dict):
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        request = cached.get("request")
+        if not isinstance(request, dict):
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        request_payload = {
+            "model": cached.get("model"),
+            "messages": request.get("messages"),
+            "temperature": request.get("temperature"),
+            "max_completion_tokens": request.get("max_completion_tokens"),
+        }
+        url = request.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        recomputed_key = openai_compatible_cache_key(
+            url=url,
+            model=str(cached.get("model", "")),
+            cache_namespace=str(cached.get("cache_namespace", "")),
+            payload=request_payload,
+        )
+        if (
+            cached.get("provider") != self.provider_name
+            or cached.get("model") != self.config.model
+            or cached.get("cache_namespace") != self.config.cache_namespace
+            or cached.get("cache_key") != key
+            or recomputed_key != key
+        ):
+            raise ValueError(f"cached response key mismatch: {path.name}")
+        return cached
 
-    def _write_cache(self, key: str, payload: dict[str, Any], content: str, usage: Usage) -> None:
+    def _write_cache(
+        self,
+        key: str,
+        url: str,
+        payload: dict[str, Any],
+        content: str,
+        usage: Usage,
+        response_model_identifier: str,
+    ) -> None:
         if not self.config.cache_dir:
             return
         cache_dir = Path(self.config.cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_payload = {
+            "cache_key": key,
             "provider": self.provider_name,
             "model": self.config.model,
+            "cache_namespace": self.config.cache_namespace,
             "created_at": time.time(),
             "request": {
+                "url": url,
                 "messages": payload.get("messages", []),
                 "temperature": payload.get("temperature"),
                 "max_completion_tokens": payload.get("max_completion_tokens"),
             },
             "response": {
                 "content": content,
+                "model": response_model_identifier,
                 "usage": {
                     "prompt_tokens": usage.prompt_tokens,
                     "completion_tokens": usage.completion_tokens,
@@ -694,12 +764,17 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         if cached is not None:
             cached_response = cached.get("response", {})
             usage_payload = cached_response.get("usage", {})
+            self._record_response_model_identifier(cached_response.get("model"))
             return {
                 "content": str(cached_response.get("content", "")),
                 "usage": Usage(
                     prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
                     completion_tokens=int(usage_payload.get("completion_tokens", 0)),
-                    calls=0,
+                    calls=(
+                        int(usage_payload.get("calls", 0))
+                        if self.config.cache_preserve_usage
+                        else 0
+                    ),
                 ),
             }
         body = json.dumps(payload).encode("utf-8")
@@ -728,7 +803,9 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("completion_tokens", 0)),
             calls=1,
         )
-        self._write_cache(cache_key, payload, content, usage)
+        response_model_identifier = str(raw.get("model", "")).strip()
+        self._record_response_model_identifier(response_model_identifier)
+        self._write_cache(cache_key, url, payload, content, usage, response_model_identifier)
         return {"content": content, "usage": usage}
 
 
@@ -769,6 +846,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
             completion_tokens=int(usage_payload.get("output_tokens", 0)),
             calls=1,
         )
+        self._record_response_model_identifier(raw.get("model"))
         return {"content": content, "usage": usage}
 
 
@@ -853,6 +931,9 @@ class RLM:
         replay_stats = getattr(self.backend, "replay_stats", None)
         if callable(replay_stats):
             retention_stats["inspection_replay"] = replay_stats()
+        response_model_identifiers = getattr(self.backend, "response_model_identifiers", None)
+        if callable(response_model_identifiers):
+            retention_stats["response_model_identifiers"] = response_model_identifiers()
         return RLMResult(
             answer=final.answer,
             trace=trace,
@@ -919,6 +1000,9 @@ class RLM:
         replay_stats = getattr(self.backend, "replay_stats", None)
         if callable(replay_stats):
             retention_stats["inspection_replay"] = replay_stats()
+        response_model_identifiers = getattr(self.backend, "response_model_identifiers", None)
+        if callable(response_model_identifiers):
+            retention_stats["response_model_identifiers"] = response_model_identifiers()
         return RLMResult(
             answer=final.answer,
             trace=trace,
