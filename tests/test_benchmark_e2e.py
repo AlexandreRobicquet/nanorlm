@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts import run_benchmark_e2e
 
@@ -47,6 +48,42 @@ class BenchmarkE2ETests(unittest.TestCase):
                 self.assertTrue((report_dir / "experiment_report.md").exists())
                 self.assertTrue((report_dir / "trace_examples").exists())
                 self.assertTrue((report_dir / "loom_traces").exists())
+
+    def test_benchmark_spec_isolates_curve_replay_store(self) -> None:
+        spec = run_benchmark_e2e.BenchmarkSpec(
+            name="isolated-replay",
+            dataset="pairbench",
+            limit=1,
+            budget=24,
+            depth=2,
+            policies=["keep_recent"],
+            curve_policies=["keep_recent"],
+            curve_budgets=[24, 48],
+            curve_depths=[2],
+            curve_seeds=[0],
+            repo_root="",
+            retention_judge="heuristic",
+            inspection_replay_dir="outputs/main-replay",
+            inspection_replay_mode="replay_only",
+        )
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("scripts.run_benchmark_e2e.build_dataset", return_value=[]),
+            patch(
+                "scripts.run_benchmark_e2e.policy_sweep",
+                return_value=[{"completed": True, "total_cost_estimate": 0.0}],
+            ),
+            patch("scripts.run_benchmark_e2e.generate_curves", return_value=[]) as curves,
+            patch("scripts.run_benchmark_e2e.write_report_bundle"),
+            patch("scripts.run_benchmark_e2e.validate_report_bundle", return_value={}),
+        ):
+            run_benchmark_e2e.run_benchmark_spec(Path(tmpdir), spec)
+
+        self.assertEqual(
+            curves.call_args.kwargs["inspection_replay_dir"],
+            Path("outputs/main-replay-curves"),
+        )
+        self.assertEqual(curves.call_args.kwargs["inspection_replay_mode"], "capture_or_replay")
 
     def test_assets_phase_generates_artifact_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
