@@ -26,10 +26,12 @@ from bench import (  # noqa: E402
     write_report_bundle,
 )
 from nanorlm import (  # noqa: E402
+    OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
     REMOTE_MODEL_PRICES,
     estimate_tokens,
     is_local_base_url,
     normalize_provider_name,
+    openai_compatible_cache_key,
     slugify,
 )
 
@@ -86,6 +88,7 @@ def validate_response_cache_record(
     *,
     expected_namespace: str,
     expected_model: str = "",
+    expected_url_sha256: str = "",
 ) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -99,11 +102,33 @@ def validate_response_cache_record(
         raise ValueError(f"response-cache record has invalid structure: {path.name}")
     usage = response.get("usage")
     messages = request.get("messages")
+    request_url = request.get("url")
+    request_payload = {
+        "model": payload.get("model"),
+        "messages": messages,
+        "temperature": request.get("temperature"),
+        "max_completion_tokens": request.get("max_completion_tokens"),
+    }
+    recomputed_key = (
+        openai_compatible_cache_key(
+            url=request_url,
+            model=str(payload.get("model", "")),
+            cache_namespace=str(payload.get("cache_namespace", "")),
+            payload=request_payload,
+        )
+        if isinstance(request_url, str) and request_url
+        else ""
+    )
     if (
         payload.get("provider") != "openai_compatible"
         or payload.get("cache_key") != path.stem
+        or recomputed_key != path.stem
         or (expected_model and payload.get("model") != expected_model)
         or payload.get("cache_namespace") != expected_namespace
+        or (
+            expected_url_sha256
+            and sha256_bytes(str(request_url).encode("utf-8")) != expected_url_sha256
+        )
         or not isinstance(messages, list)
         or not messages
         or not isinstance(response.get("content"), str)
@@ -145,6 +170,14 @@ def prepare_response_cache(
     expected_model = (
         str(configuration.get("model", "")) if isinstance(configuration, dict) else ""
     )
+    response_cache_configuration = (
+        configuration.get("response_cache") if isinstance(configuration, dict) else None
+    )
+    expected_url_sha256 = (
+        str(response_cache_configuration.get("request_url_sha256", ""))
+        if isinstance(response_cache_configuration, dict)
+        else ""
+    )
     if marker.is_symlink():
         raise ValueError("response-cache binding must not be a symlink")
     if marker.exists():
@@ -170,6 +203,7 @@ def prepare_response_cache(
                 item,
                 expected_namespace=namespace,
                 expected_model=expected_model,
+                expected_url_sha256=expected_url_sha256,
             )
         )
     return {
@@ -441,9 +475,10 @@ def conservative_cost_upper_bound(
     normalized_provider = normalize_provider_name(provider)
     if normalized_provider == "heuristic" or is_local_base_url(base_url):
         return {
-            "formula_version": 1,
+            "formula_version": 2,
             "logical_policy_upper_bound_usd": 0.0,
             "prompt_safety_factor": 4,
+            "json_repair_calls_upper_bound": 0,
             "tasks": len(tasks),
         }
     price_key = (normalized_provider, model)
@@ -452,23 +487,27 @@ def conservative_cost_upper_bound(
     prompt_price, completion_price = REMOTE_MODEL_PRICES[price_key]
     prompt_tokens_upper = 0
     completion_tokens_upper = 0
+    json_repair_calls_upper = 0
     for _, example in tasks:
         leaf_calls = min(max(1, len(example.context)), 2**depth)
         context_tokens = sum(block.tokens for block in example.context)
         query_tokens = estimate_tokens(example.query)
         inspection_prompt = context_tokens + leaf_calls * (query_tokens + 512)
+        repair_prompt = leaf_calls * (max_output_tokens + query_tokens + 512)
         final_prompt = budget + query_tokens + 512
-        prompt_tokens_upper += 4 * (inspection_prompt + final_prompt) * len(MATCHED_POLICIES)
+        prompt_tokens_upper += 4 * (inspection_prompt + repair_prompt + final_prompt) * len(MATCHED_POLICIES)
         completion_tokens_upper += (
-            (leaf_calls + 1) * max_output_tokens * len(MATCHED_POLICIES)
+            (2 * leaf_calls + 1) * max_output_tokens * len(MATCHED_POLICIES)
         )
+        json_repair_calls_upper += leaf_calls * len(MATCHED_POLICIES)
     cost = prompt_tokens_upper * prompt_price + completion_tokens_upper * completion_price
     return {
-        "formula_version": 1,
+        "formula_version": 2,
         "logical_policy_upper_bound_usd": round(cost, 6),
         "prompt_tokens_upper_bound": prompt_tokens_upper,
         "completion_tokens_upper_bound": completion_tokens_upper,
         "prompt_safety_factor": 4,
+        "json_repair_calls_upper_bound": json_repair_calls_upper,
         "tasks": len(tasks),
     }
 
@@ -1492,6 +1531,8 @@ def validate_phase_configuration(
     if args.phase == "offline":
         if args.cache_dir:
             raise ValueError("offline phase does not accept a response cache")
+        if list(budgets) != DEFAULT_BUDGETS:
+            raise ValueError("offline phase must use the frozen 96/128/192 development grid")
         return
     expected_limit = 8 if args.phase == "pilot" else 25
     expected_cap = 5.0 if args.phase == "pilot" else 20.0
@@ -1663,6 +1704,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "conservative task-block cost reservation exceeds the frozen cost cap before execution"
         )
 
+    hosted_request_url = (
+        f"{(args.base_url or OPENAI_COMPATIBLE_DEFAULT_BASE_URL).rstrip('/')}/chat/completions"
+    )
     preflight_configuration = {
         "provider": args.provider,
         "model": args.model,
@@ -1684,6 +1728,11 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "mode": "exact_binding_read_write_v1" if args.phase != "offline" else "disabled",
             "preserve_logical_usage_on_hit": args.phase != "offline",
             "publish_snapshot": args.phase != "offline",
+            "request_url_sha256": (
+                sha256_bytes(hosted_request_url.encode("utf-8"))
+                if args.phase != "offline"
+                else None
+            ),
         },
     }
 

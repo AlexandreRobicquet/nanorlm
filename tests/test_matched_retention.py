@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bench import BenchmarkExample
-from nanorlm import ContextBlock
+from nanorlm import ContextBlock, openai_compatible_cache_key
 from scripts.run_matched_retention import (
     DatasetSpec,
     MATCHED_POLICIES,
@@ -180,24 +180,40 @@ class MatchedRetentionTests(unittest.TestCase):
             self.assertEqual(empty["record_count"], 0)
 
             namespace = response_cache_namespace(binding)
+            request_url = "https://api.openai.com/v1/chat/completions"
+            request = {
+                "url": request_url,
+                "messages": [{"role": "user", "content": "hello"}],
+                "temperature": 0.0,
+                "max_completion_tokens": 512,
+            }
+            request_payload = {
+                "model": "gpt-5.4-mini",
+                "messages": request["messages"],
+                "temperature": request["temperature"],
+                "max_completion_tokens": request["max_completion_tokens"],
+            }
+            cache_key = openai_compatible_cache_key(
+                url=request_url,
+                model="gpt-5.4-mini",
+                cache_namespace=namespace,
+                payload=request_payload,
+            )
             record = {
-                "cache_key": "c" * 64,
+                "cache_key": cache_key,
                 "provider": "openai_compatible",
                 "model": "gpt-5.4-mini",
                 "cache_namespace": namespace,
                 "created_at": 1.0,
-                "request": {
-                    "messages": [{"role": "user", "content": "hello"}],
-                    "temperature": 0.0,
-                    "max_completion_tokens": 512,
-                },
+                "request": request,
                 "response": {
                     "content": "answer",
                     "model": "gpt-5.4-mini-2026-07-01",
                     "usage": {"prompt_tokens": 10, "completion_tokens": 2, "calls": 1},
                 },
             }
-            (cache / f"{'c' * 64}.json").write_text(json.dumps(record))
+            record_path = cache / f"{cache_key}.json"
+            record_path.write_text(json.dumps(record))
 
             populated = prepare_response_cache(cache, binding)
             self.assertEqual(populated["record_count"], 1)
@@ -210,6 +226,11 @@ class MatchedRetentionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not match"):
                 prepare_response_cache(cache, {**binding, "nanorlm_commit": "d" * 40})
 
+            record["request"]["messages"][0]["content"] = "different prompt"
+            record_path.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "invalid structure"):
+                prepare_response_cache(cache, binding)
+
     def test_response_cache_rejects_unexpected_or_credential_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             cache = Path(tmpdir) / "cache"
@@ -221,18 +242,38 @@ class MatchedRetentionTests(unittest.TestCase):
 
             (cache / "notes.txt").unlink()
             namespace = response_cache_namespace(binding)
+            request_url = "https://api.openai.com/v1/chat/completions"
+            request = {
+                "url": request_url,
+                "messages": [{"role": "user", "content": "api_key"}],
+                "temperature": 0.0,
+                "max_completion_tokens": 512,
+            }
+            request_payload = {
+                "model": "gpt-5.4-mini",
+                "messages": request["messages"],
+                "temperature": request["temperature"],
+                "max_completion_tokens": request["max_completion_tokens"],
+            }
+            cache_key = openai_compatible_cache_key(
+                url=request_url,
+                model="gpt-5.4-mini",
+                cache_namespace=namespace,
+                payload=request_payload,
+            )
             record = {
-                "cache_key": "e" * 64,
+                "cache_key": cache_key,
                 "provider": "openai_compatible",
+                "model": "gpt-5.4-mini",
                 "cache_namespace": namespace,
-                "request": {"messages": [{"role": "user", "content": "api_key"}]},
+                "request": request,
                 "response": {
                     "content": "answer",
                     "model": "dated-model",
                     "usage": {"prompt_tokens": 1, "completion_tokens": 1, "calls": 1},
                 },
             }
-            (cache / f"{'e' * 64}.json").write_text(json.dumps(record))
+            (cache / f"{cache_key}.json").write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError, "credential material"):
                 prepare_response_cache(cache, binding)
 
@@ -882,6 +923,11 @@ class MatchedRetentionTests(unittest.TestCase):
                 [96],
             )
 
+        offline_args = SimpleNamespace(phase="offline", cache_dir="")
+        validate_phase_configuration(offline_args, specs, [96, 128, 192])
+        with self.assertRaisesRegex(ValueError, "frozen 96/128/192 development grid"):
+            validate_phase_configuration(offline_args, specs, [96])
+
         example = BenchmarkExample(
             name="case",
             query="What is the code?",
@@ -898,6 +944,9 @@ class MatchedRetentionTests(unittest.TestCase):
             depth=3,
             max_output_tokens=512,
         )
+        self.assertEqual(reservation["formula_version"], 2)
+        self.assertEqual(reservation["completion_tokens_upper_bound"], 3 * 512 * 5)
+        self.assertEqual(reservation["json_repair_calls_upper_bound"], 5)
         self.assertGreater(reservation["logical_policy_upper_bound_usd"], 0.0)
         self.assertLess(reservation["logical_policy_upper_bound_usd"], 5.0)
 

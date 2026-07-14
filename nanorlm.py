@@ -26,6 +26,24 @@ REMOTE_MODEL_PRICES = {
 }
 
 
+def openai_compatible_cache_key(
+    *,
+    url: str,
+    model: str,
+    cache_namespace: str,
+    payload: dict[str, Any],
+) -> str:
+    cache_payload = {
+        "provider": "openai_compatible",
+        "url": url,
+        "model": model,
+        "cache_namespace": cache_namespace,
+        "payload": payload,
+    }
+    blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(len(WORD_RE.findall(text)) * 1.3))
 
@@ -634,15 +652,12 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
     retryable_status_codes = {429, 500, 502, 503, 504}
 
     def _cache_key(self, url: str, payload: dict[str, Any]) -> str:
-        cache_payload = {
-            "provider": self.provider_name,
-            "url": url,
-            "model": self.config.model,
-            "cache_namespace": self.config.cache_namespace,
-            "payload": payload,
-        }
-        blob = json.dumps(cache_payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+        return openai_compatible_cache_key(
+            url=url,
+            model=self.config.model,
+            cache_namespace=self.config.cache_namespace,
+            payload=payload,
+        )
 
     def _read_cache(self, key: str) -> dict[str, Any] | None:
         if not self.config.cache_dir:
@@ -650,11 +665,43 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         path = Path(self.config.cache_dir) / f"{key}.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text())
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"invalid cached response entry: {path.name}")
+        cached = json.loads(path.read_text())
+        if not isinstance(cached, dict):
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        request = cached.get("request")
+        if not isinstance(request, dict):
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        request_payload = {
+            "model": cached.get("model"),
+            "messages": request.get("messages"),
+            "temperature": request.get("temperature"),
+            "max_completion_tokens": request.get("max_completion_tokens"),
+        }
+        url = request.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError(f"invalid cached response structure: {path.name}")
+        recomputed_key = openai_compatible_cache_key(
+            url=url,
+            model=str(cached.get("model", "")),
+            cache_namespace=str(cached.get("cache_namespace", "")),
+            payload=request_payload,
+        )
+        if (
+            cached.get("provider") != self.provider_name
+            or cached.get("model") != self.config.model
+            or cached.get("cache_namespace") != self.config.cache_namespace
+            or cached.get("cache_key") != key
+            or recomputed_key != key
+        ):
+            raise ValueError(f"cached response key mismatch: {path.name}")
+        return cached
 
     def _write_cache(
         self,
         key: str,
+        url: str,
         payload: dict[str, Any],
         content: str,
         usage: Usage,
@@ -671,6 +718,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
             "cache_namespace": self.config.cache_namespace,
             "created_at": time.time(),
             "request": {
+                "url": url,
                 "messages": payload.get("messages", []),
                 "temperature": payload.get("temperature"),
                 "max_completion_tokens": payload.get("max_completion_tokens"),
@@ -757,7 +805,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         )
         response_model_identifier = str(raw.get("model", "")).strip()
         self._record_response_model_identifier(response_model_identifier)
-        self._write_cache(cache_key, payload, content, usage, response_model_identifier)
+        self._write_cache(cache_key, url, payload, content, usage, response_model_identifier)
         return {"content": content, "usage": usage}
 
 
