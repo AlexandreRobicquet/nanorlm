@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 from bench import (  # noqa: E402
     DEFAULT_POLICIES,
     build_dataset,
+    curve_replay_directory,
     curves_from_summaries,
     generate_curves,
     parse_csv_strings,
@@ -274,6 +275,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         inspection_replay_mode=spec.inspection_replay_mode,
     )
     if spec.provider == "heuristic":
+        curve_replay_dir = curve_replay_directory(spec.inspection_replay_dir)
         curves = generate_curves(
             dataset_label,
             lambda seed: build_dataset(
@@ -296,8 +298,10 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             max_output_tokens=spec.max_output_tokens,
             learned_retention_model=spec.learned_retention_model,
             retention_judge=spec.retention_judge,
-            inspection_replay_dir=spec.inspection_replay_dir,
-            inspection_replay_mode=spec.inspection_replay_mode,
+            inspection_replay_dir=curve_replay_dir,
+            inspection_replay_mode=(
+                "capture_or_replay" if curve_replay_dir is not None else spec.inspection_replay_mode
+            ),
         )
     else:
         curves = curves_from_summaries(dataset_label, summaries, budget=spec.budget, depth=spec.depth)
