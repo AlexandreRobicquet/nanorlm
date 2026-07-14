@@ -47,6 +47,7 @@ PHASES = ("offline", "pilot", "confirmation")
 SCHEMA_VERSION = "0.1"
 FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+HOSTED_FAMILY_METADATA = {"ruler": "RULER", "babilong": "BABILong"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +221,33 @@ def conversion_audit(
     return {
         "ok": not violations,
         "tasks_checked": len(tasks),
+        "violations": violations,
+    }
+
+
+def hosted_family_audit(
+    tasks: Sequence[tuple[DatasetSpec, BenchmarkExample]],
+) -> dict[str, Any]:
+    violations = []
+    observed: dict[str, set[str]] = {label: set() for label in HOSTED_FAMILY_METADATA}
+    for spec, example in tasks:
+        benchmark = str(example.metadata.get("benchmark", ""))
+        observed.setdefault(spec.label, set()).add(benchmark)
+        expected = HOSTED_FAMILY_METADATA.get(spec.label)
+        if expected is None or benchmark != expected:
+            violations.append(
+                {
+                    "family": spec.label,
+                    "name": example.name,
+                    "expected_benchmark": expected,
+                    "observed_benchmark": benchmark or None,
+                }
+            )
+    return {
+        "ok": not violations,
+        "tasks_checked": len(tasks),
+        "expected": HOSTED_FAMILY_METADATA,
+        "observed": {label: sorted(values) for label, values in sorted(observed.items())},
         "violations": violations,
     }
 
@@ -917,6 +945,10 @@ def reproduction_argv_template(
         )
     if args.offline_manifest:
         argv.extend(["--offline-manifest", "<passed-offline-bundle>/manifest.json"])
+    if args.preflight_manifest:
+        argv.extend(["--preflight-manifest", f"<passed-{args.phase}-preflight-bundle>/manifest.json"])
+    if args.expected_preflight_sha256:
+        argv.extend(["--expected-preflight-sha256", args.expected_preflight_sha256])
     if args.max_estimated_cost is not None:
         argv.extend(["--max-estimated-cost", str(args.max_estimated_cost)])
     if any(spec.dataset == "verifiers_smoke" for spec in specs):
@@ -1074,6 +1106,141 @@ def copy_and_validate_offline_manifest(
     }
 
 
+def verify_checksum_index(root: Path, index_path: Path) -> dict[str, Any]:
+    resolved_root = root.resolve()
+    resolved_index = index_path.resolve()
+    try:
+        resolved_index.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError("preflight checksum index escapes its bundle") from exc
+    if not resolved_index.is_file():
+        raise ValueError("preflight bundle is missing its checksum index")
+    verified = []
+    for line_number, line in enumerate(resolved_index.read_text(encoding="utf-8").splitlines(), start=1):
+        digest, separator, relative_value = line.partition("  ")
+        if not separator or SHA256_RE.fullmatch(digest) is None:
+            raise ValueError(f"invalid preflight checksum entry at line {line_number}")
+        relative = Path(relative_value)
+        if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"unsafe preflight checksum path at line {line_number}")
+        artifact = (resolved_root / relative).resolve()
+        try:
+            artifact.relative_to(resolved_root)
+        except ValueError as exc:
+            raise ValueError(f"preflight checksum path escapes bundle at line {line_number}") from exc
+        if not artifact.is_file() or sha256_file(artifact) != digest:
+            raise ValueError(f"preflight checksum mismatch: {relative.as_posix()}")
+        relative_name = relative.as_posix()
+        if relative_name in verified:
+            raise ValueError(f"duplicate preflight checksum path: {relative_name}")
+        verified.append(relative_name)
+    if "manifest.json" not in verified:
+        raise ValueError("preflight checksum index does not bind manifest.json")
+    return {
+        "ok": True,
+        "path": resolved_index.relative_to(resolved_root).as_posix(),
+        "sha256": sha256_file(resolved_index),
+        "verified_files": len(verified),
+    }
+
+
+def copy_and_validate_preflight_manifest(
+    source_manifest: Path,
+    output_root: Path,
+    *,
+    expected_manifest_sha256: str,
+    phase: str,
+    expected_nanorlm_commit: str,
+    expected_loom_commit: str,
+    expected_budget: int,
+    expected_task_manifest_sha256: str,
+    expected_configuration: Mapping[str, Any],
+    expected_datasets: Sequence[Mapping[str, Any]],
+    expected_offline_manifest_sha256: str,
+) -> dict[str, Any]:
+    if SHA256_RE.fullmatch(expected_manifest_sha256) is None:
+        raise ValueError("expected preflight manifest SHA-256 must be 64 lowercase hex characters")
+    source_hash = sha256_file(source_manifest)
+    if source_hash != expected_manifest_sha256:
+        raise ValueError("preflight manifest SHA-256 mismatch")
+    payload = json.loads(source_manifest.read_text(encoding="utf-8"))
+    if (
+        not isinstance(payload, dict)
+        or payload.get("phase") != f"{phase}_preflight"
+        or payload.get("requested_phase") != phase
+        or payload.get("preflight_only") is not True
+        or payload.get("network_calls_issued") != 0
+        or payload.get("status") != "passed"
+    ):
+        raise ValueError(f"{phase} requires its passed zero-network preflight manifest")
+    gate_checks = payload.get("gate_checks")
+    if not isinstance(gate_checks, dict) or not gate_checks or not all(gate_checks.values()):
+        raise ValueError("preflight manifest has an incomplete gate")
+    release_audit = payload.get("release_audit")
+    if not isinstance(release_audit, dict) or release_audit.get("ok") is not True:
+        raise ValueError("preflight manifest did not pass its release audit")
+    repositories = payload.get("repositories")
+    if not isinstance(repositories, dict):
+        raise ValueError("preflight manifest is missing repository bindings")
+    nanorlm = repositories.get("nanorlm")
+    loom = repositories.get("loom")
+    if not isinstance(nanorlm, dict) or nanorlm.get("commit") != expected_nanorlm_commit:
+        raise ValueError("preflight manifest used a different nanoRLM commit")
+    if not isinstance(loom, dict) or loom.get("commit") != expected_loom_commit:
+        raise ValueError("preflight manifest used a different LOOM commit")
+    if int(payload.get("selected_budget", -1)) != expected_budget:
+        raise ValueError("preflight manifest selected a different memory budget")
+    task_manifest = payload.get("task_manifest")
+    if (
+        not isinstance(task_manifest, dict)
+        or task_manifest.get("sha256") != expected_task_manifest_sha256
+    ):
+        raise ValueError("preflight manifest used a different task manifest")
+    configuration = payload.get("configuration")
+    if not isinstance(configuration, dict):
+        raise ValueError("preflight manifest is missing configuration bindings")
+    for key, expected_value in expected_configuration.items():
+        if configuration.get(key) != expected_value:
+            raise ValueError(f"preflight manifest configuration mismatch: {key}")
+    if payload.get("datasets") != list(expected_datasets):
+        raise ValueError("preflight manifest used different dataset artifacts")
+    prior_offline = payload.get("prior_offline_evidence")
+    if (
+        not isinstance(prior_offline, dict)
+        or prior_offline.get("ok") is not True
+        or prior_offline.get("sha256") != expected_offline_manifest_sha256
+    ):
+        raise ValueError("preflight manifest used different offline evidence")
+    checksum_name = str(payload.get("checksums", ""))
+    checksum_relative = Path(checksum_name)
+    if (
+        not checksum_relative.parts
+        or checksum_relative.is_absolute()
+        or ".." in checksum_relative.parts
+    ):
+        raise ValueError("preflight manifest has an unsafe checksum index path")
+    checksum_validation = verify_checksum_index(
+        source_manifest.parent.resolve(),
+        (source_manifest.parent / checksum_relative).resolve(),
+    )
+
+    destination = output_root / "prior_evidence" / f"{phase}_preflight_manifest.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_manifest, destination)
+    return {
+        "ok": True,
+        "path": destination.relative_to(output_root).as_posix(),
+        "sha256": sha256_file(destination),
+        "phase": payload["phase"],
+        "nanorlm_commit": nanorlm["commit"],
+        "loom_commit": loom["commit"],
+        "task_manifest_sha256": task_manifest["sha256"],
+        "offline_manifest_sha256": prior_offline["sha256"],
+        "checksum_index": checksum_validation,
+        "network_calls_issued": 0,
+    }
+
+
 def validate_phase_configuration(
     args: argparse.Namespace,
     specs: Sequence[DatasetSpec],
@@ -1093,8 +1260,13 @@ def validate_phase_configuration(
         raise ValueError(f"{args.phase} must use depth=3, output cap=512, and seed=0")
     if args.start_index != 0 or args.limit != expected_limit:
         raise ValueError(f"{args.phase} must use start-index=0 and limit={expected_limit}")
-    if len(specs) != 2 or any(spec.dataset != "external_jsonl" for spec in specs):
-        raise ValueError(f"{args.phase} requires exactly two external_jsonl families")
+    if (
+        [spec.label for spec in specs] != ["ruler", "babilong"]
+        or any(spec.dataset != "external_jsonl" for spec in specs)
+    ):
+        raise ValueError(
+            f"{args.phase} requires ordered ruler and babilong external_jsonl families"
+        )
     if args.max_estimated_cost != expected_cap:
         raise ValueError(f"{args.phase} must use the frozen USD {expected_cap:g} cost cap")
 
@@ -1125,6 +1297,16 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         )
     if args.phase != "offline" and not args.offline_manifest:
         raise ValueError("pilot and confirmation require the passed offline manifest")
+    if args.phase != "offline" and args.preflight_only and (
+        args.preflight_manifest or args.expected_preflight_sha256
+    ):
+        raise ValueError("preflight-only creates evidence and does not accept prior preflight evidence")
+    if args.phase != "offline" and not args.preflight_only and (
+        not args.preflight_manifest or not args.expected_preflight_sha256
+    ):
+        raise ValueError(
+            "pilot and confirmation execution require a passed preflight manifest and its SHA-256"
+        )
     if args.learned_retention_training_manifest and not args.learned_retention_model:
         raise ValueError("a learned-retention training manifest requires its model")
 
@@ -1145,6 +1327,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     )
     source_offline_manifest = (
         Path(args.offline_manifest).expanduser().resolve() if args.offline_manifest else None
+    )
+    source_preflight_manifest = (
+        Path(args.preflight_manifest).expanduser().resolve() if args.preflight_manifest else None
     )
     learned_model: Path | None = None
     training_manifest: Path | None = None
@@ -1179,6 +1364,13 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     conversion_audit_result = conversion_audit(ordered_tasks)
     if args.phase != "offline" and not conversion_audit_result["ok"]:
         raise ValueError("external task conversion audit failed before execution")
+    hosted_family_audit_result = (
+        hosted_family_audit(ordered_tasks)
+        if args.phase != "offline"
+        else {"ok": True, "not_required": "offline development phase"}
+    )
+    if args.phase != "offline" and not hosted_family_audit_result["ok"]:
+        raise ValueError("hosted task family metadata does not match RULER and BABILong")
     if args.phase != "offline":
         expected_per_family = 8 if args.phase == "pilot" else 25
         if any(len(examples[spec.label]) != expected_per_family for spec in specs):
@@ -1201,6 +1393,24 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             "conservative task-block cost reservation exceeds the frozen cost cap before execution"
         )
+
+    preflight_configuration = {
+        "provider": args.provider,
+        "model": args.model,
+        "base_url_sha256": sha256_bytes((args.base_url or "").encode("utf-8")),
+        "budget": budgets[0],
+        "max_depth": args.depth,
+        "max_output_tokens": args.max_output_tokens,
+        "max_estimated_cost": args.max_estimated_cost,
+        "cost_preflight": cost_preflight,
+        "seed": args.seed,
+        "expected_dataset_sha256": expected_dataset_hashes,
+        "observed_dataset_sha256": observed_dataset_hashes,
+        "learned_model_sha256": sha256_file(learned_model) if learned_model else None,
+        "learned_training_manifest_sha256": (
+            sha256_file(training_manifest) if training_manifest else None
+        ),
+    }
 
     code_snapshot = git_snapshot(ROOT)
     loom_snapshot = git_snapshot(loom_root) if loom_root else None
@@ -1235,9 +1445,44 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             "case_sensitive": False,
         },
         "conversion_audit": conversion_audit_result,
+        "hosted_family_audit": hosted_family_audit_result,
         "tasks": task_records,
     }
     write_json(output_root / "task_manifest.json", task_manifest)
+
+    prior_preflight_evidence: dict[str, Any] | None = None
+    if source_preflight_manifest is not None:
+        if not source_preflight_manifest.is_file():
+            raise ValueError(f"prior preflight manifest does not exist: {source_preflight_manifest}")
+        if prior_offline_evidence is None or loom_snapshot is None:
+            raise ValueError("preflight binding requires passed offline and LOOM evidence")
+        prior_preflight_evidence = copy_and_validate_preflight_manifest(
+            source_preflight_manifest,
+            output_root,
+            expected_manifest_sha256=args.expected_preflight_sha256,
+            phase=args.phase,
+            expected_nanorlm_commit=str(code_snapshot["commit"]),
+            expected_loom_commit=str(loom_snapshot["commit"]),
+            expected_budget=budgets[0],
+            expected_task_manifest_sha256=sha256_file(output_root / "task_manifest.json"),
+            expected_configuration=preflight_configuration,
+            expected_datasets=dataset_records,
+            expected_offline_manifest_sha256=str(prior_offline_evidence["sha256"]),
+        )
+        pre_execution_bindings = {
+            "nanorlm": commit_binding(code_snapshot, args.expected_nanorlm_commit),
+            "loom": commit_binding(loom_snapshot, args.expected_loom_commit),
+        }
+        if (
+            not code_snapshot["is_repository"]
+            or not code_snapshot["clean"]
+            or not loom_snapshot["is_repository"]
+            or not loom_snapshot["clean"]
+            or not all(binding["ok"] for binding in pre_execution_bindings.values())
+        ):
+            raise ValueError(
+                "hosted execution requires clean repositories and exact commit bindings before network access"
+            )
 
     if args.preflight_only:
         commit_bindings = {
@@ -1266,6 +1511,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             ),
             "task_count": len(task_records) == (16 if args.phase == "pilot" else 50),
             "conversion_audit": conversion_audit_result["ok"],
+            "hosted_family_audit": hosted_family_audit_result["ok"],
             "cost_cap_reservation": (
                 args.max_estimated_cost is not None
                 and cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
@@ -1302,23 +1548,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 "note": "Replace angle-bracket path placeholders with the matching frozen artifacts.",
             },
-            "configuration": {
-                "provider": args.provider,
-                "model": args.model,
-                "base_url_sha256": sha256_bytes((args.base_url or "").encode("utf-8")),
-                "budget": budgets[0],
-                "max_depth": args.depth,
-                "max_output_tokens": args.max_output_tokens,
-                "max_estimated_cost": args.max_estimated_cost,
-                "cost_preflight": cost_preflight,
-                "seed": args.seed,
-                "expected_dataset_sha256": expected_dataset_hashes,
-                "observed_dataset_sha256": observed_dataset_hashes,
-                "learned_model_sha256": sha256_file(learned_model) if learned_model else None,
-                "learned_training_manifest_sha256": (
-                    sha256_file(training_manifest) if training_manifest else None
-                ),
-            },
+            "configuration": preflight_configuration,
             "datasets": dataset_records,
             "task_manifest": {
                 "path": "task_manifest.json",
@@ -1429,6 +1659,9 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "prior_offline_evidence": args.phase == "offline" or bool(
             prior_offline_evidence and prior_offline_evidence["ok"]
         ),
+        "prior_preflight_evidence": args.phase == "offline" or bool(
+            prior_preflight_evidence and prior_preflight_evidence["ok"]
+        ),
         "eligible_budget": selected_budget is not None,
         "all_determinism_checks": all(result["determinism"]["ok"] for result in budget_results),
         "all_loom_traces_valid": all(result["loom_validation"]["all_valid"] for result in budget_results),
@@ -1437,6 +1670,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             or all(result["diagnostics"]["eligible"] for result in budget_results)
         ),
         "conversion_audit": conversion_audit_result["ok"],
+        "hosted_family_audit": hosted_family_audit_result["ok"],
         "cost_cap_reservation": (
             args.max_estimated_cost is None
             or cost_preflight["logical_policy_upper_bound_usd"] <= args.max_estimated_cost
@@ -1451,6 +1685,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "repositories": {"nanorlm": code_snapshot, "loom": loom_snapshot},
         "commit_bindings": commit_bindings,
         "prior_offline_evidence": prior_offline_evidence,
+        "prior_preflight_evidence": prior_preflight_evidence,
         "environment": {
             "python": platform.python_version(),
             "implementation": platform.python_implementation(),
@@ -1548,6 +1783,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-retention-model", default="")
     parser.add_argument("--learned-retention-training-manifest", default="")
     parser.add_argument("--offline-manifest", default="")
+    parser.add_argument("--preflight-manifest", default="")
+    parser.add_argument("--expected-preflight-sha256", default="")
     parser.add_argument("--max-estimated-cost", type=float, default=None)
     parser.add_argument("--repo-root", default="/tmp/nanorlm-verifiers")
     parser.add_argument("--loom-root", default="")

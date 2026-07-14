@@ -13,12 +13,16 @@ from nanorlm import ContextBlock
 from scripts.run_matched_retention import (
     DatasetSpec,
     MATCHED_POLICIES,
+    build_parser,
     budget_diagnostics,
     commit_binding,
     conservative_cost_upper_bound,
     copy_and_validate_offline_manifest,
+    copy_and_validate_preflight_manifest,
     copy_dataset_sources,
     copy_learned_training_bundle,
+    execute,
+    hosted_family_audit,
     parse_dataset_spec,
     parse_expected_dataset_hashes,
     release_audit,
@@ -92,6 +96,52 @@ class MatchedRetentionTests(unittest.TestCase):
                 validate_dataset_hashes([spec], {}, required=True)
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
                 validate_dataset_hashes([spec], {"ruler": "0" * 64}, required=True)
+
+    def test_hosted_execution_rejects_missing_preflight_before_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ruler = root / "ruler.jsonl"
+            babilong = root / "babilong.jsonl"
+            ruler.write_text("")
+            babilong.write_text("")
+            output = root / "output"
+            args = build_parser().parse_args(
+                [
+                    "--phase",
+                    "pilot",
+                    "--dataset-spec",
+                    f"ruler:external_jsonl:{ruler}",
+                    "--dataset-spec",
+                    f"babilong:external_jsonl:{babilong}",
+                    "--expected-dataset-sha256",
+                    f"ruler={sha256_file(ruler)}",
+                    "--expected-dataset-sha256",
+                    f"babilong={sha256_file(babilong)}",
+                    "--limit",
+                    "8",
+                    "--budgets",
+                    "96",
+                    "--provider",
+                    "openai_compatible",
+                    "--model",
+                    "gpt-5.4-mini",
+                    "--max-estimated-cost",
+                    "5",
+                    "--learned-retention-model",
+                    "model.json",
+                    "--learned-retention-training-manifest",
+                    "training.json",
+                    "--offline-manifest",
+                    "offline.json",
+                    "--output-dir",
+                    str(output),
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "passed preflight manifest"):
+                execute(args)
+
+            self.assertFalse(output.exists())
 
     def test_embedded_external_dataset_scrubs_only_local_path_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -323,6 +373,105 @@ class MatchedRetentionTests(unittest.TestCase):
                     learned_training_manifest_sha256=training_hash,
                 )
 
+    def test_hosted_run_binds_passed_same_commit_preflight_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "preflight"
+            source.mkdir()
+            nanorlm_commit = "a" * 40
+            loom_commit = "b" * 40
+            offline_hash = "c" * 64
+            task_hash = "d" * 64
+            configuration = {
+                "provider": "openai_compatible",
+                "model": "gpt-5.4-mini",
+                "budget": 96,
+            }
+            datasets = [
+                {
+                    "label": "ruler",
+                    "dataset": "external_jsonl",
+                    "embedded": True,
+                    "path": "datasets/ruler.jsonl",
+                    "source_sha256": "e" * 64,
+                    "sha256": "f" * 64,
+                    "normalization": "canonical_json_and_portable_local_path_metadata_v1",
+                }
+            ]
+            payload = {
+                "phase": "pilot_preflight",
+                "requested_phase": "pilot",
+                "preflight_only": True,
+                "network_calls_issued": 0,
+                "status": "passed",
+                "gate_checks": {"complete": True},
+                "release_audit": {"ok": True},
+                "repositories": {
+                    "nanorlm": {"commit": nanorlm_commit},
+                    "loom": {"commit": loom_commit},
+                },
+                "selected_budget": 96,
+                "task_manifest": {"sha256": task_hash},
+                "configuration": configuration,
+                "datasets": datasets,
+                "prior_offline_evidence": {"ok": True, "sha256": offline_hash},
+                "checksums": "checksums.txt",
+            }
+            manifest = source / "manifest.json"
+            manifest.write_text(json.dumps(payload, sort_keys=True))
+            (source / "checksums.txt").write_text(
+                f"{sha256_file(manifest)}  manifest.json\n"
+            )
+
+            evidence = copy_and_validate_preflight_manifest(
+                manifest,
+                root / "actual",
+                expected_manifest_sha256=sha256_file(manifest),
+                phase="pilot",
+                expected_nanorlm_commit=nanorlm_commit,
+                expected_loom_commit=loom_commit,
+                expected_budget=96,
+                expected_task_manifest_sha256=task_hash,
+                expected_configuration=configuration,
+                expected_datasets=datasets,
+                expected_offline_manifest_sha256=offline_hash,
+            )
+
+            self.assertTrue(evidence["ok"])
+            self.assertEqual(evidence["checksum_index"]["verified_files"], 1)
+            self.assertTrue((root / "actual" / evidence["path"]).is_file())
+
+            manifest.write_text("{}\n")
+            with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+                copy_and_validate_preflight_manifest(
+                    manifest,
+                    root / "rejected",
+                    expected_manifest_sha256=evidence["sha256"],
+                    phase="pilot",
+                    expected_nanorlm_commit=nanorlm_commit,
+                    expected_loom_commit=loom_commit,
+                    expected_budget=96,
+                    expected_task_manifest_sha256=task_hash,
+                    expected_configuration=configuration,
+                    expected_datasets=datasets,
+                    expected_offline_manifest_sha256=offline_hash,
+                )
+
+    def test_hosted_family_audit_requires_declared_benchmark_identity(self) -> None:
+        ruler_spec = DatasetSpec("ruler", "external_jsonl", Path("ruler.jsonl"))
+        example = BenchmarkExample(
+            name="case",
+            query="What?",
+            context=[ContextBlock(name="context.txt", text="alpha")],
+            answer="alpha",
+            must_contain=["alpha"],
+            metadata={"benchmark": "RULER"},
+        )
+
+        self.assertTrue(hosted_family_audit([(ruler_spec, example)])["ok"])
+        example.metadata["benchmark"] = "Other"
+        self.assertFalse(hosted_family_audit([(ruler_spec, example)])["ok"])
+
     def test_pilot_configuration_and_cost_reservation_are_frozen(self) -> None:
         args = SimpleNamespace(
             phase="pilot",
@@ -343,6 +492,15 @@ class MatchedRetentionTests(unittest.TestCase):
         validate_phase_configuration(args, specs, [96])
         with self.assertRaisesRegex(ValueError, "frozen 96-token budget"):
             validate_phase_configuration(args, specs, [128])
+        with self.assertRaisesRegex(ValueError, "ordered ruler and babilong"):
+            validate_phase_configuration(
+                args,
+                [
+                    DatasetSpec("foo", "external_jsonl", Path("ruler.jsonl")),
+                    DatasetSpec("bar", "external_jsonl", Path("babilong.jsonl")),
+                ],
+                [96],
+            )
 
         example = BenchmarkExample(
             name="case",

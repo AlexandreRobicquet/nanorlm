@@ -190,7 +190,9 @@ uv run python scripts/run_matched_retention.py \
   --output-dir outputs/matched-retention-pilot-preflight
 ```
 
-Preflight validates the source hashes, task conversion, frozen model and training bundle, passed offline evidence, exact clean commits, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes. Run the same command without `--preflight-only` and with a new empty output directory only after the preflight manifest passes. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence.
+Preflight validates the source hashes, RULER/BABILong family metadata, task conversion, frozen model and training bundle, passed offline evidence, exact clean commits, and conservative cost reservation without issuing model requests. It embeds canonical JSONL copies, replacing only local path metadata with portable placeholders, and records both source and embedded hashes.
+
+The paid command must use the same arguments without `--preflight-only`, a new empty output directory, and both `--preflight-manifest <passed-preflight>/manifest.json` and `--expected-preflight-sha256 <64-character-manifest-sha256>`. Execution fails before network access unless that passed zero-network bundle has the same nanoRLM/LOOM commits, task manifest, dataset artifacts, model/training hashes, configuration, offline evidence, and valid checksum index. A real-model bundle also fails the gate unless every policy row records exactly one model identifier returned by the provider; the configured alias alone is not accepted as runtime evidence.
 
 The command exits nonzero whenever a release gate fails. Inspect `manifest.json` and each `budget-*/validation.json`; do not treat `smallest_eligible_budget_candidate` as frozen unless `selected_budget` is populated and the manifest status is `passed`.
 
