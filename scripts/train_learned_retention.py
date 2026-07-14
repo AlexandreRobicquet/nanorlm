@@ -10,12 +10,48 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import BenchmarkExample, build_dataset, parse_csv_ints, parse_csv_strings  # noqa: E402
-from learned_retention import retention_features, train_linear_retention_model  # noqa: E402
-from nanorlm import ContextBlock, HeuristicBackend, MemoryItem, estimate_tokens, normalize_text  # noqa: E402
+from bench import (  # noqa: E402
+    BenchmarkExample,
+    build_dataset,
+    compactness_score,
+    parse_csv_ints,
+    parse_csv_strings,
+    retention_reward_score,
+    score_answer,
+    score_provenance,
+)
+from learned_retention import TRAINING_OBJECTIVES, retention_features, train_linear_retention_model  # noqa: E402
+from nanorlm import (  # noqa: E402
+    ContextBlock,
+    HeuristicBackend,
+    MemoryItem,
+    RLM,
+    RLMConfig,
+    estimate_tokens,
+    item_source_paths,
+    normalize_text,
+)
 
 
 DEFAULT_DATASETS = "pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl"
+TRACE_DEPTHS = {
+    "pairbench": 2,
+    "dossierbench": 4,
+    "ruler_synthetic": 4,
+    "babilong_synthetic": 4,
+    "external_jsonl": 3,
+    "verifiers_smoke": 2,
+    "verifiers_30": 2,
+}
+TRACE_BUDGETS = {
+    "pairbench": 60,
+    "dossierbench": 80,
+    "ruler_synthetic": 90,
+    "babilong_synthetic": 90,
+    "external_jsonl": 120,
+    "verifiers_smoke": 80,
+    "verifiers_30": 140,
+}
 NEGATIVE_SLOT_MARKERS = (
     "slot: distractor",
     "slot distractor",
@@ -62,6 +98,47 @@ def label_block(block: ContextBlock, example: BenchmarkExample) -> bool:
     if _is_explicit_negative_block(block):
         return False
     return _contains_answer_fragment(block, example)
+
+
+def label_memory_item(item: MemoryItem, example: BenchmarkExample) -> bool:
+    source_paths = set(item_source_paths(item))
+    raw_block_names = item.metadata.get("block_names", [])
+    block_names = {str(name) for name in raw_block_names} if isinstance(raw_block_names, list) else set()
+    provenance_blob = normalize_text(" ".join([item.provenance, *source_paths, *block_names]))
+    for expected in example.expected_provenance:
+        expected_path = normalize_text(expected)
+        expected_name = normalize_text(Path(expected).name)
+        if (expected_path and expected_path in provenance_blob) or (expected_name and expected_name in provenance_blob):
+            return True
+    source_blocks = [
+        block
+        for block in example.context
+        if block.name in block_names or str(block.metadata.get("path", block.name)) in source_paths
+    ]
+    if source_blocks:
+        return any(label_block(block, example) for block in source_blocks)
+    item_blob = normalize_text(f"{item.provenance}\n{item.summary}\n{item.answer_candidate}")
+    if any(marker in item_blob for marker in NEGATIVE_SLOT_MARKERS):
+        return False
+    fragments = list(example.must_contain)
+    if example.answer:
+        fragments.extend(part.strip() for part in example.answer.split("|") if part.strip())
+    normalized_fragments = [normalize_text(fragment) for fragment in fragments]
+    return any(fragment and fragment in item_blob for fragment in normalized_fragments)
+
+
+def memory_item_from_record(record: dict[str, Any]) -> MemoryItem:
+    return MemoryItem(
+        summary=str(record.get("summary", "")),
+        provenance=str(record.get("provenance", "")),
+        raw_pointer=str(record.get("raw_pointer", "")),
+        tokens=int(record.get("tokens", 0)),
+        depth=int(record.get("depth", 0)),
+        timestamp=float(record.get("timestamp", 0.0)),
+        answer_candidate=str(record.get("answer_candidate", "")),
+        confidence=float(record.get("confidence", 0.0)),
+        metadata=dict(record.get("metadata", {})) if isinstance(record.get("metadata"), dict) else {},
+    )
 
 
 def memory_item_from_block(
@@ -129,6 +206,92 @@ def rows_from_examples(
     return rows
 
 
+def trace_rows_from_examples(
+    examples: Sequence[BenchmarkExample],
+    *,
+    dataset: str,
+    seed: int,
+    feature_budget: int,
+    collection_policy: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    traces: list[dict[str, Any]] = []
+    trace_budget = TRACE_BUDGETS.get(dataset, feature_budget)
+    for example in examples:
+        engine = RLM(
+            RLMConfig(
+                model="demo/heuristic",
+                provider="heuristic",
+                max_depth=TRACE_DEPTHS.get(dataset, 3),
+                max_steps=256,
+                memory_budget_tokens=trace_budget,
+                retention_policy=collection_policy,
+                seed=seed,
+            )
+        )
+        result = engine.completion(example.query, example.context)
+        answer_accuracy = score_answer(result.answer, example.must_contain)
+        provenance_score, provenance_hits = score_provenance(result, example.expected_provenance)
+        compactness = compactness_score(sum(item.tokens for item in result.kept_items), trace_budget)
+        trajectory_reward = retention_reward_score(
+            answer_accuracy=answer_accuracy,
+            provenance_score=provenance_score,
+            compactness=compactness,
+            latency_ms=0.0,
+            cost_estimate=result.cost_estimate,
+        )
+        trace_record = {
+            "dataset": dataset,
+            "seed": seed,
+            "case": example.name,
+            "task_class": example.task_class,
+            "query": example.query,
+            "expected": example.answer,
+            "must_contain": list(example.must_contain),
+            "expected_provenance": list(example.expected_provenance),
+            "collection_policy": collection_policy,
+            "budget": trace_budget,
+            "answer_accuracy": answer_accuracy,
+            "provenance_score": provenance_score,
+            "provenance_hits": provenance_hits,
+            "compactness": compactness,
+            "trajectory_reward": trajectory_reward,
+            "retention_decisions": result.retention_decisions,
+        }
+        traces.append(trace_record)
+        for decision in result.retention_decisions:
+            decision_index = int(decision.get("decision_index", 0))
+            decision_id = f"{dataset}:{seed}:{example.name}:{decision_index}"
+            decision_budget = int(decision.get("budget", feature_budget))
+            for candidate_index, candidate in enumerate(decision.get("candidates", [])):
+                if not isinstance(candidate, dict):
+                    continue
+                item = memory_item_from_record(candidate)
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "seed": seed,
+                        "case": example.name,
+                        "task_class": example.task_class,
+                        "query": example.query,
+                        "decision_id": decision_id,
+                        "decision_index": decision_index,
+                        "candidate_index": candidate_index,
+                        "step": decision.get("step"),
+                        "branch": decision.get("branch"),
+                        "budget": decision_budget,
+                        "provenance": item.provenance,
+                        "summary": item.summary,
+                        "label": label_memory_item(item, example),
+                        "behavior_selected": bool(candidate.get("selected")),
+                        "behavior_selection_rank": candidate.get("selection_rank"),
+                        "trajectory_reward": trajectory_reward,
+                        "features": retention_features(example.query, item, decision_budget),
+                    }
+                )
+    return rows, traces
+
+
 def build_training_rows(
     *,
     datasets: Sequence[str],
@@ -138,9 +301,12 @@ def build_training_rows(
     dataset_path: str | None,
     feature_budget: int,
     allow_missing_datasets: bool = False,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    training_source: str = "traces",
+    collection_policy: str = "pairwise_tournament",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     dataset_records: list[dict[str, Any]] = []
+    trace_records: list[dict[str, Any]] = []
     for dataset in datasets:
         for seed in seeds:
             try:
@@ -163,26 +329,42 @@ def build_training_rows(
                     }
                 )
                 continue
-            dataset_rows = rows_from_examples(
-                examples,
-                dataset=dataset,
-                seed=seed,
-                feature_budget=feature_budget,
-            )
+            if training_source == "traces":
+                dataset_rows, dataset_traces = trace_rows_from_examples(
+                    examples,
+                    dataset=dataset,
+                    seed=seed,
+                    feature_budget=feature_budget,
+                    collection_policy=collection_policy,
+                )
+            else:
+                dataset_rows = rows_from_examples(
+                    examples,
+                    dataset=dataset,
+                    seed=seed,
+                    feature_budget=feature_budget,
+                )
+                dataset_traces = []
             positives = sum(1 for row in dataset_rows if row["label"])
             rows.extend(dataset_rows)
+            trace_records.extend(dataset_traces)
             dataset_records.append(
                 {
                     "dataset": dataset,
                     "seed": seed,
-                    "status": "included",
+                    "status": "included" if dataset_rows else "no_retention_decisions",
                     "examples": len(examples),
                     "rows": len(dataset_rows),
                     "positive_rows": positives,
                     "negative_rows": len(dataset_rows) - positives,
+                    "trajectories": len(dataset_traces),
+                    "retention_decisions": sum(
+                        len(record.get("retention_decisions", [])) for record in dataset_traces
+                    ),
+                    "budget": TRACE_BUDGETS.get(dataset, feature_budget),
                 }
             )
-    return rows, dataset_records
+    return rows, dataset_records, trace_records
 
 
 def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
@@ -193,7 +375,7 @@ def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train a small offline learned_retention model from benchmark traces.")
+    parser = argparse.ArgumentParser(description="Train a small offline learned_retention model from retention traces.")
     parser.add_argument("--datasets", default=DEFAULT_DATASETS)
     parser.add_argument("--train-seeds", default="0,1")
     parser.add_argument("--limit", type=int, default=12)
@@ -202,23 +384,37 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default=str(ROOT / "outputs" / "learned_retention"))
     parser.add_argument("--model-out", default="")
     parser.add_argument("--examples-out", default="")
+    parser.add_argument("--traces-out", default="")
     parser.add_argument("--feature-budget", type=int, default=100)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--learning-rate", type=float, default=0.15)
     parser.add_argument("--l2", type=float, default=0.0005)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--training-source", choices=["traces", "blocks"], default="traces")
+    parser.add_argument("--objective", choices=TRAINING_OBJECTIVES, default="pairwise")
+    parser.add_argument(
+        "--collection-policy",
+        choices=["keep_recent", "single_critic_topk", "pairwise_tournament"],
+        default="pairwise_tournament",
+    )
     parser.add_argument("--allow-missing-datasets", action="store_true")
     return parser
 
 
 def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
     args = build_parser().parse_args(argv)
+    if args.training_source == "blocks" and args.objective != "pointwise":
+        raise ValueError(
+            "--training-source blocks requires --objective pointwise; "
+            "pairwise training requires decision traces"
+        )
     output_dir = Path(args.output_dir)
     model_path = Path(args.model_out) if args.model_out else output_dir / "learned_retention_model.json"
     examples_path = Path(args.examples_out) if args.examples_out else output_dir / "training_examples.jsonl"
+    traces_path = Path(args.traces_out) if args.traces_out else output_dir / "training_traces.jsonl"
     datasets = parse_csv_strings(args.datasets)
     train_seeds = parse_csv_ints(args.train_seeds)
-    rows, dataset_records = build_training_rows(
+    rows, dataset_records, trace_records = build_training_rows(
         datasets=datasets,
         seeds=train_seeds,
         limit=args.limit,
@@ -226,6 +422,8 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
         dataset_path=args.dataset_path or None,
         feature_budget=args.feature_budget,
         allow_missing_datasets=args.allow_missing_datasets,
+        training_source=args.training_source,
+        collection_policy=args.collection_policy,
     )
     model = train_linear_retention_model(
         rows,
@@ -233,6 +431,7 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
         learning_rate=args.learning_rate,
         l2=args.l2,
         seed=args.seed,
+        objective=args.objective,
     )
     model.metadata.update(
         {
@@ -242,14 +441,20 @@ def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
             "feature_budget": args.feature_budget,
             "repo_root": args.repo_root,
             "dataset_path": args.dataset_path,
+            "training_source": args.training_source,
+            "collection_policy": args.collection_policy,
+            "trace_trajectories": len(trace_records),
         }
     )
     write_jsonl(examples_path, rows)
+    if trace_records:
+        write_jsonl(traces_path, trace_records)
     model.save(model_path)
     manifest = {
         "status": "trained",
         "model_path": str(model_path),
         "training_examples_path": str(examples_path),
+        "training_traces_path": str(traces_path) if trace_records else None,
         "datasets": dataset_records,
         "training": model.metadata,
     }

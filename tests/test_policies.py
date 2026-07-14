@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nanorlm import MemoryItem
-from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy
+from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy, train_linear_retention_model
 from policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTopKPolicy, SummaryOnlyPolicy
 
 
@@ -178,6 +178,64 @@ class PolicyTests(unittest.TestCase):
             path.write_text(json.dumps(payload))
             with self.assertRaisesRegex(ValueError, "version mismatch"):
                 LearnedRetentionModel.load(path)
+
+    def test_pairwise_training_records_ranking_diagnostics(self) -> None:
+        rows = [
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": "case-1:0",
+                "label": True,
+                "features": {"confidence": 1.0},
+            },
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": "case-1:0",
+                "label": False,
+                "features": {"confidence": 0.0},
+            },
+        ]
+        model = train_linear_retention_model(rows, objective="pairwise", epochs=2, learning_rate=0.05)
+        self.assertEqual(model.metadata["objective"], "pairwise")
+        self.assertEqual(model.metadata["training_pairs"], 1)
+        self.assertEqual(model.metadata["pairwise_accuracy_after"], 1.0)
+
+    def test_pointwise_training_does_not_materialize_decision_pairs(self) -> None:
+        rows = [
+            {"dataset": "mini", "case": "case-1", "label": True, "features": {"confidence": 1.0}},
+            {"dataset": "mini", "case": "case-1", "label": False, "features": {"confidence": 0.0}},
+        ]
+        model = train_linear_retention_model(rows, objective="pointwise", epochs=1)
+        self.assertEqual(model.metadata["training_pairs"], 0)
+        self.assertIsNone(model.metadata["pairwise_accuracy_before"])
+
+    def test_pairwise_training_requires_decision_keys(self) -> None:
+        rows = [
+            {"dataset": "mini", "case": "case-1", "label": True, "features": {"confidence": 1.0}},
+            {"dataset": "mini", "case": "case-1", "label": False, "features": {"confidence": 0.0}},
+        ]
+        with self.assertRaisesRegex(ValueError, "require decision_id or step"):
+            train_linear_retention_model(rows, objective="pairwise", epochs=1)
+
+    def test_pairwise_training_falls_back_to_step_for_null_decision_ids(self) -> None:
+        rows = [
+            {
+                "dataset": "mini",
+                "seed": 0,
+                "case": "case-1",
+                "decision_id": None,
+                "step": step,
+                "label": label,
+                "features": {"confidence": confidence},
+            }
+            for step in [1, 2]
+            for label, confidence in [(True, 1.0), (False, 0.0)]
+        ]
+        model = train_linear_retention_model(rows, objective="pairwise", epochs=1)
+        self.assertEqual(model.metadata["training_pairs"], 2)
 
 
 if __name__ == "__main__":

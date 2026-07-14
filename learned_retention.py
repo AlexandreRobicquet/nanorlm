@@ -14,6 +14,7 @@ from nanorlm import MemoryItem, estimate_tokens, normalize_text, query_terms
 
 MODEL_ENV_VAR = "NANORLM_LEARNED_RETENTION_MODEL"
 MODEL_VERSION = 1
+TRAINING_OBJECTIVES = ("pointwise", "pairwise")
 IDENTIFIER_RE = re.compile(r"\b[a-z][a-z0-9_/-]*-\d{2,}\b", flags=re.IGNORECASE)
 
 FEATURE_NAMES = [
@@ -210,7 +211,10 @@ def train_linear_retention_model(
     learning_rate: float = 0.15,
     l2: float = 0.0005,
     seed: int = 0,
+    objective: str = "pointwise",
 ) -> LearnedRetentionModel:
+    if objective not in TRAINING_OBJECTIVES:
+        raise ValueError(f"unknown learned retention objective: {objective}")
     weights = dict(DEFAULT_WEIGHTS)
     intercept = 0.0
     rng = random.Random(seed)
@@ -218,19 +222,107 @@ def train_linear_retention_model(
     if not training_rows:
         raise ValueError("cannot train learned retention model without labeled feature rows")
 
-    for _epoch in range(max(1, epochs)):
-        shuffled = list(training_rows)
-        rng.shuffle(shuffled)
-        for row in shuffled:
-            features = {name: float(row["features"].get(name, 0.0)) for name in FEATURE_NAMES}
-            label = 1.0 if row.get("label") else 0.0
-            linear = intercept + sum(weights.get(name, 0.0) * features[name] for name in FEATURE_NAMES)
-            prediction = 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, linear))))
-            class_weight = 2.0 if label else 1.0
-            error = (label - prediction) * class_weight
-            intercept += learning_rate * error
-            for name in FEATURE_NAMES:
-                weights[name] = (weights.get(name, 0.0) * (1.0 - learning_rate * l2)) + learning_rate * error * features[name]
+    def row_features(row: dict[str, Any]) -> dict[str, float]:
+        return {name: float(row["features"].get(name, 0.0)) for name in FEATURE_NAMES}
+
+    def row_decision_key(row: dict[str, Any]) -> Any:
+        decision_id = row.get("decision_id")
+        return decision_id if decision_id not in (None, "") else row.get("step")
+
+    training_pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    if objective == "pairwise":
+        rows_without_decisions = [row for row in training_rows if row_decision_key(row) is None]
+        if rows_without_decisions:
+            raise ValueError("pairwise learned retention rows require decision_id or step")
+        grouped_rows: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+        for row in training_rows:
+            group_key = (
+                row.get("dataset"),
+                row.get("seed"),
+                row.get("case"),
+                row_decision_key(row),
+            )
+            grouped_rows.setdefault(group_key, []).append(row)
+        training_pairs = [
+            (positive, negative)
+            for group in grouped_rows.values()
+            for positive in group
+            if positive.get("label")
+            for negative in group
+            if not negative.get("label")
+        ]
+
+    def pairwise_accuracy(current_weights: dict[str, float]) -> float | None:
+        if not training_pairs:
+            return None
+        correct = 0
+        for positive, negative in training_pairs:
+            positive_features = row_features(positive)
+            negative_features = row_features(negative)
+            positive_score = sum(current_weights.get(name, 0.0) * positive_features[name] for name in FEATURE_NAMES)
+            negative_score = sum(current_weights.get(name, 0.0) * negative_features[name] for name in FEATURE_NAMES)
+            if positive_score > negative_score:
+                correct += 1
+        return round(correct / len(training_pairs), 6)
+
+    accuracy_before = pairwise_accuracy(weights)
+    pair_weights = [
+        max(
+            0.1,
+            (
+                float(positive.get("trajectory_reward", 1.0))
+                + float(negative.get("trajectory_reward", 1.0))
+            )
+            / 2.0,
+        )
+        for positive, negative in training_pairs
+    ]
+    if objective == "pairwise":
+        if not training_pairs:
+            raise ValueError("cannot train pairwise learned retention model without positive-negative decision pairs")
+        for _epoch in range(max(1, epochs)):
+            shuffled_pairs = list(training_pairs)
+            rng.shuffle(shuffled_pairs)
+            for positive, negative in shuffled_pairs:
+                positive_features = row_features(positive)
+                negative_features = row_features(negative)
+                feature_delta = {
+                    name: positive_features[name] - negative_features[name]
+                    for name in FEATURE_NAMES
+                }
+                margin = sum(weights.get(name, 0.0) * feature_delta[name] for name in FEATURE_NAMES)
+                prediction = 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, margin))))
+                reward_weight = max(
+                    0.1,
+                    (
+                        float(positive.get("trajectory_reward", 1.0))
+                        + float(negative.get("trajectory_reward", 1.0))
+                    )
+                    / 2.0,
+                )
+                error = (1.0 - prediction) * reward_weight
+                for name in FEATURE_NAMES:
+                    weights[name] = (
+                        weights.get(name, 0.0) * (1.0 - learning_rate * l2)
+                        + learning_rate * error * feature_delta[name]
+                    )
+    else:
+        for _epoch in range(max(1, epochs)):
+            shuffled = list(training_rows)
+            rng.shuffle(shuffled)
+            for row in shuffled:
+                features = row_features(row)
+                label = 1.0 if row.get("label") else 0.0
+                linear = intercept + sum(weights.get(name, 0.0) * features[name] for name in FEATURE_NAMES)
+                prediction = 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, linear))))
+                class_weight = 2.0 if label else 1.0
+                error = (label - prediction) * class_weight
+                intercept += learning_rate * error
+                for name in FEATURE_NAMES:
+                    weights[name] = (
+                        weights.get(name, 0.0) * (1.0 - learning_rate * l2)
+                        + learning_rate * error * features[name]
+                    )
 
     positives = sum(1 for row in training_rows if row.get("label"))
     negatives = len(training_rows) - positives
@@ -243,6 +335,16 @@ def train_linear_retention_model(
             "training_rows": len(training_rows),
             "positive_rows": positives,
             "negative_rows": negatives,
+            "objective": objective,
+            "training_pairs": len(training_pairs),
+            "reward_weighted_pairs": sum(
+                1
+                for positive, negative in training_pairs
+                if "trajectory_reward" in positive and "trajectory_reward" in negative
+            ),
+            "mean_pair_reward_weight": round(sum(pair_weights) / len(pair_weights), 6) if pair_weights else None,
+            "pairwise_accuracy_before": accuracy_before,
+            "pairwise_accuracy_after": pairwise_accuracy(weights),
             "epochs": epochs,
             "learning_rate": learning_rate,
             "l2": l2,
