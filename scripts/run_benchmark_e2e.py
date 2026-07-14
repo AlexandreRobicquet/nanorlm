@@ -581,15 +581,27 @@ def _learned_acceptance_deltas(
     learned: dict[str, Any],
     pairwise: dict[str, Any],
 ) -> tuple[float, float, float] | None:
-    learned_rows = learned.get("results")
-    pairwise_rows = pairwise.get("results")
-    if not isinstance(learned_rows, list) or not learned_rows:
-        return None
-    if not isinstance(pairwise_rows, list) or not pairwise_rows:
+    def rows_by_name(summary: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+        rows = summary.get("results")
+        if not isinstance(rows, list) or not rows:
+            return None
+        indexed: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            name = str(row.get("name", ""))
+            if not name or name in indexed:
+                return None
+            indexed[name] = row
+        return indexed
+
+    learned_rows = rows_by_name(learned)
+    pairwise_rows = rows_by_name(pairwise)
+    if learned_rows is None or pairwise_rows is None or learned_rows.keys() != pairwise_rows.keys():
         return None
 
-    def mean(rows: list[dict[str, Any]], key: str) -> float:
-        return sum(float(row.get(key, 0.0)) for row in rows) / len(rows)
+    def mean(rows: dict[str, dict[str, Any]], key: str) -> float:
+        return sum(float(row.get(key, 0.0)) for row in rows.values()) / len(rows)
 
     return (
         mean(learned_rows, "reward_score") - mean(pairwise_rows, "reward_score"),
@@ -688,6 +700,11 @@ def _is_learned_acceptance_win(
     )
 
 
+def _round_report_metric(value: float) -> float:
+    rounded = round(value, 3)
+    return 0.0 if rounded == 0.0 else rounded
+
+
 def write_learned_report(run_root: Path, training_manifest: dict[str, Any], reports: Sequence[dict[str, Any]]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     non_toy_wins: list[dict[str, Any]] = []
@@ -727,9 +744,9 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
             "start_index": report.get("start_index", 0),
             "learned_reward": learned.get("reward_score", 0.0),
             "pairwise_reward": pairwise.get("reward_score", 0.0),
-            "reward_delta": round(reward_delta, 3),
-            "answer_delta": round(answer_delta, 3),
-            "provenance_delta": round(provenance_delta, 3),
+            "reward_delta": _round_report_metric(reward_delta),
+            "answer_delta": _round_report_metric(answer_delta),
+            "provenance_delta": _round_report_metric(provenance_delta),
             "learned_answer": learned.get("answer_accuracy", 0.0),
             "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
             "learned_provenance": learned.get("provenance_score", 0.0),
@@ -737,6 +754,7 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
             "learned_compactness": learned.get("compactness", 0.0),
             "pairwise_compactness": pairwise.get("compactness", 0.0),
             "acceptance_eligible": acceptance_eligible,
+            "gate_metrics_source": "per_case" if exact_deltas is not None else "unavailable",
         }
         rows.append(row)
         if _is_learned_acceptance_win(
@@ -859,6 +877,7 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
             "requires_answer_non_regression": True,
             "requires_provenance_non_regression": True,
             "requires_completed_equal_size_runs": True,
+            "gate_metrics_source": "per_case",
         },
         "comparisons": rows,
         "failure_evidence": failure_evidence,

@@ -129,8 +129,8 @@ class BenchmarkE2ETests(unittest.TestCase):
             "answer_accuracy": 1.0,
             "provenance_score": 1.0,
             "results": [
-                {"reward_score": reward, "answer_accuracy": 1.0, "provenance_score": 1.0}
-                for reward in (0.01, 0.01, 0.01, 0.01, 0.008)
+                {"name": f"case-{index}", "reward_score": reward, "answer_accuracy": 1.0, "provenance_score": 1.0}
+                for index, reward in enumerate((0.01, 0.01, 0.01, 0.01, 0.008))
             ],
         }
         pairwise = {
@@ -138,13 +138,16 @@ class BenchmarkE2ETests(unittest.TestCase):
             "answer_accuracy": 1.0,
             "provenance_score": 1.0,
             "results": [
-                {"reward_score": 0.0, "answer_accuracy": 1.0, "provenance_score": 1.0},
-            ] * 5,
+                {"name": f"case-{index}", "reward_score": 0.0, "answer_accuracy": 1.0, "provenance_score": 1.0}
+                for index in range(5)
+            ],
         }
         deltas = run_benchmark_e2e._learned_acceptance_deltas(learned, pairwise)
         self.assertIsNotNone(deltas)
         reward_delta, answer_delta, provenance_delta = deltas or (0.0, 0.0, 0.0)
         self.assertAlmostEqual(reward_delta, 0.0096)
+        pairwise["results"][0]["name"] = "different-case"
+        self.assertIsNone(run_benchmark_e2e._learned_acceptance_deltas(learned, pairwise))
         self.assertFalse(
             run_benchmark_e2e._is_learned_acceptance_win(
                 acceptance_eligible=True,
