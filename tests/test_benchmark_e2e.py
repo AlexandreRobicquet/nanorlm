@@ -85,6 +85,10 @@ class BenchmarkE2ETests(unittest.TestCase):
                     "1",
                     "--external-limit",
                     "1",
+                    "--learned-ruler-path",
+                    str(Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"),
+                    "--learned-babilong-path",
+                    str(Path(__file__).resolve().parent / "fixtures" / "external-benchmark-mini.jsonl"),
                 ]
             )
 
@@ -98,8 +102,26 @@ class BenchmarkE2ETests(unittest.TestCase):
             learned_report = Path(result["learned_report"]["report_path"])
             self.assertTrue(learned_report.exists())
             self.assertIn("Verdict:", learned_report.read_text())
+            self.assertIn("Training source: `traces`", learned_report.read_text())
+            self.assertEqual(result["learned_report"]["non_toy_wins"], 0)
+            self.assertEqual(result["learned_report"]["acceptance_rule"]["minimum_examples"], 8)
             pairbench_report = next(report for report in result["reports"] if report["name"] == "learned_pairbench")
             self.assertEqual(pairbench_report["start_index"], 1)
+            self.assertEqual(
+                set(pairbench_report["policies"]),
+                {
+                    "direct_full_context",
+                    "keep_recent",
+                    "single_critic_topk",
+                    "pairwise_tournament",
+                    "learned_retention",
+                },
+            )
+            datasets = {report["dataset"] for report in result["reports"]}
+            self.assertIn("ruler_external", datasets)
+            self.assertIn("babilong_external", datasets)
+            smoke_comparisons = result["learned_report"]["comparisons"]
+            self.assertFalse(any(row["acceptance_eligible"] for row in smoke_comparisons))
 
     def test_smoke_phase_resolves_fixture_defaults_from_non_repo_cwd(self) -> None:
         previous_cwd = Path.cwd()

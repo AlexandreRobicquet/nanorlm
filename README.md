@@ -206,7 +206,29 @@ For the full offline workflow, use:
 uv run python scripts/run_benchmark_e2e.py --phases learned
 ```
 
-That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative: if the learned policy does not beat `pairwise_tournament` on at least two non-toy slices by the saved reward metric, the bundle should be read as evidence for where hand-coded retention is still enough.
+That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative. A win requires a reward delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at least eight examples are acceptance-eligible. If the learned policy does not beat `pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for where hand-coded retention is still enough.
+
+To add distinct external RULER and BABILong exports to the same fixed-budget comparison, convert them to the external JSONL contract and pass both paths:
+
+```bash
+uv run python scripts/prepare_ruler_external_jsonl.py \
+  --input /tmp/ruler-raw.jsonl \
+  --output /tmp/nanorlm-ruler.jsonl
+
+uv run python scripts/prepare_ruler_external_jsonl.py \
+  --input /tmp/babilong-raw.jsonl \
+  --output /tmp/nanorlm-babilong.jsonl \
+  --benchmark BABILong \
+  --task-prefix babilong
+
+uv run python scripts/run_benchmark_e2e.py \
+  --phases learned \
+  --learned-verifiers-repo-root /tmp/nanorlm-verifiers \
+  --learned-ruler-path /tmp/nanorlm-ruler.jsonl \
+  --learned-babilong-path /tmp/nanorlm-babilong.jsonl
+```
+
+The learned report labels these as `ruler_external` and `babilong_external`. They remain local evaluation slices, not leaderboard submissions.
 
 To include the full `Verifiers-30` curated slice in training or eval, first clone the external repo and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
 

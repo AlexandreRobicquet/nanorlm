@@ -723,6 +723,39 @@ class NanoRLMTests(unittest.TestCase):
         self.assertGreaterEqual(len(converted["context"]), 1)
         self.assertEqual(converted["context"][0]["metadata"]["source_index"], 3)
 
+    def test_long_context_conversion_accepts_babilong_target_rows(self) -> None:
+        row = {
+            "name": "qa2-4k-001",
+            "input": "Mary moved to the garden. " * 400,
+            "question": "Where is Mary?",
+            "target": "garden",
+            "task": "qa2",
+        }
+        converted = convert_row(
+            row,
+            source_path=Path("/tmp/babilong.jsonl"),
+            index=1,
+            benchmark="BABILong",
+            task_prefix="babilong",
+        )
+        self.assertEqual(converted["query"], "Where is Mary?")
+        self.assertEqual(converted["must_contain"], ["garden"])
+        self.assertEqual(converted["task_class"], "babilong/qa2")
+        self.assertEqual(converted["metadata"]["benchmark"], "BABILong")
+        self.assertGreater(len(converted["context"]), 1)
+
+    def test_ruler_conversion_strips_chat_template_tokens_from_inferred_query(self) -> None:
+        row = {
+            "input": (
+                "Track these variables.\n"
+                "Question: Find variables assigned 12345.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
+            ),
+            "answers": ["ABCDE"],
+            "task": "vt_4k",
+        }
+        converted = convert_row(row, source_path=Path("/tmp/ruler.jsonl"), index=1)
+        self.assertEqual(converted["query"], "Find variables assigned 12345.")
+
 
 if __name__ == "__main__":
     unittest.main()
