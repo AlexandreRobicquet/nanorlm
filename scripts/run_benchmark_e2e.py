@@ -577,6 +577,27 @@ def _summary_by_policy(summary_path: Path) -> dict[str, dict[str, Any]]:
     return {summary["policy"]: summary for summary in payload.get("summaries", [])}
 
 
+def _learned_acceptance_deltas(
+    learned: dict[str, Any],
+    pairwise: dict[str, Any],
+) -> tuple[float, float, float] | None:
+    learned_rows = learned.get("results")
+    pairwise_rows = pairwise.get("results")
+    if not isinstance(learned_rows, list) or not learned_rows:
+        return None
+    if not isinstance(pairwise_rows, list) or not pairwise_rows:
+        return None
+
+    def mean(rows: list[dict[str, Any]], key: str) -> float:
+        return sum(float(row.get(key, 0.0)) for row in rows) / len(rows)
+
+    return (
+        mean(learned_rows, "reward_score") - mean(pairwise_rows, "reward_score"),
+        mean(learned_rows, "answer_accuracy") - mean(pairwise_rows, "answer_accuracy"),
+        mean(learned_rows, "provenance_score") - mean(pairwise_rows, "provenance_score"),
+    )
+
+
 def _per_case_by_policy(report_path: Path) -> dict[tuple[str, str], dict[str, Any]]:
     rows: dict[tuple[str, str], dict[str, Any]] = {}
     per_case_path = report_path / "per_case.jsonl"
@@ -678,13 +699,20 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
         pairwise = by_policy.get("pairwise_tournament")
         if not learned or not pairwise:
             continue
-        reward_delta = float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0))
-        answer_delta = float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0))
-        provenance_delta = float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0))
+        exact_deltas = _learned_acceptance_deltas(learned, pairwise)
+        if exact_deltas is None:
+            reward_delta = float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0))
+            answer_delta = float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0))
+            provenance_delta = float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0))
+        else:
+            reward_delta, answer_delta, provenance_delta = exact_deltas
         learned_examples = int(learned.get("examples", 0))
         pairwise_examples = int(pairwise.get("examples", 0))
         acceptance_eligible = (
-            report.get("dataset") in LEARNED_ACCEPTANCE_DATASETS
+            exact_deltas is not None
+            and len(learned["results"]) == learned_examples
+            and len(pairwise["results"]) == pairwise_examples
+            and report.get("dataset") in LEARNED_ACCEPTANCE_DATASETS
             and learned_examples >= LEARNED_MIN_ELIGIBLE_EXAMPLES
             and learned_examples == pairwise_examples
             and bool(learned.get("completed"))

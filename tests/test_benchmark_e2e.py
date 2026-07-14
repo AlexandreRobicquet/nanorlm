@@ -124,12 +124,33 @@ class BenchmarkE2ETests(unittest.TestCase):
             self.assertFalse(any(row["acceptance_eligible"] for row in smoke_comparisons))
 
     def test_learned_acceptance_gate_uses_unrounded_deltas(self) -> None:
+        learned = {
+            "reward_score": 0.01,
+            "answer_accuracy": 1.0,
+            "provenance_score": 1.0,
+            "results": [
+                {"reward_score": reward, "answer_accuracy": 1.0, "provenance_score": 1.0}
+                for reward in (0.01, 0.01, 0.01, 0.01, 0.008)
+            ],
+        }
+        pairwise = {
+            "reward_score": 0.0,
+            "answer_accuracy": 1.0,
+            "provenance_score": 1.0,
+            "results": [
+                {"reward_score": 0.0, "answer_accuracy": 1.0, "provenance_score": 1.0},
+            ] * 5,
+        }
+        deltas = run_benchmark_e2e._learned_acceptance_deltas(learned, pairwise)
+        self.assertIsNotNone(deltas)
+        reward_delta, answer_delta, provenance_delta = deltas or (0.0, 0.0, 0.0)
+        self.assertAlmostEqual(reward_delta, 0.0096)
         self.assertFalse(
             run_benchmark_e2e._is_learned_acceptance_win(
                 acceptance_eligible=True,
-                reward_delta=0.0096,
-                answer_delta=0.0,
-                provenance_delta=0.0,
+                reward_delta=reward_delta,
+                answer_delta=answer_delta,
+                provenance_delta=provenance_delta,
             )
         )
         self.assertFalse(
