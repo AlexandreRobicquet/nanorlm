@@ -144,7 +144,7 @@ For a protocol-bound sweep, use `scripts/run_matched_retention.py`. It runs the 
 
 The default protocol sweep uses `dossierbench`, `ruler_synthetic`, and `babilong_synthetic`. PairBench remains an engineering fixture and is not included in the protocol model or budget-selection evidence.
 
-The release gate requires a hash-bound learned-retention model and portable training manifest, clean nanoRLM and LOOM commits, and exact 40-character commit bindings. A convenient offline sequence is:
+The release gate requires a hash-bound learned-retention model and portable training manifest, clean nanoRLM and LOOM commits, and exact 40-character commit bindings. Hosted preflight and execution additionally require the offline bundle's nanoRLM commit to equal the current runner commit. A convenient offline sequence is:
 
 ```bash
 uv run python scripts/train_learned_retention.py \

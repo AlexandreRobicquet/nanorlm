@@ -1045,6 +1045,7 @@ def copy_and_validate_offline_manifest(
     *,
     expected_manifest_sha256: str,
     expected_budget: int,
+    expected_nanorlm_commit: str,
     expected_loom_commit: str,
     learned_model_sha256: str,
     learned_training_manifest_sha256: str,
@@ -1072,10 +1073,11 @@ def copy_and_validate_offline_manifest(
     offline_nanorlm = repositories.get("nanorlm")
     if not isinstance(offline_loom, dict) or offline_loom.get("commit") != expected_loom_commit:
         raise ValueError("prior offline manifest used a different LOOM commit")
-    if not isinstance(offline_nanorlm, dict) or FULL_GIT_SHA_RE.fullmatch(
-        str(offline_nanorlm.get("commit", ""))
-    ) is None:
-        raise ValueError("prior offline manifest is missing its nanoRLM commit")
+    if (
+        not isinstance(offline_nanorlm, dict)
+        or offline_nanorlm.get("commit") != expected_nanorlm_commit
+    ):
+        raise ValueError("prior offline manifest used a different nanoRLM commit")
     configuration = payload.get("configuration")
     if not isinstance(configuration, dict):
         raise ValueError("prior offline manifest is missing configuration bindings")
@@ -1511,6 +1513,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             output_root,
             expected_manifest_sha256=args.expected_offline_sha256,
             expected_budget=budgets[0],
+            expected_nanorlm_commit=str(code_snapshot["commit"]),
             expected_loom_commit=str(loom_snapshot["commit"]),
             learned_model_sha256=sha256_file(learned_model),
             learned_training_manifest_sha256=sha256_file(training_manifest),

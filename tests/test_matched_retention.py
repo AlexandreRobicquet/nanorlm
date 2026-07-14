@@ -381,6 +381,7 @@ class MatchedRetentionTests(unittest.TestCase):
                 root / "pilot",
                 expected_manifest_sha256=sha256_file(source),
                 expected_budget=96,
+                expected_nanorlm_commit=offline_commit,
                 expected_loom_commit=loom_commit,
                 learned_model_sha256=model_hash,
                 learned_training_manifest_sha256=training_hash,
@@ -396,6 +397,7 @@ class MatchedRetentionTests(unittest.TestCase):
                     root / "wrong-hash",
                     expected_manifest_sha256="0" * 64,
                     expected_budget=96,
+                    expected_nanorlm_commit=offline_commit,
                     expected_loom_commit=loom_commit,
                     learned_model_sha256=model_hash,
                     learned_training_manifest_sha256=training_hash,
@@ -407,6 +409,7 @@ class MatchedRetentionTests(unittest.TestCase):
                     root / "rejected",
                     expected_manifest_sha256=sha256_file(source),
                     expected_budget=128,
+                    expected_nanorlm_commit=offline_commit,
                     expected_loom_commit=loom_commit,
                     learned_model_sha256=model_hash,
                     learned_training_manifest_sha256=training_hash,
@@ -419,6 +422,20 @@ class MatchedRetentionTests(unittest.TestCase):
                     root / "tampered",
                     expected_manifest_sha256=sha256_file(source),
                     expected_budget=96,
+                    expected_nanorlm_commit=offline_commit,
+                    expected_loom_commit=loom_commit,
+                    learned_model_sha256=model_hash,
+                    learned_training_manifest_sha256=training_hash,
+                )
+
+            task_artifact.write_text('{"tasks": []}\n')
+            with self.assertRaisesRegex(ValueError, "different nanoRLM commit"):
+                copy_and_validate_offline_manifest(
+                    source,
+                    root / "wrong-commit",
+                    expected_manifest_sha256=sha256_file(source),
+                    expected_budget=96,
+                    expected_nanorlm_commit="f" * 40,
                     expected_loom_commit=loom_commit,
                     learned_model_sha256=model_hash,
                     learned_training_manifest_sha256=training_hash,
