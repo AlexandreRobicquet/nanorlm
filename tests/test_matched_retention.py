@@ -23,6 +23,7 @@ from scripts.run_matched_retention import (
     copy_learned_training_bundle,
     execute,
     hosted_family_audit,
+    load_spec_examples,
     parse_dataset_spec,
     parse_expected_dataset_hashes,
     prepare_response_cache,
@@ -101,6 +102,34 @@ class MatchedRetentionTests(unittest.TestCase):
                 validate_dataset_hashes([spec], {}, required=True)
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
                 validate_dataset_hashes([spec], {"ruler": "0" * 64}, required=True)
+
+    def test_external_case_names_cannot_escape_report_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "external.jsonl"
+            spec = DatasetSpec("ruler", "external_jsonl", source)
+            for name in ("../escape", "/tmp/escape", r"..\escape"):
+                with self.subTest(name=name):
+                    source.write_text(
+                        json.dumps(
+                            {
+                                "name": name,
+                                "query": "Which code is recorded?",
+                                "input": "The recorded code is opal.",
+                                "answer": "opal",
+                                "benchmark": "RULER",
+                            }
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(ValueError, "filesystem-unsafe example name"):
+                        load_spec_examples(
+                            [spec],
+                            limit=1,
+                            start_index=0,
+                            seed=0,
+                            repo_root="tests/fixtures/verifiers-mini",
+                        )
 
     def test_reproduction_template_preserves_original_dataset_hashes(self) -> None:
         source_hash = "a" * 64

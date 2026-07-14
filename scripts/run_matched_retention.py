@@ -48,6 +48,7 @@ SCHEMA_VERSION = "0.1"
 FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 CACHE_RECORD_RE = re.compile(r"[0-9a-f]{64}\.json")
+EXAMPLE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 CACHE_BINDING_NAME = "binding.json"
 HOSTED_FAMILY_METADATA = {"ruler": "RULER", "babilong": "BABILong"}
 
@@ -399,6 +400,14 @@ def load_spec_examples(
             dataset_path=spec.path,
         )
         names = [example.name for example in examples]
+        unsafe_name = next(
+            (name for name in names if EXAMPLE_NAME_RE.fullmatch(name) is None),
+            None,
+        )
+        if unsafe_name is not None:
+            raise ValueError(
+                f"dataset {spec.label} contains a filesystem-unsafe example name: {unsafe_name!r}"
+            )
         if len(names) != len(set(names)):
             raise ValueError(f"dataset {spec.label} contains duplicate example names")
         loaded[spec.label] = examples
