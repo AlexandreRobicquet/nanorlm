@@ -227,13 +227,13 @@ class PolicyTests(unittest.TestCase):
                 "seed": 0,
                 "case": "case-1",
                 "decision_id": None,
-                "decision_index": decision_index,
+                "decision_index": 0,
                 "step": 1,
                 "branch": branch,
                 "label": label,
                 "features": {"confidence": confidence},
             }
-            for decision_index, branch in [(0, "root.0"), (1, "root")]
+            for branch in ["root.0", "root"]
             for label, confidence in [(True, 1.0), (False, 0.0)]
         ]
         model = train_linear_retention_model(rows, objective="pairwise", epochs=1)
