@@ -1703,6 +1703,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def curve_replay_directory(main_replay_directory: str | Path | None) -> Path | None:
+    if main_replay_directory is None or not str(main_replay_directory):
+        return None
+    path = Path(main_replay_directory)
+    return path.with_name(f"{path.name}-curves")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -1748,6 +1755,7 @@ def main() -> None:
         curve_budgets = parse_csv_ints(args.curve_budgets) if args.curve_budgets else [args.budget]
         curve_depths = parse_csv_ints(args.curve_depths) if args.curve_depths else [args.depth]
         curve_seeds = parse_csv_ints(args.curve_seeds) if args.curve_seeds else [0]
+        curve_replay_dir = curve_replay_directory(args.inspection_replay_dir)
         curves = generate_curves(
             args.dataset,
             lambda seed: build_dataset(
@@ -1770,8 +1778,10 @@ def main() -> None:
             max_output_tokens=args.max_output_tokens,
             learned_retention_model=args.learned_retention_model or None,
             retention_judge=args.retention_judge,
-            inspection_replay_dir=args.inspection_replay_dir or None,
-            inspection_replay_mode=args.inspection_replay_mode,
+            inspection_replay_dir=curve_replay_dir,
+            inspection_replay_mode=(
+                "capture_or_replay" if curve_replay_dir is not None else args.inspection_replay_mode
+            ),
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
