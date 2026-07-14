@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+SPECIAL_TOKEN_RE = re.compile(r"<\|[^|>]+\|>|\[/?INST\]", flags=re.IGNORECASE)
+
+
 def load_rows(path: Path) -> list[dict[str, Any]]:
     if path.suffix == ".jsonl":
         rows = []
@@ -67,6 +70,11 @@ def infer_query(context: Any) -> str:
     return "Answer the benchmark query using only the provided context."
 
 
+def clean_query(value: Any) -> str:
+    query_only = re.split(r"<\|eot_id\|>|\[/INST\]", str(value), maxsplit=1, flags=re.IGNORECASE)[0]
+    return " ".join(SPECIAL_TOKEN_RE.sub(" ", query_only).split())
+
+
 def infer_name(row: dict[str, Any], *, task_name: str, context_length: Any, index: int) -> str:
     for key in ["name", "id"]:
         if key in row:
@@ -77,7 +85,14 @@ def infer_name(row: dict[str, Any], *, task_name: str, context_length: Any, inde
     return f"{task_name}-{index:04d}"
 
 
-def chunk_context_blocks(text: str, *, example_name: str, source_path: Path, source_index: int) -> list[dict[str, Any]]:
+def chunk_context_blocks(
+    text: str,
+    *,
+    example_name: str,
+    source_path: Path,
+    source_index: int,
+    benchmark: str = "RULER",
+) -> list[dict[str, Any]]:
     lines = text.splitlines()
     chunks: list[str] = []
     if len(lines) > 1:
@@ -94,7 +109,7 @@ def chunk_context_blocks(text: str, *, example_name: str, source_path: Path, sou
             "name": f"{example_name}/context-{chunk_index:03d}.txt",
             "text": chunk,
             "metadata": {
-                "benchmark": "RULER",
+                "benchmark": benchmark,
                 "source_path": str(source_path),
                 "source_index": source_index,
                 "chunk_index": chunk_index,
@@ -105,9 +120,16 @@ def chunk_context_blocks(text: str, *, example_name: str, source_path: Path, sou
     ]
 
 
-def convert_row(row: dict[str, Any], *, source_path: Path, index: int) -> dict[str, Any]:
+def convert_row(
+    row: dict[str, Any],
+    *,
+    source_path: Path,
+    index: int,
+    benchmark: str = "RULER",
+    task_prefix: str = "ruler",
+) -> dict[str, Any]:
     context = first_present(row, ["context", "input", "prompt"])
-    answers = as_answer_list(first_present(row, ["outputs", "answer", "answers", "expected", "output"]))
+    answers = as_answer_list(first_present(row, ["outputs", "answer", "answers", "expected", "output", "target"]))
     if context is None:
         raise ValueError(f"{source_path}:{index} is missing context/input/prompt")
     query = first_present(row, ["query", "question"]) or infer_query(context)
@@ -119,7 +141,7 @@ def convert_row(row: dict[str, Any], *, source_path: Path, index: int) -> dict[s
     context_length = first_present(row, ["context_length", "length", "seq_length", "tokens"])
     name = infer_name(row, task_name=task_name, context_length=context_length, index=index)
     metadata = {
-        "benchmark": "RULER",
+        "benchmark": benchmark,
         "source_path": str(source_path),
         "source_index": index,
         "task_name": task_name,
@@ -128,12 +150,18 @@ def convert_row(row: dict[str, Any], *, source_path: Path, index: int) -> dict[s
         metadata["context_length"] = context_length
     return {
         "name": name,
-        "query": str(query),
-        "context": chunk_context_blocks(str(context), example_name=name, source_path=source_path, source_index=index),
+        "query": clean_query(query),
+        "context": chunk_context_blocks(
+            str(context),
+            example_name=name,
+            source_path=source_path,
+            source_index=index,
+            benchmark=benchmark,
+        ),
         "answer": " | ".join(answers),
         "must_contain": answers,
         "expected_provenance": [],
-        "task_class": f"ruler/{task_name}",
+        "task_class": f"{task_prefix}/{task_name}",
         "metadata": metadata,
     }
 
@@ -143,6 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--benchmark", default="RULER")
+    parser.add_argument("--task-prefix", default="ruler")
     return parser
 
 
@@ -156,7 +186,19 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         for index, row in enumerate(rows, start=1):
-            handle.write(json.dumps(convert_row(row, source_path=source_path, index=index), sort_keys=True) + "\n")
+            handle.write(
+                json.dumps(
+                    convert_row(
+                        row,
+                        source_path=source_path,
+                        index=index,
+                        benchmark=args.benchmark,
+                        task_prefix=args.task_prefix,
+                    ),
+                    sort_keys=True,
+                )
+                + "\n"
+            )
 
 
 if __name__ == "__main__":

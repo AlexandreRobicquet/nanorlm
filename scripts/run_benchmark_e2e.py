@@ -26,6 +26,7 @@ from bench import (  # noqa: E402
     resolve_provider_choice,
     write_report_bundle,
 )
+from learned_retention import FEATURE_NAMES, TRAINING_OBJECTIVES, LearnedRetentionModel  # noqa: E402
 from nanorlm import is_local_base_url, supports_cost_estimate  # noqa: E402
 from showcases.generate_assets import (  # noqa: E402
     load_payload,
@@ -55,6 +56,10 @@ COMPILE_TARGETS = [
     "showcases/planning.py",
     "showcases/generate_assets.py",
 ]
+LEARNED_ACCEPTANCE_DATASETS = {"dossierbench", "verifiers_30", "ruler_external", "babilong_external"}
+LEARNED_MIN_REWARD_DELTA = 0.01
+LEARNED_MIN_ELIGIBLE_EXAMPLES = 8
+LEARNED_REQUIRED_WINS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +86,7 @@ class BenchmarkSpec:
     seed: int = 0
     start_index: int = 0
     learned_retention_model: str | None = None
+    dataset_label: str | None = None
 
 
 def utc_timestamp() -> str:
@@ -220,6 +226,7 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
 
 def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
     output_dir = run_root / spec.name
+    dataset_label = spec.dataset_label or spec.dataset
     examples = build_dataset(
         spec.dataset,
         limit=spec.limit,
@@ -242,12 +249,12 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         max_output_tokens=spec.max_output_tokens,
         max_estimated_cost=spec.max_estimated_cost,
         learned_retention_model=spec.learned_retention_model,
-        dataset_name=spec.dataset,
+        dataset_name=dataset_label,
         seed=spec.seed,
     )
     if spec.provider == "heuristic":
         curves = generate_curves(
-            spec.dataset,
+            dataset_label,
             lambda seed: build_dataset(
                 spec.dataset,
                 limit=spec.limit,
@@ -269,10 +276,10 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             learned_retention_model=spec.learned_retention_model,
         )
     else:
-        curves = curves_from_summaries(spec.dataset, summaries, budget=spec.budget, depth=spec.depth)
+        curves = curves_from_summaries(dataset_label, summaries, budget=spec.budget, depth=spec.depth)
     write_report_bundle(
         output_dir,
-        dataset_name=spec.dataset,
+        dataset_name=dataset_label,
         summaries=summaries,
         curves=curves,
         command=benchmark_command(spec),
@@ -434,7 +441,7 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
     heldout_start = args.learned_eval_start_index
     if heldout_start < 0:
         heldout_start = args.learned_train_limit
-    return [
+    specs = [
         BenchmarkSpec(
             name="learned_pairbench",
             dataset="pairbench",
@@ -517,11 +524,90 @@ def learned_eval_specs(args: argparse.Namespace, model_path: str) -> list[Benchm
             learned_retention_model=model_path,
         ),
     ]
+    for name, label, dataset_path in (
+        ("learned_ruler_external", "ruler_external", args.learned_ruler_path),
+        ("learned_babilong_external", "babilong_external", args.learned_babilong_path),
+    ):
+        if not dataset_path:
+            continue
+        specs.append(
+            BenchmarkSpec(
+                name=name,
+                dataset="external_jsonl",
+                dataset_label=label,
+                limit=args.external_limit,
+                budget=120,
+                depth=3,
+                policies=policies,
+                curve_policies=policies,
+                curve_budgets=[120],
+                curve_depths=[3],
+                curve_seeds=[seed],
+                repo_root=args.repo_root,
+                dataset_path=dataset_path,
+                seed=seed,
+                start_index=0,
+                learned_retention_model=model_path,
+            )
+        )
+    if args.learned_verifiers_repo_root:
+        specs.append(
+            BenchmarkSpec(
+                name="learned_verifiers_30",
+                dataset="verifiers_30",
+                limit=args.repo_qa_limit,
+                budget=140,
+                depth=2,
+                policies=policies,
+                curve_policies=policies,
+                curve_budgets=[140],
+                curve_depths=[2],
+                curve_seeds=[seed],
+                repo_root=args.learned_verifiers_repo_root,
+                seed=seed,
+                start_index=args.learned_train_limit,
+                learned_retention_model=model_path,
+            )
+        )
+    return specs
 
 
 def _summary_by_policy(summary_path: Path) -> dict[str, dict[str, Any]]:
     payload = json.loads(summary_path.read_text())
     return {summary["policy"]: summary for summary in payload.get("summaries", [])}
+
+
+def _learned_acceptance_deltas(
+    learned: dict[str, Any],
+    pairwise: dict[str, Any],
+) -> tuple[float, float, float] | None:
+    def rows_by_name(summary: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+        rows = summary.get("results")
+        if not isinstance(rows, list) or not rows:
+            return None
+        indexed: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            name = str(row.get("name", ""))
+            if not name or name in indexed:
+                return None
+            indexed[name] = row
+        return indexed
+
+    learned_rows = rows_by_name(learned)
+    pairwise_rows = rows_by_name(pairwise)
+    if learned_rows is None or pairwise_rows is None or learned_rows.keys() != pairwise_rows.keys():
+        return None
+
+    def mean(rows: dict[str, dict[str, Any]], key: str) -> float:
+        return sum(float(row.get(key, 0.0)) for row in rows.values()) / len(rows)
+
+    return (
+        mean(learned_rows, "reward_score") - mean(pairwise_rows, "reward_score"),
+        mean(learned_rows, "answer_accuracy") - mean(pairwise_rows, "answer_accuracy"),
+        mean(learned_rows, "provenance_score") - mean(pairwise_rows, "provenance_score"),
+    )
 
 
 def _per_case_by_policy(report_path: Path) -> dict[tuple[str, str], dict[str, Any]]:
@@ -537,6 +623,31 @@ def _per_case_by_policy(report_path: Path) -> dict[tuple[str, str], dict[str, An
             row = json.loads(line)
             rows[(str(row.get("policy", "")), str(row.get("name", "")))] = row
     return rows
+
+
+def _evidence_delta(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
+    right_values = {str(value) for value in right.get("retained_provenance", [])}
+    return [str(value) for value in left.get("retained_provenance", []) if str(value) not in right_values]
+
+
+def _dropped_expected_provenance(row: dict[str, Any]) -> list[str]:
+    expected = [str(value).lower() for value in row.get("expected_provenance", [])]
+    matches: list[str] = []
+    for dropped in row.get("drop_reasons", []):
+        provenance = str(dropped.get("provenance", ""))
+        lower = provenance.lower()
+        if any(value in lower or Path(value).name in lower for value in expected):
+            matches.append(provenance)
+    return matches
+
+
+def _compact_evidence(values: Sequence[str], limit: int = 3) -> str:
+    if not values:
+        return "none"
+    compact = [value if len(value) <= 100 else value[:97] + "..." for value in values[:limit]]
+    if len(values) > limit:
+        compact.append(f"+{len(values) - limit} more")
+    return "; ".join(compact)
 
 
 def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, Any]]:
@@ -561,6 +672,10 @@ def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, 
                 "pairwise_answer": pairwise_answer,
                 "learned_provenance": learned_prov,
                 "pairwise_provenance": pairwise_prov,
+                "learned_only_provenance": _evidence_delta(learned, pairwise),
+                "pairwise_only_provenance": _evidence_delta(pairwise, learned),
+                "learned_dropped_expected_provenance": _dropped_expected_provenance(learned),
+                "pairwise_dropped_expected_provenance": _dropped_expected_provenance(pairwise),
                 "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{name}.tree.txt"),
                 "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{name}.tree.txt"),
             }
@@ -570,8 +685,29 @@ def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, 
     return failures
 
 
+def _is_learned_acceptance_win(
+    *,
+    acceptance_eligible: bool,
+    reward_delta: float,
+    answer_delta: float,
+    provenance_delta: float,
+) -> bool:
+    return (
+        acceptance_eligible
+        and reward_delta >= LEARNED_MIN_REWARD_DELTA
+        and answer_delta >= 0.0
+        and provenance_delta >= 0.0
+    )
+
+
+def _round_report_metric(value: float) -> float:
+    rounded = round(value, 3)
+    return 0.0 if rounded == 0.0 else rounded
+
+
 def write_learned_report(run_root: Path, training_manifest: dict[str, Any], reports: Sequence[dict[str, Any]]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
+    non_toy_wins: list[dict[str, Any]] = []
     failure_evidence: list[dict[str, Any]] = []
     for report in reports:
         report_path = Path(str(report["path"]))
@@ -580,60 +716,115 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
         pairwise = by_policy.get("pairwise_tournament")
         if not learned or not pairwise:
             continue
-        reward_delta = round(float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0)), 3)
-        answer_delta = round(float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0)), 3)
-        provenance_delta = round(float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0)), 3)
-        rows.append(
-            {
-                "dataset": report.get("dataset"),
-                "report": str(report_path),
-                "examples": learned.get("examples", 0),
-                "budget": report.get("budget"),
-                "depth": report.get("depth"),
-                "start_index": report.get("start_index", 0),
-                "learned_reward": learned.get("reward_score", 0.0),
-                "pairwise_reward": pairwise.get("reward_score", 0.0),
-                "reward_delta": reward_delta,
-                "answer_delta": answer_delta,
-                "provenance_delta": provenance_delta,
-                "learned_answer": learned.get("answer_accuracy", 0.0),
-                "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
-                "learned_provenance": learned.get("provenance_score", 0.0),
-                "pairwise_provenance": pairwise.get("provenance_score", 0.0),
-                "learned_compactness": learned.get("compactness", 0.0),
-                "pairwise_compactness": pairwise.get("compactness", 0.0),
-            }
+        exact_deltas = _learned_acceptance_deltas(learned, pairwise)
+        if exact_deltas is None:
+            reward_delta = float(learned.get("reward_score", 0.0)) - float(pairwise.get("reward_score", 0.0))
+            answer_delta = float(learned.get("answer_accuracy", 0.0)) - float(pairwise.get("answer_accuracy", 0.0))
+            provenance_delta = float(learned.get("provenance_score", 0.0)) - float(pairwise.get("provenance_score", 0.0))
+        else:
+            reward_delta, answer_delta, provenance_delta = exact_deltas
+        learned_examples = int(learned.get("examples", 0))
+        pairwise_examples = int(pairwise.get("examples", 0))
+        acceptance_eligible = (
+            exact_deltas is not None
+            and len(learned["results"]) == learned_examples
+            and len(pairwise["results"]) == pairwise_examples
+            and report.get("dataset") in LEARNED_ACCEPTANCE_DATASETS
+            and learned_examples >= LEARNED_MIN_ELIGIBLE_EXAMPLES
+            and learned_examples == pairwise_examples
+            and bool(learned.get("completed"))
+            and bool(pairwise.get("completed"))
         )
+        row = {
+            "dataset": report.get("dataset"),
+            "report": str(report_path),
+            "examples": learned_examples,
+            "budget": report.get("budget"),
+            "depth": report.get("depth"),
+            "start_index": report.get("start_index", 0),
+            "learned_reward": learned.get("reward_score", 0.0),
+            "pairwise_reward": pairwise.get("reward_score", 0.0),
+            "reward_delta": _round_report_metric(reward_delta),
+            "answer_delta": _round_report_metric(answer_delta),
+            "provenance_delta": _round_report_metric(provenance_delta),
+            "learned_answer": learned.get("answer_accuracy", 0.0),
+            "pairwise_answer": pairwise.get("answer_accuracy", 0.0),
+            "learned_provenance": learned.get("provenance_score", 0.0),
+            "pairwise_provenance": pairwise.get("provenance_score", 0.0),
+            "learned_compactness": learned.get("compactness", 0.0),
+            "pairwise_compactness": pairwise.get("compactness", 0.0),
+            "acceptance_eligible": acceptance_eligible,
+            "gate_metrics_source": "per_case" if exact_deltas is not None else "unavailable",
+        }
+        rows.append(row)
+        if _is_learned_acceptance_win(
+            acceptance_eligible=acceptance_eligible,
+            reward_delta=reward_delta,
+            answer_delta=answer_delta,
+            provenance_delta=provenance_delta,
+        ):
+            non_toy_wins.append(row)
         for failure in _underperforming_cases(report_path):
             failure_evidence.append({"dataset": report.get("dataset"), **failure})
-    non_toy_wins = [
-        row
+    verdict = "positive" if len(non_toy_wins) >= LEARNED_REQUIRED_WINS else "negative_or_inconclusive"
+    training = training_manifest.get("training", {})
+    model = LearnedRetentionModel.load(training_manifest["model_path"])
+    ranked_weights = sorted(
+        ((name, float(model.weights.get(name, 0.0))) for name in FEATURE_NAMES),
+        key=lambda item: (-abs(item[1]), item[0]),
+    )
+    external_long_context = any(
+        row["dataset"] in {"ruler_external", "babilong_external"}
         for row in rows
-        if row["dataset"] not in {"pairbench"} and row["reward_delta"] > 0.0
-    ]
-    verdict = "positive" if len(non_toy_wins) >= 2 else "negative_or_inconclusive"
+    )
+    evidence_note = (
+        "This is a budgeted local evaluation bundle. Synthetic task-shape rows and explicitly supplied external "
+        "RULER/BABILong slices are reported separately; neither is a leaderboard submission."
+        if external_long_context
+        else "This is a budgeted internal evaluation bundle. The RULER and BABILong rows here are synthetic "
+        "task-shape slices, not public leaderboard claims."
+    )
     report_path = run_root / "learned_retention_report.md"
     lines = [
         "# Learned Retention Report",
         "",
         f"- Verdict: `{verdict}`",
-        f"- Acceptance check: learned_retention beats pairwise_tournament on {len(non_toy_wins)} non-toy slice(s) by reward.",
+        f"- Acceptance check: learned_retention beats pairwise_tournament on {len(non_toy_wins)} eligible non-toy slice(s).",
+        f"- Win rule: reward delta >= {LEARNED_MIN_REWARD_DELTA:.2f}, with no answer or provenance regression.",
+        f"- Eligible slice rule: at least {LEARNED_MIN_ELIGIBLE_EXAMPLES} completed examples for both policies on DossierBench, Verifiers-30, or an explicit external RULER/BABILong slice.",
+        f"- Promotion rule: at least {LEARNED_REQUIRED_WINS} eligible slice wins.",
         f"- Model: `{training_manifest['model_path']}`",
-        f"- Training rows: {training_manifest['training'].get('training_rows', 0)}",
+        f"- Training source: `{training.get('training_source', 'unknown')}` via `{training.get('collection_policy', 'unknown')}`",
+        f"- Objective: `{training.get('objective', 'unknown')}`",
+        f"- Training rows / decision pairs: {training.get('training_rows', 0)} / {training.get('training_pairs', 0)}",
+        f"- Reward-weighted pairs / mean weight: {training.get('reward_weighted_pairs', 0)} / {training.get('mean_pair_reward_weight')}",
+        f"- Trace trajectories: {training.get('trace_trajectories', 0)}",
+        f"- Pairwise training accuracy: {training.get('pairwise_accuracy_before')} -> {training.get('pairwise_accuracy_after')}",
         "",
-        "This is a budgeted internal evaluation bundle. The RULER and BABILong rows here are synthetic task-shape slices, not public leaderboard claims.",
+        evidence_note,
         "",
         "## Pairwise Comparison",
         "",
-        "| dataset | examples | start | budget | learned reward | pairwise reward | reward delta | answer delta | provenance delta |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| dataset | eligible | examples | start | budget | learned reward | pairwise reward | reward delta | answer delta | provenance delta |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:
         lines.append(
-            f"| `{row['dataset']}` | {row['examples']} | {row['start_index']} | {row['budget']} | {row['learned_reward']:.3f} | "
+            f"| `{row['dataset']}` | {'yes' if row['acceptance_eligible'] else 'no'} | {row['examples']} | {row['start_index']} | {row['budget']} | {row['learned_reward']:.3f} | "
             f"{row['pairwise_reward']:.3f} | {row['reward_delta']:+.3f} | {row['answer_delta']:+.3f} | "
             f"{row['provenance_delta']:+.3f} |"
         )
+    lines.extend(
+        [
+            "",
+            "## Model Diagnostics",
+            "",
+            "| feature | weight |",
+            "| --- | ---: |",
+        ]
+    )
+    for name, weight in ranked_weights[:8]:
+        lines.append(f"| `{name}` | {weight:+.4f} |")
     if verdict == "positive":
         lines.extend(
             [
@@ -657,22 +848,37 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
             [
                 "",
                 "## Trace Evidence For Negative Cases",
-                "",
-                "| dataset | case | learned answer | pairwise answer | learned prov | pairwise prov | learned trace | pairwise trace |",
-                "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
             ]
         )
         for row in failure_evidence[:10]:
-            lines.append(
-                f"| `{row['dataset']}` | `{row['name']}` | {row['learned_answer']:.3f} | {row['pairwise_answer']:.3f} | "
-                f"{row['learned_provenance']:.3f} | {row['pairwise_provenance']:.3f} | "
-                f"`{row['learned_trace']}` | `{row['pairwise_trace']}` |"
+            lines.extend(
+                [
+                    "",
+                    f"### {row['dataset']} / {row['name']}",
+                    "",
+                    f"- Answer: learned {row['learned_answer']:.3f}, pairwise {row['pairwise_answer']:.3f}",
+                    f"- Provenance: learned {row['learned_provenance']:.3f}, pairwise {row['pairwise_provenance']:.3f}",
+                    f"- Learned-only retained provenance: {_compact_evidence(row['learned_only_provenance'])}",
+                    f"- Pairwise-only retained provenance: {_compact_evidence(row['pairwise_only_provenance'])}",
+                    f"- Expected provenance dropped by learned: {_compact_evidence(row['learned_dropped_expected_provenance'])}",
+                    f"- Traces: `{row['learned_trace']}` and `{row['pairwise_trace']}`",
+                ]
             )
     report_path.write_text("\n".join(lines) + "\n")
     return {
         "report_path": str(report_path),
         "verdict": verdict,
         "non_toy_wins": len(non_toy_wins),
+        "acceptance_rule": {
+            "eligible_datasets": sorted(LEARNED_ACCEPTANCE_DATASETS),
+            "minimum_examples": LEARNED_MIN_ELIGIBLE_EXAMPLES,
+            "minimum_reward_delta": LEARNED_MIN_REWARD_DELTA,
+            "required_wins": LEARNED_REQUIRED_WINS,
+            "requires_answer_non_regression": True,
+            "requires_provenance_non_regression": True,
+            "requires_completed_equal_size_runs": True,
+            "gate_metrics_source": "per_case",
+        },
         "comparisons": rows,
         "failure_evidence": failure_evidence,
     }
@@ -681,16 +887,23 @@ def write_learned_report(run_root: Path, training_manifest: dict[str, Any], repo
 def run_learned_phase(run_root: Path, args: argparse.Namespace) -> dict[str, Any]:
     phase_dir = run_root / "learned_retention"
     training_dir = phase_dir / "training"
+    training_datasets = parse_csv_strings(args.learned_train_datasets)
+    training_repo_root = args.smoke_repo_root
+    if args.learned_verifiers_repo_root:
+        training_datasets = [dataset for dataset in training_datasets if dataset != "verifiers_smoke"]
+        if "verifiers_30" not in training_datasets:
+            training_datasets.append("verifiers_30")
+        training_repo_root = args.learned_verifiers_repo_root
     training_manifest = train_learned_retention.run(
         [
             "--datasets",
-            args.learned_train_datasets,
+            ",".join(training_datasets),
             "--train-seeds",
             args.learned_train_seeds,
             "--limit",
             str(args.learned_train_limit),
             "--repo-root",
-            args.smoke_repo_root,
+            training_repo_root,
             "--dataset-path",
             args.fixture_external_dataset_path,
             "--output-dir",
@@ -703,6 +916,12 @@ def run_learned_phase(run_root: Path, args: argparse.Namespace) -> dict[str, Any
             str(args.learned_l2),
             "--seed",
             str(args.learned_train_seed),
+            "--training-source",
+            args.learned_training_source,
+            "--objective",
+            args.learned_objective,
+            "--collection-policy",
+            args.learned_collection_policy,
         ]
     )
     reports = run_specs(run_root, learned_eval_specs(args, training_manifest["model_path"]))["reports"]
@@ -824,6 +1043,12 @@ def initial_manifest(args: argparse.Namespace, phases: Sequence[str], run_root: 
             "learned_train_seeds": args.learned_train_seeds,
             "learned_eval_seed": args.learned_eval_seed,
             "learned_eval_start_index": args.learned_eval_start_index,
+            "learned_training_source": args.learned_training_source,
+            "learned_objective": args.learned_objective,
+            "learned_collection_policy": args.learned_collection_policy,
+            "learned_ruler_path": args.learned_ruler_path,
+            "learned_babilong_path": args.learned_babilong_path,
+            "learned_verifiers_repo_root": args.learned_verifiers_repo_root,
             "cost_cap_note": "max_estimated_cost is enforced between benchmark cases, not before each model call.",
         },
         "phases": [],
@@ -854,6 +1079,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-train-seeds", default="0,1")
     parser.add_argument("--learned-train-limit", type=int, default=8)
     parser.add_argument("--learned-train-seed", type=int, default=0)
+    parser.add_argument("--learned-training-source", choices=["traces", "blocks"], default="traces")
+    parser.add_argument("--learned-objective", choices=TRAINING_OBJECTIVES, default="pairwise")
+    parser.add_argument(
+        "--learned-collection-policy",
+        choices=["keep_recent", "single_critic_topk", "pairwise_tournament"],
+        default="pairwise_tournament",
+    )
     parser.add_argument("--learned-eval-limit", type=int, default=10)
     parser.add_argument("--learned-eval-seed", type=int, default=2)
     parser.add_argument(
@@ -865,6 +1097,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learned-epochs", type=int, default=20)
     parser.add_argument("--learned-learning-rate", type=float, default=0.15)
     parser.add_argument("--learned-l2", type=float, default=0.0005)
+    parser.add_argument("--learned-ruler-path", default="")
+    parser.add_argument("--learned-babilong-path", default="")
+    parser.add_argument("--learned-verifiers-repo-root", default="")
     parser.add_argument("--real-provider", choices=["openai-compatible", "anthropic"], default="openai-compatible")
     parser.add_argument("--real-model", default="gpt-4.1-mini")
     parser.add_argument("--real-base-url", default="https://api.openai.com/v1")
