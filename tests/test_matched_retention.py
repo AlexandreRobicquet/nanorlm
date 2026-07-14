@@ -21,6 +21,7 @@ from scripts.run_matched_retention import (
     copy_and_validate_preflight_manifest,
     copy_dataset_sources,
     copy_learned_training_bundle,
+    example_record,
     execute,
     hosted_family_audit,
     load_spec_examples,
@@ -102,6 +103,26 @@ class MatchedRetentionTests(unittest.TestCase):
                 validate_dataset_hashes([spec], {}, required=True)
             with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
                 validate_dataset_hashes([spec], {"ruler": "0" * 64}, required=True)
+
+    def test_task_record_binds_source_row_independently_of_schedule_position(self) -> None:
+        spec = DatasetSpec("ruler", "external_jsonl", Path("ruler.jsonl"))
+        example = BenchmarkExample(
+            name="case-1",
+            query="Which code?",
+            context=[ContextBlock(name="context.txt", text="The code is alpha.")],
+            answer="alpha",
+            must_contain=["alpha"],
+            task_class="ruler/vt_4k",
+            metadata={"benchmark": "RULER", "source_index": 7},
+        )
+
+        first = example_record(spec, 0, example)
+        moved = example_record(spec, 1, example)
+
+        self.assertEqual(first["source_index"], 7)
+        self.assertEqual(len(first["source_row_sha256"]), 64)
+        self.assertEqual(first["source_row_sha256"], moved["source_row_sha256"])
+        self.assertNotEqual(first["task_id"], moved["task_id"])
 
     def test_external_case_names_cannot_escape_report_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -365,6 +386,8 @@ class MatchedRetentionTests(unittest.TestCase):
                 )
 
             self.assertTrue(result["diagnostics"]["eligible"])
+            expected_task_id = example_record(spec, 0, example)["task_id"]
+            self.assertEqual({row["task_id"] for row in result["rows"]}, {expected_task_id})
             self.assertEqual(len(observed_kwargs), len(MATCHED_POLICIES))
             self.assertTrue(all(item["cache_preserve_usage"] for item in observed_kwargs))
             self.assertTrue(all(item["cache_namespace"] == "f" * 64 for item in observed_kwargs))
@@ -885,10 +908,15 @@ class MatchedRetentionTests(unittest.TestCase):
             context=[ContextBlock(name="context.txt", text="alpha")],
             answer="alpha",
             must_contain=["alpha"],
-            metadata={"benchmark": "RULER"},
+            task_class="ruler/vt_4k",
+            metadata={"benchmark": "RULER", "source_index": 1},
         )
 
         self.assertTrue(hosted_family_audit([(ruler_spec, example)])["ok"])
+        self.assertFalse(hosted_family_audit([(ruler_spec, example), (ruler_spec, example)])["ok"])
+        del example.metadata["source_index"]
+        self.assertFalse(hosted_family_audit([(ruler_spec, example)])["ok"])
+        example.metadata["source_index"] = 1
         example.metadata["benchmark"] = "Other"
         self.assertFalse(hosted_family_audit([(ruler_spec, example)])["ok"])
 

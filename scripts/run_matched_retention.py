@@ -357,6 +357,18 @@ def example_record(spec: DatasetSpec, index: int, example: BenchmarkExample) -> 
         "must_contain_sha256": sha256_bytes(canonical_json(example.must_contain).encode("utf-8")),
         "context": context,
     }
+    source_index = example.metadata.get("source_index")
+    if isinstance(source_index, int) and not isinstance(source_index, bool) and source_index >= 0:
+        source_row_payload = {
+            "task_class": example.task_class,
+            "query_sha256": payload["query_sha256"],
+            "answer_sha256": payload["answer_sha256"],
+            "must_contain_sha256": payload["must_contain_sha256"],
+            "expected_provenance_sha256": sha256_bytes(canonical_json(example.expected_provenance).encode("utf-8")),
+            "context_text_sha256": [record["text_sha256"] for record in context],
+        }
+        payload["source_index"] = source_index
+        payload["source_row_sha256"] = sha256_bytes(canonical_json(source_row_payload).encode("utf-8"))
     return {"task_id": f"task_{sha256_bytes(canonical_json(payload).encode('utf-8'))[:20]}", **payload}
 
 
@@ -393,19 +405,33 @@ def hosted_family_audit(
 ) -> dict[str, Any]:
     violations = []
     observed: dict[str, set[str]] = {label: set() for label in HOSTED_FAMILY_METADATA}
+    observed_source_keys = set()
     for spec, example in tasks:
         benchmark = str(example.metadata.get("benchmark", ""))
+        source_index = example.metadata.get("source_index")
         observed.setdefault(spec.label, set()).add(benchmark)
         expected = HOSTED_FAMILY_METADATA.get(spec.label)
-        if expected is None or benchmark != expected:
+        source_key = (example.task_class, source_index)
+        if (
+            expected is None
+            or benchmark != expected
+            or not isinstance(source_index, int)
+            or isinstance(source_index, bool)
+            or source_index < 0
+            or source_key in observed_source_keys
+        ):
             violations.append(
                 {
                     "family": spec.label,
                     "name": example.name,
                     "expected_benchmark": expected,
                     "observed_benchmark": benchmark or None,
+                    "task_class": example.task_class,
+                    "source_index": source_index,
                 }
             )
+        else:
+            observed_source_keys.add(source_key)
     return {
         "ok": not violations,
         "tasks_checked": len(tasks),
@@ -897,7 +923,14 @@ def run_budget(
     for task_index, (spec, example) in enumerate(ordered_tasks):
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             break
-        block = {"task_index": task_index, "family": spec.label, "name": example.name, "policies": []}
+        task_record = example_record(spec, task_index, example)
+        block = {
+            "task_index": task_index,
+            "task_id": task_record["task_id"],
+            "family": spec.label,
+            "name": example.name,
+            "policies": [],
+        }
         for policy in MATCHED_POLICIES:
             summary = run_dataset(
                 [example],
@@ -921,6 +954,7 @@ def run_budget(
             if len(summary.get("results", [])) != 1:
                 raise RuntimeError(f"incomplete policy result for {spec.label}:{example.name}:{policy}")
             row = summary["results"][0]
+            row["task_id"] = task_record["task_id"]
             cumulative_cost = round(cumulative_cost + float(row.get("cost_estimate", 0.0)), 6)
             row["cumulative_cost_estimate"] = cumulative_cost
             parts[spec.label][policy].append(summary)
