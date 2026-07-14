@@ -89,7 +89,10 @@ class NanoRLMTests(unittest.TestCase):
         decision = result.retention_decisions[-1]
         self.assertEqual(decision["decision_index"], result.per_step_budget[-1]["decision_index"])
         self.assertTrue(decision["candidates"])
-        self.assertTrue(any(candidate["selected"] for candidate in decision["candidates"]))
+        selected = [candidate for candidate in decision["candidates"] if candidate["selected"]]
+        self.assertTrue(selected)
+        self.assertTrue(any(candidate["score"] > 0.0 for candidate in selected))
+        self.assertTrue(any(candidate["wins"] > 0 or candidate["losses"] > 0 for candidate in selected))
         self.assertIsInstance(result.drop_reasons, list)
 
     def test_pairwise_differs_from_single_critic_on_dossierbench_internal_regression(self) -> None:

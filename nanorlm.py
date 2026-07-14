@@ -237,6 +237,9 @@ def memory_item_record(item: MemoryItem) -> dict[str, Any]:
         "answer_candidate": item.answer_candidate,
         "confidence": item.confidence,
         "metadata": dict(item.metadata),
+        "score": item.score,
+        "wins": item.wins,
+        "losses": item.losses,
     }
 
 
