@@ -88,6 +88,21 @@ class PolicyTests(unittest.TestCase):
         self.assertLessEqual(sum(candidate.tokens for candidate in kept), 24)
         self.assertTrue(kept)
 
+    def test_all_retention_policies_drop_oversized_items(self) -> None:
+        oversized = [item(1.0, "oversized evidence", "facts/large.txt", tokens=25)]
+        policies = [
+            KeepRecentPolicy(),
+            SummaryOnlyPolicy(),
+            SingleCriticTopKPolicy(judge=DummyJudge()),
+            PairwiseTournamentPolicy(judge=DummyJudge(), seed=0),
+            LearnedRetentionPolicy(model=LearnedRetentionModel.default()),
+        ]
+
+        for policy in policies:
+            with self.subTest(policy=policy.name):
+                kept = policy.select(self.query, oversized, budget=1)
+                self.assertLessEqual(sum(candidate.tokens for candidate in kept), 1)
+
     def test_pairwise_prefers_higher_scored_candidates(self) -> None:
         policy = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0)
         kept = policy.select(self.query, self.candidates, budget=24)
