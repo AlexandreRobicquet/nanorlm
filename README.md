@@ -180,6 +180,8 @@ Treat dossier results as an internal synthetic regression surface, not as headli
 
 `learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
+Pairwise training requires `--training-source traces`, where candidates share an explicit retention decision. The legacy `--training-source blocks` ablation is only valid with `--objective pointwise`.
+
 ```bash
 uv run python scripts/train_learned_retention.py \
   --datasets pairbench,dossierbench,ruler_synthetic,babilong_synthetic,external_jsonl \

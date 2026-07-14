@@ -252,6 +252,20 @@ class NanoRLMTests(unittest.TestCase):
         self.assertIn("retention_decisions", summary["results"][0])
         self.assertIn("retained_provenance", summary["results"][0])
 
+    def test_block_training_requires_pointwise_objective(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "--training-source blocks requires --objective pointwise",
+        ):
+            run_learned_retention_training(
+                [
+                    "--training-source",
+                    "blocks",
+                    "--objective",
+                    "pairwise",
+                ]
+            )
+
     def test_direct_full_context_keeps_raw_context_without_retention(self) -> None:
         example = bench.BenchmarkExample(
             name="direct-mini",

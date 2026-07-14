@@ -394,6 +394,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(argv: Sequence[str] | None = None) -> dict[str, Any]:
     args = build_parser().parse_args(argv)
+    if args.training_source == "blocks" and args.objective != "pointwise":
+        raise ValueError(
+            "--training-source blocks requires --objective pointwise; "
+            "pairwise training requires decision traces"
+        )
     output_dir = Path(args.output_dir)
     model_path = Path(args.model_out) if args.model_out else output_dir / "learned_retention_model.json"
     examples_path = Path(args.examples_out) if args.examples_out else output_dir / "training_examples.jsonl"
