@@ -967,6 +967,9 @@ class RLM:
             if callable(drain_usage):
                 extra_usage = drain_usage()
                 usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
+            decision_candidates = getattr(self.policy, "decision_candidates", None)
+            evaluated_items = decision_candidates() if callable(decision_candidates) else ()
+            evaluated_by_identity = {memory_identity(item): item for item in evaluated_items}
             kept_by_identity = {memory_identity(item): item for item in memory}
             kept_ids = set(kept_by_identity)
             selection_ranks = {memory_identity(item): index for index, item in enumerate(memory)}
@@ -975,9 +978,10 @@ class RLM:
             for item in before_items:
                 identity = memory_identity(item)
                 retained_item = kept_by_identity.get(identity)
+                recorded_item = retained_item or evaluated_by_identity.get(identity) or item
                 candidates.append(
                     {
-                        **memory_item_record(retained_item if retained_item is not None else item),
+                        **memory_item_record(recorded_item),
                         "selected": retained_item is not None,
                         "selection_rank": selection_ranks.get(identity),
                     }

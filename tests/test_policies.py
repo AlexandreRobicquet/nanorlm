@@ -77,8 +77,11 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(all(not candidate.metadata for candidate in kept))
 
     def test_single_critic_prefers_higher_scoring_candidates(self) -> None:
-        kept = SingleCriticTopKPolicy(judge=DummyJudge()).select(self.query, self.candidates, budget=24)
+        policy = SingleCriticTopKPolicy(judge=DummyJudge())
+        kept = policy.select(self.query, self.candidates, budget=24)
         self.assertTrue(any("cache" in candidate.summary for candidate in kept))
+        self.assertEqual(len(policy.decision_candidates()), len(self.candidates))
+        self.assertTrue(any(candidate.score > 0.0 for candidate in policy.decision_candidates() if candidate not in kept))
 
     def test_pairwise_respects_budget(self) -> None:
         kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
@@ -86,8 +89,11 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(kept)
 
     def test_pairwise_prefers_higher_scored_candidates(self) -> None:
-        kept = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0).select(self.query, self.candidates, budget=24)
+        policy = PairwiseTournamentPolicy(judge=DummyJudge(), seed=0)
+        kept = policy.select(self.query, self.candidates, budget=24)
         self.assertTrue(any("cache" in candidate.summary for candidate in kept))
+        self.assertEqual(len(policy.decision_candidates()), len(self.candidates))
+        self.assertTrue(all(candidate.wins or candidate.losses for candidate in policy.decision_candidates()))
 
     def test_pairwise_keeps_complementary_evidence_under_tight_budget(self) -> None:
         class TieJudge:
