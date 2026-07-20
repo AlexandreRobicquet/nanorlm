@@ -11,7 +11,8 @@ requires-python = ">=3.11,<3.13"
 authors = [
   { name = "Alexandre Robicquet" }
 ]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 
 [tool.uv]
 package = false
