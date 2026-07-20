@@ -422,7 +422,10 @@ class HeuristicBackend:
         for item in ranked[:3]:
             snippet = item.summary or item.answer_candidate
             if snippet:
-                lines.append(f"{item.provenance}: {snippet}")
+                provenance_prefix = f"{item.provenance}: "
+                if not snippet.startswith(provenance_prefix):
+                    snippet = f"{provenance_prefix}{snippet}"
+                lines.append(snippet)
         answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
         usage = Usage(prompt_tokens=sum(item.tokens for item in memory), completion_tokens=estimate_tokens(answer), calls=1)
         return AnswerResult(answer=answer, confidence=0.65 if memory else 0.1, usage=usage)
