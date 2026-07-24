@@ -148,13 +148,13 @@ class NanoRLMTests(unittest.TestCase):
         self.assertEqual(result.answer, "compact evidence")
         self.assertEqual(backend.score_calls, 0)
 
-    def test_heuristic_answer_uses_full_retained_summary(self) -> None:
+    def test_heuristic_answer_avoids_duplicate_provenance(self) -> None:
         backend = HeuristicBackend(seed=0)
         answer = backend.answer(
             "What is the root cause and file?",
             [
                 MemoryItem(
-                    summary="root cause is stale cache | file is verifiers/clients/config.py",
+                    summary="case.md: root cause is stale cache | file is verifiers/clients/config.py",
                     provenance="case.md",
                     raw_pointer="root",
                     tokens=12,
@@ -165,8 +165,32 @@ class NanoRLMTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertIn("stale cache", answer.answer)
-        self.assertIn("verifiers/clients/config.py", answer.answer)
+        self.assertEqual(
+            answer.answer,
+            "case.md: root cause is stale cache | file is verifiers/clients/config.py",
+        )
+
+    def test_heuristic_answer_recognizes_constituent_provenance(self) -> None:
+        backend = HeuristicBackend(seed=0)
+        answer = backend.answer(
+            "What is the root cause and file?",
+            [
+                MemoryItem(
+                    summary="case.md: root cause is stale cache | file is verifiers/clients/config.py",
+                    provenance="archive.md, case.md",
+                    raw_pointer="root",
+                    tokens=12,
+                    depth=1,
+                    timestamp=1.0,
+                    answer_candidate="root cause is stale cache",
+                    confidence=0.8,
+                )
+            ],
+        )
+        self.assertEqual(
+            answer.answer,
+            "case.md: root cause is stale cache | file is verifiers/clients/config.py",
+        )
 
     def test_pairbench_fixture_produces_meaningful_heuristic_answers(self) -> None:
         summary = run_dataset(
