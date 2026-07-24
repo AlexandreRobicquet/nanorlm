@@ -4,17 +4,19 @@
 
 ## Recommended Runs
 
-Flagship repo QA:
+Full Verifiers-30 repo QA:
 
 ```bash
 python bench.py \
   --dataset verifiers_30 \
-  --limit 10 \
+  --limit 30 \
   --budget 140 \
   --depth 2 \
   --repo-root /tmp/nanorlm-verifiers \
   --output-dir outputs/verifiers_30
 ```
+
+Use `--limit 10` for a quick sample. The checkout must use the verified revision documented in the root README.
 
 Long-horizon dossier benchmark:
 

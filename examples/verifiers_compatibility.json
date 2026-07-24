@@ -1,0 +1,6 @@
+{
+  "name": "PrimeIntellect-ai/verifiers",
+  "url": "https://github.com/PrimeIntellect-ai/verifiers.git",
+  "revision": "482e28ffa1f2613325867badaba4707b7c751d28",
+  "default_checkout": "/tmp/nanorlm-verifiers"
+}

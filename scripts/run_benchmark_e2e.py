@@ -24,6 +24,7 @@ from bench import (  # noqa: E402
     parse_csv_strings,
     policy_sweep,
     resolve_provider_choice,
+    verifiers_report_metadata,
     write_report_bundle,
 )
 from learned_retention import FEATURE_NAMES, TRAINING_OBJECTIVES, LearnedRetentionModel  # noqa: E402
@@ -46,6 +47,7 @@ COMPILE_TARGETS = [
     "nanorlm.py",
     "policies.py",
     "bench.py",
+    "scripts/check_verifiers_compatibility.py",
     "scripts/prepare_ruler_external_jsonl.py",
     "scripts/train_learned_retention.py",
     "scripts/run_benchmark_e2e.py",
@@ -283,6 +285,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         summaries=summaries,
         curves=curves,
         command=benchmark_command(spec),
+        metadata=verifiers_report_metadata(spec.repo_root) if spec.dataset == "verifiers_30" else None,
     )
     report = validate_report_bundle(output_dir)
     report.update(
