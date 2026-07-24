@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from bench import (
     CLI_PROVIDER_CHOICES,
+    DatasetCompatibilityError,
     curves_from_summaries,
     format_table,
     generate_curves,
@@ -19,6 +20,7 @@ from bench import (
     resolve_provider_choice,
     run_dataset,
     validate_benchmark_cost_support,
+    verifiers_report_metadata,
     write_report_bundle,
 )
 
@@ -48,10 +50,13 @@ def main() -> None:
 
     provider = resolve_provider_choice(args.provider, args.openai)
     try:
+        examples = load_verifiers_30(args.repo_root)[: args.limit]
         validate_benchmark_cost_support(provider, args.model, args.base_url or None)
+    except DatasetCompatibilityError as exc:
+        parser.exit(2, f"error: {exc}\n")
     except ValueError as exc:
         parser.error(str(exc))
-    examples = load_verifiers_30(args.repo_root)[: args.limit]
+    report_metadata = verifiers_report_metadata(args.repo_root)
     output_dir = Path(args.output_dir)
     cache_dir = None if args.no_cache else args.cache_dir or None
     if provider != "heuristic":
@@ -86,6 +91,7 @@ def main() -> None:
                 f" --max-output-tokens {args.max_output_tokens}"
                 f"{' --max-estimated-cost ' + str(args.max_estimated_cost) if args.max_estimated_cost is not None else ''}"
             ),
+            metadata=report_metadata,
         )
         print(json.dumps(summary, indent=2))
         return
@@ -118,8 +124,10 @@ def main() -> None:
         curves=curves,
         command=(
             "python examples/run_verifiers.py "
-            f"--limit {args.limit} --budget {args.budget} --depth {args.depth} --provider {args.provider}"
+            f"--repo-root {args.repo_root} --limit {args.limit} --budget {args.budget} "
+            f"--depth {args.depth} --provider {args.provider}"
         ),
+        metadata=report_metadata,
     )
     print(format_table(summaries))
 

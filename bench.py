@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import statistics
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -42,6 +43,7 @@ DEFAULT_POLICIES = [
     "pairwise_tournament",
     "learned_retention",
 ]
+VERIFIERS_COMPATIBILITY_PATH = ROOT / "examples" / "verifiers_compatibility.json"
 
 
 @dataclass(slots=True)
@@ -54,6 +56,104 @@ class BenchmarkExample:
     expected_provenance: list[str] = field(default_factory=list)
     task_class: str = "general"
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+class DatasetCompatibilityError(ValueError):
+    """Raised when a repository-backed dataset cannot load its required files."""
+
+
+def load_verifiers_compatibility(path: str | Path | None = None) -> dict[str, str]:
+    manifest_path = Path(path) if path else VERIFIERS_COMPATIBILITY_PATH
+    payload = json.loads(manifest_path.read_text())
+    required = ("name", "url", "revision", "default_checkout")
+    missing = [key for key in required if not isinstance(payload.get(key), str) or not payload[key].strip()]
+    if missing:
+        raise ValueError(
+            f"{manifest_path} is missing compatibility field(s): {', '.join(sorted(missing))}"
+        )
+    return {key: str(payload[key]) for key in required}
+
+
+def dataset_required_paths(rows: Sequence[dict[str, Any]], path_field: str) -> list[str]:
+    required: set[str] = set()
+    for index, row in enumerate(rows):
+        paths = row.get(path_field)
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) and path for path in paths):
+            raise ValueError(f"dataset row {index + 1} must define a non-empty string list in {path_field!r}")
+        required.update(paths)
+    return sorted(required)
+
+
+def _pinned_verifiers_instructions(compatibility: dict[str, str]) -> list[str]:
+    checkout = compatibility["default_checkout"]
+    return [
+        f"git init {checkout}",
+        f"git -C {checkout} remote add origin {compatibility['url']}",
+        f"git -C {checkout} fetch --depth 1 origin {compatibility['revision']}",
+        f"git -C {checkout} checkout --detach FETCH_HEAD",
+    ]
+
+
+def validate_repository_paths(
+    repo_root: str | Path,
+    required_paths: Sequence[str],
+    *,
+    dataset_name: str,
+    compatibility: dict[str, str] | None = None,
+) -> None:
+    root = Path(repo_root)
+    missing_paths = sorted(path for path in set(required_paths) if not (root / path).is_file())
+    if root.is_dir() and not missing_paths:
+        return
+
+    lines = [f"{dataset_name} compatibility preflight failed for {root}."]
+    if not root.is_dir():
+        lines.append("The repository root does not exist or is not a directory.")
+    if missing_paths:
+        lines.append(f"Missing {len(missing_paths)} required file(s):")
+        lines.extend(f"  - {path}" for path in missing_paths)
+    if compatibility:
+        lines.extend(
+            [
+                f"Use the verified {compatibility['name']} revision {compatibility['revision']}:",
+                *[f"  {command}" for command in _pinned_verifiers_instructions(compatibility)],
+            ]
+        )
+    else:
+        lines.append("Provide --repo-root pointing to a compatible repository checkout.")
+    raise DatasetCompatibilityError("\n".join(lines))
+
+
+def _git_revision(repo_root: str | Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path(repo_root)), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else None
+
+
+def verifiers_report_metadata(repo_root: str | Path) -> dict[str, Any]:
+    compatibility = load_verifiers_compatibility()
+    revision = _git_revision(repo_root)
+    return {
+        "source_repository": {
+            "name": compatibility["name"],
+            "url": compatibility["url"],
+            "repo_root": str(Path(repo_root).resolve()),
+            "revision": revision,
+            "compatibility_revision": compatibility["revision"],
+            "matches_compatibility_revision": (
+                revision == compatibility["revision"] if revision is not None else None
+            ),
+        }
+    }
 
 
 def extract_anchor_blocks(path: str | Path, anchors: Sequence[str], window: int = 6) -> list[ContextBlock]:
@@ -683,11 +783,19 @@ def load_curated_dataset(
     *,
     distractors: int = 4,
     seed: int = 0,
+    dataset_name: str = "curated dataset",
+    compatibility: dict[str, str] | None = None,
 ) -> list[BenchmarkExample]:
     rng = random.Random(seed)
     repo_root = Path(repo_root)
     dataset_path = Path(dataset_path)
     rows = json.loads(dataset_path.read_text())
+    validate_repository_paths(
+        repo_root,
+        dataset_required_paths(rows, "provenance"),
+        dataset_name=dataset_name,
+        compatibility=compatibility,
+    )
     pool = sorted(path for path in repo_root.rglob("*") if path.is_file() and ".git" not in path.parts)
     examples: list[BenchmarkExample] = []
     for row in rows:
@@ -720,6 +828,8 @@ def load_verifiers_30(repo_root: str | Path, dataset_path: str | Path | None = N
         dataset_path=dataset_path or ROOT / "examples" / "verifiers_30.json",
         distractors=distractors,
         seed=seed,
+        dataset_name="Verifiers-30",
+        compatibility=load_verifiers_compatibility(),
     )
 
 
@@ -729,6 +839,7 @@ def load_verifiers_smoke(repo_root: str | Path, dataset_path: str | Path | None 
         dataset_path=dataset_path or ROOT / "tests" / "fixtures" / "verifiers_smoke.json",
         distractors=distractors,
         seed=seed,
+        dataset_name="Verifiers smoke fixture",
     )
 
 
@@ -1241,6 +1352,7 @@ def write_report_bundle(
     summaries: Sequence[dict[str, Any]],
     curves: dict[str, Any],
     command: str,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1253,6 +1365,8 @@ def write_report_bundle(
         "insights": insights,
         "summaries": list(summaries),
     }
+    if metadata is not None:
+        summary_payload["metadata"] = metadata
     (output_path / "summary.json").write_text(json.dumps(summary_payload, indent=2))
     with (output_path / "per_case.jsonl").open("w") as handle:
         for summary in summaries:
@@ -1604,8 +1718,11 @@ def main() -> None:
             dataset_path=args.dataset_path or None,
             start_index=args.start_index,
         )
+    except DatasetCompatibilityError as exc:
+        parser.exit(2, f"error: {exc}\n")
     except ValueError as exc:
         parser.error(str(exc))
+    report_metadata = verifiers_report_metadata(args.repo_root) if args.dataset == "verifiers_30" else None
     summaries = policy_sweep(
         examples,
         policies,
@@ -1674,6 +1791,7 @@ def main() -> None:
                 f"--max-output-tokens {args.max_output_tokens}",
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),
+            metadata=report_metadata,
         )
 
 

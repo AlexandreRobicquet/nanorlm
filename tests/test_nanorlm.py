@@ -415,6 +415,7 @@ class NanoRLMTests(unittest.TestCase):
                 summaries=summaries,
                 curves=curves,
                 command="python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2",
+                metadata={"source_repository": {"revision": "fixture-revision"}},
             )
             self.assertTrue((Path(tmpdir) / "summary.json").exists())
             self.assertTrue((Path(tmpdir) / "per_case.jsonl").exists())
@@ -424,6 +425,10 @@ class NanoRLMTests(unittest.TestCase):
             summary_payload = json.loads((Path(tmpdir) / "summary.json").read_text())
             self.assertIn("insights", summary_payload)
             self.assertEqual(summary_payload["insights"]["dataset"], "pairbench")
+            self.assertEqual(
+                summary_payload["metadata"]["source_repository"]["revision"],
+                "fixture-revision",
+            )
             report = (Path(tmpdir) / "experiment_report.md").read_text()
             self.assertIn("## Policy Ranking", report)
             self.assertIn("## Failure Clusters", report)

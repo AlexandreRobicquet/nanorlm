@@ -132,8 +132,21 @@ What it does **not** claim yet:
 Run it with:
 
 ```bash
-git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-uv run python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
+git init /tmp/nanorlm-verifiers
+git -C /tmp/nanorlm-verifiers remote add origin https://github.com/PrimeIntellect-ai/verifiers.git
+git -C /tmp/nanorlm-verifiers fetch --depth 1 origin 482e28ffa1f2613325867badaba4707b7c751d28
+git -C /tmp/nanorlm-verifiers checkout --detach FETCH_HEAD
+
+uv run python examples/run_verifiers.py \
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 30
+```
+
+This is the full 30-case benchmark. The CLI default remains a quick 10-case sample when `--limit` is omitted. The pinned revision is recorded alongside the actual checkout revision in generated `summary.json` metadata.
+The compatibility source of truth is `examples/verifiers_compatibility.json`. To check either dataset against a checkout without running benchmark policies:
+
+```bash
+uv run python scripts/check_verifiers_compatibility.py --repo-root /tmp/nanorlm-verifiers
 ```
 
 The deterministic backend is only a smoke path here. The flagship use is to point the same engine at a real OpenAI-compatible model:
@@ -145,7 +158,8 @@ uv run python examples/run_verifiers.py \
   --model gpt-4.1-mini \
   --base-url https://api.openai.com/v1 \
   --max-estimated-cost 5 \
-  --repo-root /tmp/nanorlm-verifiers
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 10
 ```
 
 For a local OpenAI-compatible endpoint such as Ollama:
@@ -155,7 +169,8 @@ uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model qwen3:14b \
   --base-url http://localhost:11434/v1 \
-  --repo-root /tmp/nanorlm-verifiers
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 10
 ```
 
 The Anthropic Messages backend is implemented, but the benchmark harness currently rejects Anthropic and unknown remote models because report bundles include cost estimates and there is no checked-in pricing table for those models.
@@ -230,7 +245,7 @@ uv run python scripts/run_benchmark_e2e.py \
 
 The learned report labels these as `ruler_external` and `babilong_external`. They remain local evaluation slices, not leaderboard submissions.
 
-To include the full `Verifiers-30` curated slice in training or eval, first clone the external repo and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
+To include the full `Verifiers-30` curated slice in training or eval, first use the pinned shallow checkout above and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
 
 ### 4. Grounded Planning
 
@@ -245,6 +260,7 @@ uv run python examples/run_planning.py \
 ```
 
 The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` under `showcases/outputs/planning/`.
+It uses the same compatibility preflight and records the pinned and actual Verifiers revisions in `summary.json`.
 
 ### 5. PairBench, NeedlePairs, RULER Synthetic, And BABILong Synthetic
 
@@ -342,9 +358,10 @@ By default this runs local checks, smoke benchmarks, synthetic benchmarks, the c
 For repo-QA coverage against a local Verifiers checkout:
 
 ```bash
-git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
 uv run python scripts/run_benchmark_e2e.py --phases offline --repo-root /tmp/nanorlm-verifiers
 ```
+
+Use the pinned shallow Verifiers checkout from the Codebase QA section; a current-HEAD clone is intentionally not the reproducible compatibility target.
 
 For a bounded hosted-model run, first generate or provide an external benchmark JSONL file, then run only the real-model phase with an explicit cache:
 
