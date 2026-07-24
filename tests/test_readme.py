@@ -32,6 +32,8 @@ def run_tiny_example() -> tuple[dict[str, object], str]:
 class ReadmeTinyExampleTests(unittest.TestCase):
     def test_tiny_example_recurses_and_retains_the_complete_answer(self) -> None:
         namespace, stdout = run_tiny_example()
+        self.assertIn("result", namespace)
+        self.assertIn("config", namespace)
         result = namespace["result"]
         config = namespace["config"]
 
