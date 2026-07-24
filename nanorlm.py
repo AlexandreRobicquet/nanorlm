@@ -423,7 +423,11 @@ class HeuristicBackend:
             snippet = item.summary or item.answer_candidate
             if snippet:
                 provenance_prefix = f"{item.provenance}: "
-                if not snippet.startswith(provenance_prefix):
+                provenance_parts = [part.strip() for part in item.provenance.split(",")]
+                has_provenance = snippet.startswith(provenance_prefix) or any(
+                    snippet.startswith(f"{part}: ") for part in provenance_parts if part and part != "..."
+                )
+                if not has_provenance:
                     snippet = f"{provenance_prefix}{snippet}"
                 lines.append(snippet)
         answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
