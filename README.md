@@ -86,6 +86,7 @@ print(result.trace.tree)
 - `drop_reasons`
 - `per_step_budget`
 - `retention_decisions`, with the complete candidate set, selected ranks, and budget for each retention step
+- `stage_budgets`, with prompt tokens, completion tokens, calls, and wall time for inspection and final-answer stages
 
 Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
 
@@ -98,6 +99,7 @@ The repo already emits a stable report bundle:
 - `curves.json`
 - `experiment_report.md`
 - `trace_examples/`
+- `loom_traces/`, exported as standalone LOOM trace-contract v0.1 JSONL
 
 That makes the current artifact useful for:
 
@@ -116,6 +118,35 @@ What it does **not** claim yet:
 - leaderboard evidence that `learned_retention` wins on real RULER or BABILong exports
 
 `examples/benchmark_snapshot.md` is intentionally a deterministic smoke snapshot, not a public benchmark leaderboard.
+
+### Matched Retention Experiments
+
+For policy comparisons, keep retention scoring local and capture each leaf inspection once. Later policies replay the same inspection outputs while preserving the captured token/call ledger:
+
+```bash
+uv run python bench.py \
+  --dataset external_jsonl \
+  --dataset-path /tmp/nanorlm-ruler.jsonl \
+  --limit 8 \
+  --budget 128 \
+  --depth 3 \
+  --policies keep_recent,summary_only,single_critic_topk,pairwise_tournament \
+  --retention-judge heuristic \
+  --inspection-replay-dir outputs/matched-retention/inspection-replay \
+  --output-dir outputs/matched-retention/ruler
+```
+
+`--retention-judge heuristic` prevents the generation model from receiving extra score/compare calls for critic policies. `--inspection-replay-dir` stores integrity-checked inspection outputs keyed by model configuration, query, branch, and context hashes; it does not store raw input context. Replay preserves logical prompt/completion/call usage for matched accounting, while `wall_ms` records the actual faster replay path. Use `--inspection-replay-mode replay_only` to fail closed if any expected capture is missing.
+
+Because replay preserves the captured usage ledger, `--max-estimated-cost` remains a conservative counterfactual allocation across policies; it is an upper bound on the API work actually issued by a replayed sweep, not a billing receipt.
+
+`direct_full_context` remains an unmatched descriptive reference because it skips recursive inspection and retention. Do not include it in a matched-policy significance claim.
+
+The exporter has no runtime dependency on LOOM. When both repos are available, validate generated traces with LOOM itself:
+
+```bash
+uv run loom-validate-trace /path/to/output/loom_traces/pairwise_tournament/example.jsonl
+```
 
 ![Retained trace](showcases/assets/dossierbench/trace_card.svg)
 

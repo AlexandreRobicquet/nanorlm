@@ -60,6 +60,16 @@ class NoScoreBackend(HeuristicBackend):
 
 
 class NanoRLMTests(unittest.TestCase):
+    def test_curve_replay_directory_is_isolated_from_main_trace_store(self) -> None:
+        main = Path("outputs") / "inspection-replay"
+
+        self.assertEqual(
+            bench.curve_replay_directory(main),
+            Path("outputs") / "inspection-replay-curves",
+        )
+        self.assertNotEqual(bench.curve_replay_directory(main), main)
+        self.assertIsNone(bench.curve_replay_directory(None))
+
     def test_completion_returns_answer_trace_and_budgeted_memory(self) -> None:
         context = [
             ContextBlock(name="incident-1.txt", text="api gateway rollout blocker is stale endpoint registry cache after deploy validation retry failure on startup."),
@@ -147,6 +157,34 @@ class NanoRLMTests(unittest.TestCase):
         )
         self.assertEqual(result.answer, "compact evidence")
         self.assertEqual(backend.score_calls, 0)
+
+    def test_heuristic_retention_judge_does_not_call_generation_backend_scoring(self) -> None:
+        backend = NoScoreBackend()
+        engine = RLM(
+            RLMConfig(
+                model="demo/heuristic",
+                provider="heuristic",
+                max_depth=4,
+                memory_budget_tokens=1,
+                retention_policy="single_critic_topk",
+                retention_judge="heuristic",
+                seed=0,
+            ),
+            backend=backend,
+        )
+        result = engine.completion(
+            "What changed?",
+            [
+                ContextBlock(name="a.txt", text="alpha change " * 60),
+                ContextBlock(name="b.txt", text="beta change " * 60),
+                ContextBlock(name="c.txt", text="gamma change " * 60),
+                ContextBlock(name="d.txt", text="delta change " * 60),
+            ],
+        )
+
+        self.assertEqual(backend.score_calls, 0)
+        self.assertTrue(result.retention_decisions)
+        self.assertTrue(all(row["budget_used"]["calls"] == 0 for row in result.retention_decisions))
 
     def test_heuristic_answer_uses_full_retained_summary(self) -> None:
         backend = HeuristicBackend(seed=0)
@@ -422,6 +460,7 @@ class NanoRLMTests(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "curves.json").exists())
             self.assertTrue((Path(tmpdir) / "experiment_report.md").exists())
             self.assertTrue((Path(tmpdir) / "trace_examples" / "pairwise_tournament").exists())
+            self.assertTrue((Path(tmpdir) / "loom_traces" / "pairwise_tournament").exists())
             summary_payload = json.loads((Path(tmpdir) / "summary.json").read_text())
             self.assertIn("insights", summary_payload)
             self.assertEqual(summary_payload["insights"]["dataset"], "pairbench")
@@ -433,6 +472,24 @@ class NanoRLMTests(unittest.TestCase):
             self.assertIn("## Policy Ranking", report)
             self.assertIn("## Failure Clusters", report)
             self.assertIn("`pairwise_tournament`", report)
+
+    def test_policy_sweep_replays_leaf_inspections_across_policies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            examples = build_pairbench(n=1, seed=0)
+            summaries = policy_sweep(
+                examples,
+                ["keep_recent", "pairwise_tournament"],
+                budget=24,
+                max_depth=3,
+                retention_judge="heuristic",
+                inspection_replay_dir=Path(tmpdir) / "replay",
+                dataset_name="pairbench",
+            )
+
+        self.assertGreater(summaries[0]["inspection_replay"]["captured"], 0)
+        self.assertEqual(summaries[0]["inspection_replay"]["replayed"], 0)
+        self.assertEqual(summaries[1]["inspection_replay"]["captured"], 0)
+        self.assertGreater(summaries[1]["inspection_replay"]["replayed"], 0)
 
     def test_experiment_insights_groups_failure_modes(self) -> None:
         summaries = [

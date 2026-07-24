@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 from bench import (  # noqa: E402
     DEFAULT_POLICIES,
     build_dataset,
+    curve_replay_directory,
     curves_from_summaries,
     generate_curves,
     parse_csv_strings,
@@ -43,7 +44,9 @@ PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", 
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
 OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
+    "inspection_replay.py",
     "learned_retention.py",
+    "loom_trace.py",
     "nanorlm.py",
     "policies.py",
     "bench.py",
@@ -89,6 +92,9 @@ class BenchmarkSpec:
     start_index: int = 0
     learned_retention_model: str | None = None
     dataset_label: str | None = None
+    retention_judge: str = "backend"
+    inspection_replay_dir: str | None = None
+    inspection_replay_mode: str = "capture_or_replay"
 
 
 def utc_timestamp() -> str:
@@ -150,6 +156,7 @@ def validate_report_bundle(path: Path) -> dict[str, Any]:
         "curve_points": len(curves.get("points", [])),
         "curve_aggregates": len(curves.get("aggregates", [])),
         "trace_examples": str(path / "trace_examples"),
+        "loom_traces": str(path / "loom_traces"),
     }
 
 
@@ -208,6 +215,8 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
         spec.model,
         "--policies",
         ",".join(spec.policies),
+        "--retention-judge",
+        spec.retention_judge,
         "--max-output-tokens",
         str(spec.max_output_tokens),
     ]
@@ -223,6 +232,15 @@ def benchmark_command(spec: BenchmarkSpec) -> str:
         parts.extend(["--max-estimated-cost", str(spec.max_estimated_cost)])
     if spec.learned_retention_model:
         parts.extend(["--learned-retention-model", spec.learned_retention_model])
+    if spec.inspection_replay_dir:
+        parts.extend(
+            [
+                "--inspection-replay-dir",
+                spec.inspection_replay_dir,
+                "--inspection-replay-mode",
+                spec.inspection_replay_mode,
+            ]
+        )
     return shell_join(parts)
 
 
@@ -253,8 +271,12 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         learned_retention_model=spec.learned_retention_model,
         dataset_name=dataset_label,
         seed=spec.seed,
+        retention_judge=spec.retention_judge,
+        inspection_replay_dir=spec.inspection_replay_dir,
+        inspection_replay_mode=spec.inspection_replay_mode,
     )
     if spec.provider == "heuristic":
+        curve_replay_dir = curve_replay_directory(spec.inspection_replay_dir)
         curves = generate_curves(
             dataset_label,
             lambda seed: build_dataset(
@@ -276,6 +298,11 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             cache_dir=spec.cache_dir,
             max_output_tokens=spec.max_output_tokens,
             learned_retention_model=spec.learned_retention_model,
+            retention_judge=spec.retention_judge,
+            inspection_replay_dir=curve_replay_dir,
+            inspection_replay_mode=(
+                "capture_or_replay" if curve_replay_dir is not None else spec.inspection_replay_mode
+            ),
         )
     else:
         curves = curves_from_summaries(dataset_label, summaries, budget=spec.budget, depth=spec.depth)
@@ -299,6 +326,9 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
             "model": spec.model,
             "base_url": spec.base_url,
             "cache_dir": spec.cache_dir,
+            "retention_judge": spec.retention_judge,
+            "inspection_replay_dir": spec.inspection_replay_dir,
+            "inspection_replay_mode": spec.inspection_replay_mode,
             "completed": all(summary.get("completed", False) for summary in summaries),
             "total_cost_estimate": round(sum(float(summary.get("total_cost_estimate", 0.0)) for summary in summaries), 6),
         }

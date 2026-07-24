@@ -279,6 +279,17 @@ class Usage:
         self.calls += calls
 
 
+def usage_budget(usage: Usage, wall_ms: float) -> dict[str, int]:
+    """Convert one stage's usage to the LOOM v0.1 budget-ledger shape."""
+
+    return {
+        "prompt_tokens": max(0, int(usage.prompt_tokens)),
+        "completion_tokens": max(0, int(usage.completion_tokens)),
+        "calls": max(0, int(usage.calls)),
+        "wall_ms": max(0, int(round(wall_ms))),
+    }
+
+
 @dataclass(slots=True)
 class InspectionResult:
     summary: str
@@ -307,6 +318,7 @@ class RLMResult:
     drop_reasons: list[dict[str, Any]] = field(default_factory=list)
     per_step_budget: list[dict[str, Any]] = field(default_factory=list)
     retention_decisions: list[dict[str, Any]] = field(default_factory=list)
+    stage_budgets: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -321,6 +333,7 @@ class RLMConfig:
     max_steps: int = 64
     memory_budget_tokens: int = 320
     retention_policy: str = "pairwise_tournament"
+    retention_judge: Literal["backend", "heuristic"] = "backend"
     retention_model_path: str | None = None
     sandbox: str | None = None
     seed: int = 0
@@ -781,9 +794,15 @@ class RLM:
         if policy is None:
             from policies import build_policy
 
+            if config.retention_judge == "backend":
+                retention_judge = self.backend
+            elif config.retention_judge == "heuristic":
+                retention_judge = HeuristicBackend(seed=config.seed)
+            else:
+                raise ValueError(f"unknown retention judge: {config.retention_judge}")
             self.policy = build_policy(
                 config.retention_policy,
-                judge=self.backend,
+                judge=retention_judge,
                 seed=config.seed,
                 model_path=config.retention_model_path,
             )
@@ -798,6 +817,8 @@ class RLM:
         drop_reasons: list[dict[str, Any]] = []
         per_step_budget: list[dict[str, Any]] = []
         retention_decisions: list[dict[str, Any]] = []
+        inspect_usage = Usage()
+        inspect_wall_ms = [0.0]
         step_counter = [0]
         recorder.emit("inspect", 0, "root query", query=truncate_words(query, 16), blocks=len(blocks))
         kept_items = self._walk(
@@ -811,8 +832,12 @@ class RLM:
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
             retention_decisions=retention_decisions,
+            inspect_usage=inspect_usage,
+            inspect_wall_ms=inspect_wall_ms,
         )
+        answer_started = time.perf_counter()
         final = self.backend.answer(query, kept_items)
+        answer_wall_ms = (time.perf_counter() - answer_started) * 1000.0
         usage.add(final.usage.prompt_tokens, final.usage.completion_tokens, final.usage.calls)
         recorder.emit("final_answer", 0, "compose answer", retained=len(kept_items), answer_preview=truncate_words(final.answer, 24))
         trace = recorder.artifact()
@@ -825,6 +850,9 @@ class RLM:
             "final_retained_tokens": sum(item.tokens for item in kept_items),
             "max_memory_depth": max((item.depth for item in kept_items), default=0),
         }
+        replay_stats = getattr(self.backend, "replay_stats", None)
+        if callable(replay_stats):
+            retention_stats["inspection_replay"] = replay_stats()
         return RLMResult(
             answer=final.answer,
             trace=trace,
@@ -835,6 +863,10 @@ class RLM:
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
             retention_decisions=retention_decisions,
+            stage_budgets={
+                "inspect": usage_budget(inspect_usage, inspect_wall_ms[0]),
+                "final_answer": usage_budget(final.usage, answer_wall_ms),
+            },
         )
 
     def direct_completion(self, query: str, context: str | Sequence[ContextBlock | dict[str, Any] | tuple[str, str]]) -> RLMResult:
@@ -868,7 +900,9 @@ class RLM:
             )
             for index, block in enumerate(blocks)
         ]
+        answer_started = time.perf_counter()
         final = self.backend.answer(query, kept_items)
+        answer_wall_ms = (time.perf_counter() - answer_started) * 1000.0
         usage.add(final.usage.prompt_tokens, final.usage.completion_tokens, final.usage.calls)
         recorder.emit("final_answer", 0, "compose answer", retained=len(kept_items), answer_preview=truncate_words(final.answer, 24))
         trace = recorder.artifact()
@@ -882,6 +916,9 @@ class RLM:
             "max_memory_depth": 0,
             "direct_full_context": True,
         }
+        replay_stats = getattr(self.backend, "replay_stats", None)
+        if callable(replay_stats):
+            retention_stats["inspection_replay"] = replay_stats()
         return RLMResult(
             answer=final.answer,
             trace=trace,
@@ -892,6 +929,10 @@ class RLM:
             drop_reasons=[],
             per_step_budget=[],
             retention_decisions=[],
+            stage_budgets={
+                "inspect": usage_budget(Usage(), 0.0),
+                "final_answer": usage_budget(final.usage, answer_wall_ms),
+            },
         )
 
     def _walk(
@@ -906,6 +947,8 @@ class RLM:
         drop_reasons: list[dict[str, Any]],
         per_step_budget: list[dict[str, Any]],
         retention_decisions: list[dict[str, Any]],
+        inspect_usage: Usage,
+        inspect_wall_ms: list[float],
     ) -> list[MemoryItem]:
         step_counter[0] += 1
         if step_counter[0] > self.config.max_steps:
@@ -913,8 +956,11 @@ class RLM:
             return []
         if self._is_leaf(blocks, depth):
             recorder.emit("inspect", depth, f"{branch} leaf", tokens=sum(block.tokens for block in blocks), blocks=len(blocks))
+            inspect_started = time.perf_counter()
             result = self.backend.inspect(query, blocks, depth, branch)
+            inspect_wall_ms[0] += (time.perf_counter() - inspect_started) * 1000.0
             usage.add(result.usage.prompt_tokens, result.usage.completion_tokens, result.usage.calls)
+            inspect_usage.add(result.usage.prompt_tokens, result.usage.completion_tokens, result.usage.calls)
             provenance = ", ".join(block.name for block in blocks[:3])
             if len(blocks) > 3:
                 provenance += ", ..."
@@ -958,15 +1004,21 @@ class RLM:
                     drop_reasons,
                     per_step_budget,
                     retention_decisions,
+                    inspect_usage,
+                    inspect_wall_ms,
                 )
             )
             before = len(memory)
             before_items = list(memory)
+            retention_started = time.perf_counter()
             memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
+            retention_wall_ms = (time.perf_counter() - retention_started) * 1000.0
+            retention_usage = Usage()
             drain_usage = getattr(self.backend, "drain_usage", None)
             if callable(drain_usage):
                 extra_usage = drain_usage()
                 usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
+                retention_usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
             decision_candidates = getattr(self.policy, "decision_candidates", None)
             evaluated_items = decision_candidates() if callable(decision_candidates) else ()
             evaluated_by_identity = {memory_identity(item): item for item in evaluated_items}
@@ -982,6 +1034,7 @@ class RLM:
                 candidates.append(
                     {
                         **memory_item_record(recorded_item),
+                        "input_item": memory_item_record(item),
                         "selected": retained_item is not None,
                         "selection_rank": selection_ranks.get(identity),
                     }
@@ -997,6 +1050,7 @@ class RLM:
                     "budget": self.config.memory_budget_tokens,
                     "before_tokens": sum(item.tokens for item in before_items),
                     "after_tokens": sum(item.tokens for item in memory),
+                    "budget_used": usage_budget(retention_usage, retention_wall_ms),
                     "candidates": candidates,
                 }
             )
