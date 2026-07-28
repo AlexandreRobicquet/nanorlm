@@ -13,6 +13,7 @@ the repository root. A pip-installed library and an installed public API are not
 - [`.python-version`](.python-version) pins the expected interpreter to `3.11`.
 - [`uv.lock`](uv.lock) is the resolved lockfile.
 - [`.venv/`](.venv/) is the local environment `uv` manages for this repo.
+- Pytest is locked in the default `dev` dependency group; runtime dependencies stay empty.
 - `[tool.uv] package = false` means this repo uses `uv` as an environment-and-runner workflow, not as a package publishing workflow.
 - Explicit empty setuptools package and module lists prevent metadata builds from accidentally
   presenting only part of the checkout as an installable product. Those artifacts are not a
@@ -35,7 +36,7 @@ Run this before merging a PR that touches workflows, docs, tests, or Python sour
 uv lock --check
 uv sync --frozen
 uv run python -m unittest discover -s tests -v
-uv run --with pytest pytest
+uv run --frozen pytest
 uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset ruler_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
@@ -55,7 +56,7 @@ You should see:
 - the lockfile check passes
 - the frozen sync completes cleanly
 - the test suite passes
-- the temporary pytest run passes without adding pytest to project dependencies
+- the locked pytest run passes from the default development group without adding runtime dependencies
 - the compile check passes
 - the smoke runs complete cleanly
 

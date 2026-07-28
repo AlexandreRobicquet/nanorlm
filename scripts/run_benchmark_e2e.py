@@ -180,7 +180,7 @@ def run_check_phase(run_root: Path) -> dict[str, Any]:
         ["uv", "lock", "--check"],
         ["uv", "sync", "--frozen"],
         ["uv", "run", "python", "-m", "unittest", "discover", "-s", "tests", "-v"],
-        ["uv", "run", "--with", "pytest", "pytest"],
+        ["uv", "run", "--frozen", "pytest"],
         ["uv", "run", "python", "-m", "py_compile", *COMPILE_TARGETS],
     ]
     return {"commands": [run_command(command, phase_dir=phase_dir) for command in commands]}
