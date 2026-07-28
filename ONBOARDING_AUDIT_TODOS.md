@@ -4,8 +4,8 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-03 implementation commit `8fba876`, based on
-`master` at `507e337`.
+Last reconciled: 2026-07-27 against NR-ONB-04 implementation commit `37d038d`, based on
+`master` at `1556960`.
 
 ## Status Legend
 
@@ -26,22 +26,20 @@ newcomer journey and rerun the item-specific acceptance checks.
 | P1 | Make the Tiny Example exercise recursion and retention | Done | Honest Baseline |
 | P1 | Make report bundles part of the golden path | Done | Honest Baseline |
 | P1 | Resolve clone-only versus installable packaging | Done | Integrity Pass, Release Bar |
-| P2 | Add a concise contributor entrypoint | Open | Integrity Pass |
+| P2 | Add a concise contributor entrypoint | Done | Integrity Pass |
 | P2 | Make the pytest verification dependency reproducible | Done | Integrity Pass |
 | P3 | Clean up command, prerequisite, link, and scope language | Open | Honest Baseline, Release Bar |
 
 ## Recommended Execution Order
 
-The six completed fixes establish a trustworthy baseline. Finish the remaining work in two
-reviewable slices:
+The seven completed fixes establish a trustworthy baseline. Finish the remaining work in one
+reviewable slice:
 
-1. **Add the contributor entrypoint.** Describe the settled packaging and verification paths in
-   one concise guide.
-2. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
+1. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
    prerequisite/cost/runtime notes, fix links and command forms, then rerun all Markdown and
    newcomer-path checks.
 
-Keep each slice independently mergeable. Do not combine these onboarding fixes with benchmark
+Keep the slice independently mergeable. Do not combine this onboarding fix with benchmark
 result changes or new research claims.
 
 ## P0 — Restore Pinned Verifiers Compatibility
@@ -252,27 +250,50 @@ checkout workflow, and contained no explicit maintainer commitment to an install
 
 ## P2 — Add a Concise Contributor Entrypoint
 
-Status: **Open**
+Status: **Done**
 
 `UV.md`, CI, and the pull-request template contain useful pieces of the workflow, but a first-time
 contributor must assemble the edit-test-debug loop themselves.
 
 ### Work
 
-- [ ] Add a short `CONTRIBUTING.md` linked from the README and pull-request template.
-- [ ] Document uv installation and supported Python versions.
-- [ ] Identify the fastest local feedback command and the complete pre-PR command.
-- [ ] Explain the boundaries of `nanorlm.py`, `policies.py`, `bench.py`, examples, and showcases.
-- [ ] Document where generated outputs belong and that they are ignored by default.
-- [ ] State the evidence rules for synthetic, external, and real-model benchmark changes.
-- [ ] State whether linting, formatting, typing, and coverage are required or deliberately absent.
-- [ ] Explain how negative or inconclusive research results should be reported.
-- [ ] Test every copied command from a clean checkout on each supported Python minor used by CI.
+- [x] Add a short `CONTRIBUTING.md` linked from the README and pull-request template.
+- [x] Document uv installation and supported Python versions.
+- [x] Identify the fastest local feedback command and the complete pre-PR command.
+- [x] Explain the boundaries of `nanorlm.py`, `policies.py`, `bench.py`, examples, and showcases.
+- [x] Document where generated outputs belong and that they are ignored by default.
+- [x] State the evidence rules for synthetic, external, and real-model benchmark changes.
+- [x] State whether linting, formatting, typing, and coverage are required or deliberately absent.
+- [x] Explain how negative or inconclusive research results should be reported.
+- [x] Test every copied command from a clean checkout on each supported Python minor used by CI.
 
 ### Acceptance
 
 A newcomer can identify setup, one-file-change validation, full validation, generated-artifact
 handling, and PR expectations from one page.
+
+### Completion evidence
+
+- [x] Added one concise `CONTRIBUTING.md` covering prerequisites, clone-only setup, the
+      edit-test-debug ladder, ownership boundaries, generated files, evidence rules, and project
+      conventions.
+- [x] Linked the guide from `README.md` and the pull-request template while keeping the full
+      canonical command block in `UV.md`.
+- [x] Removed the pull-request template's shortened command copy and aligned UV's compile targets
+      with CI so contributors have one authoritative verification path.
+- [x] Documented ignored output roots, reviewed-receipt locations, and the prohibition on
+      committing `.env` files, API keys, raw caches, or unreviewed large outputs.
+- [x] Stated that synthetic and fixture results are regression evidence; external and real-model
+      claims require reproducible source, model, command, cost-cap, and bundle metadata; and
+      negative or inconclusive results remain reportable evidence.
+- [x] Recorded that linting, formatting, static typing, and coverage are deliberately not enforced;
+      the existing lock, test, compile, and smoke gates remain authoritative.
+- [x] From separate clean archives of `37d038d`, executed every copied command and the complete
+      canonical verification block on Python 3.11.15 and Python 3.12.13, with 35 targeted tests
+      and 80 tests per complete runner passing on both minors.
+- [x] Verified all 29 local Markdown targets and the canonical UV anchor from both clean archives.
+- [x] Passed the GitHub Python 3.11, Python 3.12, and smoke checks for
+      [PR #39](https://github.com/AlexandreRobicquet/nanorlm/pull/39).
 
 ## P2 — Make Pytest Verification Reproducible
 
