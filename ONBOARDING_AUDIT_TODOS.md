@@ -4,7 +4,7 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-05 implementation commit `3b3e99e`, based on
+Last reconciled: 2026-07-27 against NR-ONB-05 implementation commit `ca88df2`, based on
 `master` at `241054f`.
 
 ## Status Legend
@@ -372,8 +372,8 @@ Suggested minimum reading path:
       rejection, and aggregated diagnostics.
 - [x] Passed the checker over 15 tracked Markdown files, 34 local targets, and 11 skipped external
       URLs.
-- [x] Passed all 90 unittest and all 90 locked pytest cases, the lock check, and compilation in
-      fresh clones of implementation commit `3b3e99e` on Python 3.11.15 and 3.12.13.
+- [x] Passed all 92 unittest and all 92 locked pytest cases, the lock check, and compilation in
+      fresh clones of implementation commit `ca88df2` on Python 3.11.15 and 3.12.13.
 - [x] Executed every self-contained offline root quickstart and showcase command in both clones,
       including the full dossier curve, learned-retention, default e2e, and asset workflows.
 - [x] Verified complete benchmark bundles, generated assets, and six passing e2e manifests in each
