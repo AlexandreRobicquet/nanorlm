@@ -21,15 +21,15 @@ Completed on `master`:
 - [x] ship the declared MIT license and metadata guard,
 - [x] make the smallest example visibly exercise recursion and retention,
 - [x] enforce the clone-only source-checkout packaging boundary,
-- [x] make report bundles explicit in the golden path.
+- [x] make report bundles explicit in the golden path,
+- [x] lock the pytest verification dependency.
 
 Remaining before this gate closes:
 
 - [ ] add a single contributor entrypoint,
-- [ ] lock the pytest verification dependency,
 - [ ] complete the command, prerequisite, link, and scope-language pass.
 
-As of 2026-07-27, five of eight audit items are complete and three are open. Complete the remaining
+As of 2026-07-27, six of eight audit items are complete and two are open. Complete the remaining
 work in the order defined by the remediation backlog before expanding the research surface.
 
 ### 0. Integrity Pass
