@@ -6,13 +6,16 @@ This is the smallest `uv` guide you need to work confidently in this repo.
 
 `nanoRLM` is supported as a clone-only reference repository. Run the commands in this guide from
 the repository root. A pip-installed library and an installed public API are not supported.
+If `uv` is not installed, use its
+[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+before continuing.
 
 ## Mental Model
 
 - [`pyproject.toml`](pyproject.toml) is the project definition.
 - [`.python-version`](.python-version) pins the expected interpreter to `3.11`.
 - [`uv.lock`](uv.lock) is the resolved lockfile.
-- [`.venv/`](.venv/) is the local environment `uv` manages for this repo.
+- `.venv/` is the generated local environment `uv` manages for this repo.
 - Pytest is locked in the default `dev` dependency group; runtime dependencies stay empty.
 - `[tool.uv] package = false` means this repo uses `uv` as an environment-and-runner workflow, not as a package publishing workflow.
 - Explicit empty setuptools package and module lists prevent metadata builds from accidentally
@@ -32,12 +35,19 @@ the repository root. A pip-installed library and an installed public API are not
 
 Run this before merging a PR that touches workflows, docs, tests, or Python source:
 
+On an empty machine, the frozen sync may download the exact locked tools. It needs no account
+credential and incurs no model API cost. After that sync, every test and benchmark command below
+is offline. The direct benchmarks are stdout-only; the e2e commands write JSON, JSONL, Markdown,
+and trace bundles below their named ignored `outputs/e2e/` roots. Runtime and disk use vary with
+the local machine and trace volume.
+
 ```bash
 uv lock --check
 uv sync --frozen
+uv run python scripts/check_markdown_links.py
 uv run python -m unittest discover -s tests -v
 uv run --frozen pytest
-uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_markdown_links.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
 uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
 uv run python bench.py --dataset ruler_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
 uv run python bench.py --dataset babilong_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
@@ -50,6 +60,10 @@ uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limi
 The five direct `bench.py` commands intentionally run in stdout-only smoke mode and do not write
 report bundles. The evidence-producing e2e commands persist manifests and bundles under their
 explicitly named run roots.
+
+An e2e `status: passed` means the selected commands and artifact checks completed. The learned
+phase can still record a `negative_or_inconclusive` research verdict; operational success is not a
+policy win.
 
 You should see:
 
@@ -79,7 +93,7 @@ uv run python --version
 
 Run the canonical verification block before opening a PR.
 
-README says `python`, but you want the `uv`-safe version:
+You are adapting a Python command from outside this repository:
 
 ```bash
 uv run python ...
@@ -96,7 +110,9 @@ You want confidence before editing code:
 
 Run the canonical verification block above.
 
-Run a compact e2e benchmark workflow with manifest output:
+Run a compact e2e benchmark workflow with manifest output. This bounded smoke is offline after
+sync, needs no credentials, incurs no API cost, and writes a manifest plus small report bundles
+below `outputs/e2e/compact-smoke/`; exact runtime and trace size vary by machine:
 
 ```bash
 uv run python scripts/run_benchmark_e2e.py \

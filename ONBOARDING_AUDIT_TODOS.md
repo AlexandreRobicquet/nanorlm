@@ -4,8 +4,8 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-04 implementation commit `37d038d`, based on
-`master` at `1556960`.
+Last reconciled: 2026-07-27 against NR-ONB-05 implementation commit `ca88df2`, based on
+`master` at `241054f`.
 
 ## Status Legend
 
@@ -28,19 +28,18 @@ newcomer journey and rerun the item-specific acceptance checks.
 | P1 | Resolve clone-only versus installable packaging | Done | Integrity Pass, Release Bar |
 | P2 | Add a concise contributor entrypoint | Done | Integrity Pass |
 | P2 | Make the pytest verification dependency reproducible | Done | Integrity Pass |
-| P3 | Clean up command, prerequisite, link, and scope language | Open | Honest Baseline, Release Bar |
+| P3 | Clean up command, prerequisite, link, and scope language | Done | Honest Baseline, Release Bar |
 
 ## Recommended Execution Order
 
-The seven completed fixes establish a trustworthy baseline. Finish the remaining work in one
-reviewable slice:
+The eight completed fixes establish a trustworthy baseline. Before Gate A closes, run the shared
+completion gate and pinned external paths from one genuinely fresh checkout:
 
-1. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
-   prerequisite/cost/runtime notes, fix links and command forms, then rerun all Markdown and
-   newcomer-path checks.
+1. **Record the literal newcomer journey.** Capture environment, timing, semantic, trace, artifact,
+   compatibility, and diagnostic evidence in `ONBOARDING_ACCEPTANCE_REPORT.md`.
 
-Keep the slice independently mergeable. Do not combine this onboarding fix with benchmark
-result changes or new research claims.
+Keep the acceptance run independent of runtime changes. A gate failure should be recorded and
+routed to a follow-up fix rather than repaired inside the evidence run.
 
 ## P0 — Restore Pinned Verifiers Compatibility
 
@@ -337,20 +336,20 @@ execute the same complete suite without dependency drift.
 
 ## P3 — Documentation Consistency and Scope Polish
 
-Status: **Open**
+Status: **Done**
 
 ### Work
 
-- [ ] Link official uv installation instructions before the first uv command.
-- [ ] Use `uv run python ...` consistently in showcase documentation.
-- [ ] Render `.venv/` as generated-path code rather than a link to an untracked directory.
-- [ ] State expected duration, disk output, credentials, and cost before heavier workflows.
-- [ ] Explain that an e2e phase can pass operationally while its research verdict is negative.
-- [ ] Replace the broad “read the repo in one sitting” promise with a minimum reading path if the
+- [x] Link official uv installation instructions before the first uv command.
+- [x] Use `uv run python ...` consistently in showcase documentation.
+- [x] Render `.venv/` as generated-path code rather than a link to an untracked directory.
+- [x] State expected duration, disk output, credentials, and cost before heavier workflows.
+- [x] Explain that an e2e phase can pass operationally while its research verdict is negative.
+- [x] Replace the broad “read the repo in one sitting” promise with a minimum reading path if the
       full repository no longer supports that expectation.
-- [ ] Apply the chosen clone-only/installable language consistently across `README.md`, `UV.md`,
+- [x] Apply the chosen clone-only/installable language consistently across `README.md`, `UV.md`,
       `pyproject.toml`, and the contributor guide.
-- [ ] Run a local-link checker and execute every newcomer command from a clean checkout.
+- [x] Run a local-link checker and execute every newcomer command from a clean checkout.
 
 Suggested minimum reading path:
 
@@ -366,9 +365,25 @@ Suggested minimum reading path:
 - All setup and showcase commands use the canonical environment workflow.
 - A newcomer sees prerequisites and operational boundaries before running expensive or external paths.
 
+### Completion evidence
+
+- [x] Added the stdlib-only tracked-Markdown checker, including containing-document resolution,
+      external URL skipping without fetches, Markdown anchor validation, ignored/generated-target
+      rejection, and aggregated diagnostics.
+- [x] Passed the checker over 15 tracked Markdown files, 34 local targets, and 11 skipped external
+      URLs.
+- [x] Passed all 92 unittest and all 92 locked pytest cases, the lock check, and compilation in
+      fresh clones of implementation commit `ca88df2` on Python 3.11.15 and 3.12.13.
+- [x] Executed every self-contained offline root quickstart and showcase command in both clones,
+      including the full dossier curve, learned-retention, default e2e, and asset workflows.
+- [x] Verified complete benchmark bundles, generated assets, and six passing e2e manifests in each
+      clone. Both learned reports separately retained the `negative_or_inconclusive` verdict.
+- [x] Removed provider keys and enabled offline mode after the documented locked dependency sync;
+      no model provider was contacted and no API budget was spent.
+
 ## Shared Completion Gate
 
-After all P0 and P1 items are complete, rerun the literal newcomer journey in a clean archive or
+After all audit items are complete, rerun the literal newcomer journey in a genuinely fresh
 temporary checkout:
 
 ```bash
@@ -376,8 +391,8 @@ uv sync
 uv run python --version
 uv run python -m unittest discover -s tests -v
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
-uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4
-uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4
+uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4 --output-dir outputs/quickstart/dossierbench
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4 --output-root outputs/e2e --run-id quickstart-learned
 ```
 
 Then run the README Tiny Example and the pinned external Codebase QA and planning commands. Record:
@@ -392,3 +407,5 @@ Then run the README Tiny Example and the pinned external Codebase QA and plannin
 
 The onboarding gate is complete only when the documented path reaches the promised outcomes without
 hidden commands, and the public evidence remains conservative about synthetic and local results.
+Completing all eight remediation items does not close Gate A until this broader acceptance journey
+and its pinned external paths are recorded.

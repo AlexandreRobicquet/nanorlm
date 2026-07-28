@@ -2,7 +2,9 @@
 
 `nanoRLM` is a small, inference-only reference implementation for recursive long-context inspection with pluggable retention policies.
 
-The goal is not to be a framework. The goal is to be the repo you can read in one sitting and still get real recursive traces, provider-portable runs, and reproducible report bundles out of it.
+The goal is not to be a framework. The goal is a compact reference whose documented minimum
+reading path explains the core end to end while still producing real recursive traces,
+provider-portable runs, and reproducible report bundles.
 
 ## What We Are Building
 
@@ -32,8 +34,18 @@ pip-installed library and an installed public API are not supported. The import 
 work because the checkout root is the active working directory.
 
 The repository is meant to stay easy to run from a fresh machine with `uv`.
+Install `uv` with its
+[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+before running the first command.
 
 If you are learning the repo day to day, use this flow first:
+
+The initial `uv sync` may download the exact locked tools and therefore needs package-network
+access on an empty machine; it needs no account credential and incurs no model API cost. Every test
+and benchmark step after that sync is offline. The stdout-only smoke writes nothing; the dossier and
+learned phases write small JSON, JSONL, Markdown, and trace bundles only under the named ignored
+`outputs/` roots. The fixed limits make this a short local workflow, although exact runtime and
+trace size vary by machine.
 
 ```bash
 uv sync
@@ -184,6 +196,12 @@ What it does **not** claim yet:
 - `config-resolution`
 - `implementation-location`
 
+Operational boundary: the shallow Git fetch is networked but uses a public repository and needs no
+model credential. The benchmark that follows is deterministic and has no API cost. The checkout's
+disk use and fetch time depend on the upstream repository and connection. The run uses a 30-row
+dataset across the documented policy and curve sweep, writes one report bundle under
+`outputs/verifiers_30/heuristic/`, and scales with the policy/curve grid as well as checkout size.
+
 Run it with:
 
 ```bash
@@ -205,7 +223,13 @@ The compatibility source of truth is `examples/verifiers_compatibility.json`. To
 uv run python scripts/check_verifiers_compatibility.py --repo-root /tmp/nanorlm-verifiers
 ```
 
-The deterministic backend is only a smoke path here. The flagship use is to point the same engine at a real OpenAI-compatible model:
+The deterministic backend is only a smoke path here. The flagship use is to point the same engine at
+a real OpenAI-compatible model.
+
+Operational boundary: this command is networked, requires `OPENAI_API_KEY`, and writes both cached
+responses and a report bundle below `outputs/verifiers_30/`. Runtime depends on provider latency and
+rate limits. The `$5` estimate guard is enforced between cases, so the final completed case can move
+the estimate slightly beyond the nominal cap.
 
 ```bash
 export OPENAI_API_KEY=...
@@ -213,13 +237,18 @@ uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model gpt-4.1-mini \
   --base-url https://api.openai.com/v1 \
+  --cache-dir outputs/cache/openai-gpt-4.1-mini \
   --max-estimated-cost 5 \
   --repo-root /tmp/nanorlm-verifiers \
   --limit 10 \
   --output-dir outputs/verifiers_30/openai-gpt-4.1-mini
 ```
 
-For a local OpenAI-compatible endpoint such as Ollama:
+For a local OpenAI-compatible endpoint such as Ollama, start the server before running this command.
+It uses loopback networking, needs no hosted API credential, and incurs no hosted-model charge; the
+repository therefore applies no dollar guard. Output lands in
+`outputs/verifiers_30/local-qwen3-14b/`, while runtime and external model storage depend on the
+local server and hardware.
 
 ```bash
 uv run python examples/run_verifiers.py \
@@ -243,6 +272,10 @@ Portability limits:
 
 `examples/run_dossiers.py` is the main retention showcase: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
 
+This 12-case workflow is offline, deterministic, credential-free, and has no API cost. It is a
+bounded local run that writes one report bundle and its traces under `outputs/dossierbench/`; exact
+runtime and bundle size scale with the policy sweep, curve grid, and trace depth.
+
 ```bash
 uv run python examples/run_dossiers.py \
   --limit 12 \
@@ -258,6 +291,11 @@ Treat dossier results as an internal synthetic regression surface, not as headli
 `learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
 Pairwise training requires `--training-source traces`, where candidates share an explicit retention decision. The legacy `--training-source blocks` ablation is only valid with `--objective pointwise`.
+
+These training and evaluation commands are offline, require no credentials, and incur no API cost.
+They write raw training rows, traces, a small model JSON, and evaluation bundles below
+`outputs/learned_retention/`. Treat them as a multi-step local workflow rather than a smoke test:
+runtime and disk use scale with datasets, seeds, and trace counts.
 
 ```bash
 uv run python scripts/train_learned_retention.py \
@@ -277,7 +315,10 @@ uv run python bench.py \
   --output-dir outputs/learned_retention/ruler_eval
 ```
 
-For the full offline workflow, use:
+For the full offline workflow, use the e2e form below. It needs no credentials or API budget and
+writes multiple report bundles plus `learned_retention_report.md` under
+`outputs/e2e/learned/`; runtime and disk use scale with the configured training and evaluation
+slices.
 
 ```bash
 uv run python scripts/run_benchmark_e2e.py \
@@ -286,9 +327,21 @@ uv run python scripts/run_benchmark_e2e.py \
   --run-id learned
 ```
 
-That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative. A win requires a reward delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at least eight examples are acceptance-eligible. If the learned policy does not beat `pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for where hand-coded retention is still enough.
+That phase trains on offline slices and evaluates held-out seeds. A top-level e2e status of
+`passed` means the commands and artifact checks completed; it is not a positive research verdict.
+`learned_retention_report.md` may still report `negative_or_inconclusive`. A win requires a reward
+delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size
+DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at
+least eight examples are acceptance-eligible. If the learned policy does not beat
+`pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for
+where hand-coded retention is still enough.
 
-To add distinct external RULER and BABILong exports to the same fixed-budget comparison, convert them to the external JSONL contract and pass both paths:
+To add distinct external RULER and BABILong exports to the same fixed-budget comparison, convert
+them to the external JSONL contract and pass both paths. After the input files and pinned Verifiers
+checkout exist, these commands are offline, credential-free, and have no API cost. Conversion
+outputs go to `/tmp`; the e2e run writes multiple bundles under
+`outputs/e2e/learned-external/`. Runtime and disk use depend on the supplied dataset sizes and
+checkout.
 
 ```bash
 uv run python scripts/prepare_ruler_external_jsonl.py \
@@ -318,6 +371,10 @@ To include the full `Verifiers-30` curated slice in training or eval, first use 
 
 `examples/run_planning.py` turns retained evidence into a read-only patch plan with ordered steps, citations, and explicit unknowns.
 
+Once the pinned Verifiers checkout exists, this 10-task workflow is offline, deterministic,
+credential-free, and has no API cost. It writes Markdown plans, JSON/JSONL summaries, and traces
+under `showcases/outputs/planning/`; runtime and disk use scale with checkout size and trace depth.
+
 ```bash
 uv run python examples/run_planning.py \
   --repo-root /tmp/nanorlm-verifiers \
@@ -333,6 +390,10 @@ It uses the same compatibility preflight and records the pinned and actual Verif
 ### 5. PairBench, NeedlePairs, RULER Synthetic, And BABILong Synthetic
 
 For the smallest synthetic sanity checks:
+
+All four commands are offline, deterministic, credential-free, and have no API cost. They are
+bounded smoke-class runs: three print tables only, while NeedlePairs writes its small report bundle
+under `examples/outputs/needlepairs/`.
 
 ```bash
 uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
@@ -351,11 +412,15 @@ not official benchmark results.
 
 `external_jsonl` is an adapter for externally generated long-context benchmark exports, including RULER-style JSONL rows. It lets the same nanoRLM harness run over established benchmark data without vendoring benchmark datasets into this repo.
 
+The runnable smoke below uses the two-row tracked fixture. It is offline, credential-free,
+API-cost-free, and stdout-only. Replace the fixture path and limit with your own normalized export
+when doing external-data work; runtime then scales with its row and context sizes.
+
 ```bash
 uv run python bench.py \
   --dataset external_jsonl \
-  --dataset-path /tmp/ruler-or-other-long-context-export.jsonl \
-  --limit 4 \
+  --dataset-path tests/fixtures/external-benchmark-mini.jsonl \
+  --limit 2 \
   --budget 80 \
   --depth 2
 ```
@@ -364,7 +429,9 @@ This intentionally omits `--output-dir` and is a stdout-only adapter smoke run; 
 report bundle. This is adapter support, not a published benchmark result. Any README metrics from
 external data should include the exact generation source, command, model, and output bundle.
 
-For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape:
+For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape. This
+conversion is offline, needs no credentials or API budget, writes the named `/tmp` JSONL file, and
+scales linearly with the input size.
 
 ```bash
 uv run python scripts/prepare_ruler_external_jsonl.py \
@@ -373,7 +440,12 @@ uv run python scripts/prepare_ruler_external_jsonl.py \
   --limit 12
 ```
 
-For a bounded OpenAI-compatible real-model run, use a cache directory plus a cost cap:
+For a bounded OpenAI-compatible real-model run, use a cache directory plus a cost cap. This command
+is networked and requires `OPENAI_API_KEY`. It writes cached responses under
+`outputs/cache/openai-gpt-5.4-mini/` and a report bundle under
+`outputs/real-runs/openai-ruler-small/`; runtime depends on model latency, context size, and rate
+limits. The `$20` guard is enforced between cases, so the final completed case may move the estimate
+slightly beyond the nominal cap.
 
 ```bash
 uv run python bench.py \
@@ -404,7 +476,10 @@ Small OpenAI-backed snapshots are tracked as mechanics and reproducibility artif
 
 ## Generate Assets
 
-Run a benchmark, then turn its saved report bundle into launch-ready figures:
+Run a benchmark, then turn its saved report bundle into launch-ready figures. Asset generation is
+offline, needs no credentials, and incurs no API cost. It reads an existing bundle and writes four
+small Markdown/SVG artifacts below `outputs/dossierbench/assets/`; runtime and disk use scale with
+the supplied traces and curves.
 
 ```bash
 uv run python showcases/generate_assets.py \
@@ -425,6 +500,13 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 
 Use the e2e runner when you want the repo checks, benchmark smoke paths, report bundles, and generated assets captured in one manifest:
 
+The default command is model/data-offline after the locked tools are synced, credential-free, and
+has no API cost. Its internal check repeats `uv sync --frozen`, which may need package-network
+access in an empty environment. It writes several report bundles, logs, a manifest, and generated
+assets under `outputs/e2e/default/`; expect a multi-step local workflow whose runtime and disk use
+scale with case counts and traces. A top-level `status: passed` establishes operational completion
+only, not a positive benchmark or policy verdict.
+
 ```bash
 uv run python scripts/run_benchmark_e2e.py \
   --output-root outputs/e2e \
@@ -433,7 +515,12 @@ uv run python scripts/run_benchmark_e2e.py \
 
 By default this runs local checks, smoke benchmarks, synthetic benchmarks, the checked-in external JSONL fixture, and asset generation under `outputs/e2e/<run-id>/`.
 
-For repo-QA coverage against a local Verifiers checkout:
+For repo-QA coverage against a local Verifiers checkout, use the pinned shallow checkout from the
+Codebase QA section. After that networked fetch and the locked-tool sync, this e2e command is
+model/data-offline, needs no credentials, and has no API cost. Its internal frozen sync may still
+need the package network in an empty environment. It writes its manifest, logs, and bundles under
+`outputs/e2e/offline/`; runtime and disk use scale with the external checkout and bounded case
+counts.
 
 ```bash
 uv run python scripts/run_benchmark_e2e.py \
@@ -443,9 +530,16 @@ uv run python scripts/run_benchmark_e2e.py \
   --run-id offline
 ```
 
-Use the pinned shallow Verifiers checkout from the Codebase QA section; a current-HEAD clone is intentionally not the reproducible compatibility target.
+The command name `offline` refers to model/network behavior during the run; it does not create or
+update the required checkout. A current-HEAD clone is intentionally not the reproducible
+compatibility target.
 
 For a bounded hosted-model run, first generate or provide an external benchmark JSONL file, then run only the real-model phase with an explicit cache:
+
+This phase is networked, requires `OPENAI_API_KEY`, and writes cached responses plus a report bundle
+under the named `outputs/` roots. Runtime depends on dataset size, model latency, and provider rate
+limits. The explicit `$20` estimate guard is enforced between cases, so a final completed case can
+move slightly past it.
 
 ```bash
 export OPENAI_API_KEY=...
@@ -454,11 +548,23 @@ uv run python scripts/run_benchmark_e2e.py \
   --external-dataset-path /tmp/nanorlm-ruler-small.jsonl \
   --real-model gpt-4.1-mini \
   --real-cache-dir outputs/cache/openai-gpt-4.1-mini \
+  --real-max-estimated-cost 20 \
   --output-root outputs/e2e \
   --run-id real-model
 ```
 
 Hosted OpenAI-compatible runs fail fast when the model has no cost table entry or no API key. The cost cap is enforced between benchmark cases, not before each individual model call.
+
+## Minimum Reading Path
+
+To understand the core without reading every workflow and receipt:
+
+1. Read [`nanorlm.py`](nanorlm.py) for the recursive engine and result/trace contract.
+2. Read [`policies.py`](policies.py) for side-by-side retention behavior.
+3. Read `build_pairbench` in [`bench.py`](bench.py) as one concrete dataset builder.
+4. Inspect the saved tree in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
+5. Run the quickstart dossier command and open
+   `outputs/quickstart/dossierbench/experiment_report.md`.
 
 ## Repo Layout
 
@@ -478,8 +584,10 @@ Use [UV.md](UV.md#canonical-verification) as the canonical local verification pa
 
 GitHub Actions keeps PR checks fast:
 
-- `CI` runs `uv lock --check`, frozen sync, unit tests, and the compile check on Python 3.11 and 3.12.
-- `smoke` uses the same `uv` setup on Python 3.11, then runs the same core checks plus the deterministic PairBench and Verifiers smoke fixtures.
+- `CI` runs the lock and Markdown-link checks, frozen sync, stdlib unittest and locked pytest
+  suites, and compilation on Python 3.11 and 3.12.
+- `smoke` uses the same locked `uv` setup on Python 3.11, then runs unittest, compilation, and the
+  deterministic PairBench and Verifiers smoke fixtures.
 
 CI intentionally does not run real-model jobs, networked benchmark jobs, or full benchmark sweeps.
 

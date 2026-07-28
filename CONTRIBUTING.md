@@ -48,7 +48,7 @@ pre-PR requirement for every row.
 
 | Change | Fast feedback before the full block |
 | --- | --- |
-| Documentation | Check rendered links and commands you changed; run `tests/test_readme.py` for README examples. |
+| Documentation | Run `uv run python scripts/check_markdown_links.py`; run `tests/test_readme.py` for README examples. |
 | Tests | Run the changed test module directly. |
 | Engine, provider, trace, or result contract | Run `tests/test_nanorlm.py` and, when applicable, `tests/test_backends.py`. |
 | Retention policy or learned scorer | Run `tests/test_policies.py` and the relevant deterministic benchmark. |
@@ -84,8 +84,8 @@ to [`examples/`](examples/) or [`showcases/assets/`](showcases/assets/), togethe
 source and command that produced them. Never commit `.env` files, API keys, provider caches, raw
 model-response caches, or unreviewed large outputs.
 
-For a saved run, read `experiment_report.md` first and keep the complete ignored bundle available
-for review: `summary.json`, `per_case.jsonl`, `curves.json`, `experiment_report.md`, and
+For a saved benchmark run, read `experiment_report.md` first and keep the complete ignored bundle
+available for review: `summary.json`, `per_case.jsonl`, `curves.json`, `experiment_report.md`, and
 `trace_examples/`. Do not commit that bundle wholesale.
 
 ## Research evidence
@@ -95,8 +95,9 @@ for review: `summary.json`, `per_case.jsonl`, `curves.json`, `experiment_report.
   provider, full command, cost cap, and report-bundle path.
 - Keep hosted-model runs cached and bounded. Normal validation must not spend API budget.
 - Report negative or inconclusive results plainly in the receipt and the PR's **Risks** section.
-  Do not hide them, select only favorable seeds, or turn an operationally successful run into a
-  positive research claim.
+  A successful e2e exit and complete bundle establish operational success only. Do not hide weak
+  results, select only favorable seeds, or turn that operational success into a positive research
+  claim.
 
 ## Project conventions and PRs
 

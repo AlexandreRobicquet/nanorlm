@@ -24,7 +24,10 @@ This is a small real-model artifact for the nanoRLM harness. It is not a headlin
 
 ## Commands
 
-RULER data generation used upstream RULER:
+RULER data generation ran from the external `/tmp/nanorlm-ruler` checkout in an intentionally
+isolated one-off `uv` environment. Its first dependency resolution may use the package network, but
+the generation itself needs no model credential and incurs no API cost. It writes generated JSONL
+below `/tmp`; runtime and disk use scale with the 4K/8K sequence lengths and requested sample count.
 
 ```bash
 uv run --with pyyaml --with nltk --with numpy --with tqdm --with wonderwords --with tiktoken --with tenacity \
@@ -42,7 +45,12 @@ uv run --with pyyaml --with nltk --with numpy --with tqdm --with wonderwords --w
 
 The same command shape was used for `vt` at 4096 tokens and for `niah_single_1` / `vt` at 8192 tokens with seed `43`.
 
-The completed OpenAI run:
+The completed OpenAI run below is networked and requires `OPENAI_API_KEY`. It writes cached
+responses under `outputs/cache/openai-gpt-5.4-mini/` and a four-row bundle under
+`outputs/real-runs/openai-ruler-small-direct/`; disk use is modest, while runtime depends strongly
+on provider latency and rate limits. The `$20` estimate guard is enforced between cases, so a final
+completed case can move slightly beyond it. This historical receipt is not a routine validation
+command.
 
 ```bash
 uv run python bench.py \
@@ -80,6 +88,10 @@ Raw output bundle, not committed:
 - `outputs/real-runs/openai-ruler-small-direct/summary.json`
 - `outputs/real-runs/openai-ruler-small-direct/per_case.jsonl`
 - `outputs/real-runs/openai-ruler-small-direct/curves.json`
+- `outputs/real-runs/openai-ruler-small-direct/trace_examples/`
+
+This dated run predates the current human-readable report contract. A rerun on current `master`
+also writes `experiment_report.md`; no historical file or checksum is invented here.
 
 Checksums:
 

@@ -6,6 +6,10 @@ They are useful for checking that the recursive loop, retention policies, traces
 
 `direct_full_context` is intentionally unbudgeted here: it answers from raw context instead of retained recursive memory, so its compactness and retained-token numbers are not directly comparable to budgeted policies.
 
+All three reproduction commands are deterministic and offline after the initial `uv` sync. They
+need no credentials, incur no API cost, finish in the smoke-runtime class, and intentionally omit
+`--output-dir`, so they print tables without writing report bundles.
+
 ## PairBench Smoke
 
 Command:

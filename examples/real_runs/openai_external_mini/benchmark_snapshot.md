@@ -22,6 +22,12 @@ This is a tiny real-model smoke artifact for the external JSONL adapter and repo
 
 ## Command
 
+This historical command is networked and requires `OPENAI_API_KEY`. It writes reusable responses
+under `outputs/cache/openai-gpt-4.1-mini/` and a two-row report bundle under
+`outputs/real-runs/openai-external-mini/`; disk use is small, while runtime depends on provider
+latency and rate limits. The `$0.50` estimate guard is enforced between cases, so a final completed
+case can move slightly beyond it. This receipt is not part of routine offline validation.
+
 ```bash
 uv run python bench.py \
   --dataset external_jsonl \
@@ -52,6 +58,7 @@ Raw output bundle, not committed:
 - `outputs/real-runs/openai-external-mini/per_case.jsonl`
 - `outputs/real-runs/openai-external-mini/curves.json`
 - `outputs/real-runs/openai-external-mini/experiment_report.md`
+- `outputs/real-runs/openai-external-mini/trace_examples/`
 
 Checksums:
 
