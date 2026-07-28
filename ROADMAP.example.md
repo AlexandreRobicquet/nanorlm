@@ -23,14 +23,17 @@ Completed on `master`:
 - [x] enforce the clone-only source-checkout packaging boundary,
 - [x] make report bundles explicit in the golden path,
 - [x] lock the pytest verification dependency,
-- [x] add a single contributor entrypoint.
+- [x] add a single contributor entrypoint,
+- [x] complete the command, prerequisite, link, and scope-language pass.
 
 Remaining before this gate closes:
 
-- [ ] complete the command, prerequisite, link, and scope-language pass.
+- [ ] run and record the literal clean-checkout newcomer gate, including pinned external QA and
+      planning paths.
 
-As of 2026-07-27, seven of eight audit items are complete and one is open. Complete the remaining
-documentation consistency pass before expanding the research surface.
+As of 2026-07-27, all eight audit remediation items are complete. Gate A remains open until the
+fresh-checkout acceptance report records the full newcomer and pinned external paths without hidden
+workarounds.
 
 ### 0. Integrity Pass
 
