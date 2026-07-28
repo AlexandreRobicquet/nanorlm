@@ -52,6 +52,9 @@ jobs:
       - name: Confirm matrix Python
         run: uv run python --version
 
+      - name: Check Markdown links
+        run: uv run python scripts/check_markdown_links.py
+
       - name: Run stdlib unittest suite
         run: uv run python -m unittest discover -s tests -v
 
@@ -59,4 +62,4 @@ jobs:
         run: uv run --frozen pytest
 
       - name: Verify core files compile
-        run: uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+        run: uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_markdown_links.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py

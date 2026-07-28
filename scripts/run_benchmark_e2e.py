@@ -47,6 +47,7 @@ COMPILE_TARGETS = [
     "nanorlm.py",
     "policies.py",
     "bench.py",
+    "scripts/check_markdown_links.py",
     "scripts/check_verifiers_compatibility.py",
     "scripts/prepare_ruler_external_jsonl.py",
     "scripts/train_learned_retention.py",
@@ -179,6 +180,7 @@ def run_check_phase(run_root: Path) -> dict[str, Any]:
     commands = [
         ["uv", "lock", "--check"],
         ["uv", "sync", "--frozen"],
+        ["uv", "run", "python", "scripts/check_markdown_links.py"],
         ["uv", "run", "python", "-m", "unittest", "discover", "-s", "tests", "-v"],
         ["uv", "run", "--frozen", "pytest"],
         ["uv", "run", "python", "-m", "py_compile", *COMPILE_TARGETS],

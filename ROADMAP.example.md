@@ -85,4 +85,4 @@ The repo is ready for a bigger `v1.0` push when:
 - the headline results are honest,
 - at least one headline result comes from an established benchmark,
 - the retention story generalizes beyond synthetic markers,
-- the core is still readable in one sitting.
+- the documented minimum reading path still explains the core end to end.
