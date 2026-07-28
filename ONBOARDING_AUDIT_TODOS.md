@@ -4,8 +4,9 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-05 implementation commit `ca88df2`, based on
-`master` at `241054f`.
+Last reconciled: 2026-07-28 against the clean-checkout acceptance gate on `master` at
+`4467fc2`. The durable receipt is
+[`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
 
 ## Status Legend
 
@@ -32,14 +33,13 @@ newcomer journey and rerun the item-specific acceptance checks.
 
 ## Recommended Execution Order
 
-The eight completed fixes establish a trustworthy baseline. Before Gate A closes, run the shared
-completion gate and pinned external paths from one genuinely fresh checkout:
+The remediation sequence and shared completion gate are complete. The literal newcomer journey,
+including environment, timing, semantic, trace, artifact, compatibility, and diagnostic evidence,
+is recorded in [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
 
-1. **Record the literal newcomer journey.** Capture environment, timing, semantic, trace, artifact,
-   compatibility, and diagnostic evidence in `ONBOARDING_ACCEPTANCE_REPORT.md`.
-
-Keep the acceptance run independent of runtime changes. A gate failure should be recorded and
-routed to a follow-up fix rather than repaired inside the evidence run.
+Future onboarding changes should preserve that evidence standard: run acceptance independently of
+runtime changes, and route a gate failure to a scoped fix rather than repairing it inside the
+receipt.
 
 ## P0 — Restore Pinned Verifiers Compatibility
 
@@ -383,6 +383,8 @@ Suggested minimum reading path:
 
 ## Shared Completion Gate
 
+Status: **Done**
+
 After all audit items are complete, rerun the literal newcomer journey in a genuinely fresh
 temporary checkout:
 
@@ -405,7 +407,29 @@ Then run the README Tiny Example and the pinned external Codebase QA and plannin
 - all generated files;
 - any diagnostic workaround separately from the documented result.
 
-The onboarding gate is complete only when the documented path reaches the promised outcomes without
-hidden commands, and the public evidence remains conservative about synthetic and local results.
-Completing all eight remediation items does not close Gate A until this broader acceptance journey
-and its pinned external paths are recorded.
+### Completion evidence
+
+- [x] Tested `master` at `4467fc2` from a new network clone with a new `.venv/`, empty uv cache, and
+      empty generated-output roots.
+- [x] Passed the literal README quickstart, contributor fast loop, canonical verification block,
+      and exact 92-test unittest/pytest collection comparison.
+- [x] Executed the exact README Tiny Example and checked recursion, retention, blocker, fix,
+      retained/dropped provenance, depth, and budget semantics.
+- [x] Verified the complete five-part contract for explicit Verifiers-smoke and DossierBench
+      bundles, plus all smoke, learned, and offline E2E manifests.
+- [x] Created a new shallow Verifiers checkout at
+      `482e28ffa1f2613325867badaba4707b7c751d28`, passed all 25 compatibility paths, executed all
+      30 Codebase QA cases for each of five policies, and executed all 10 grounded-planning tasks.
+- [x] Confirmed expected/actual revision equality in external summaries and zero values across all
+      2,592 per-case `cost_estimate` and 427 summary `total_cost_estimate` observations; no model
+      provider was configured and no API budget was spent.
+- [x] Rebuilt and inspected Option B archives, confirming the clone-only runtime/import boundary
+      and exact embedded MIT license.
+- [x] Passed the tracked-Markdown checker and recorded every observer-side diagnostic incident
+      separately from the documented result.
+- [x] Recorded the dated receipt in
+      [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+
+The documented path reached every promised outcome without a hidden command or product workaround.
+Public evidence remains conservative about synthetic, fixture, deterministic, and
+`negative_or_inconclusive` results. Gate A is closed.

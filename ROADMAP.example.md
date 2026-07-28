@@ -12,6 +12,8 @@ The live `ROADMAP.md` is gitignored on purpose so contributors can keep private 
 
 ### Gate A. Newcomer Readiness
 
+Status: **Closed — 2026-07-28**
+
 The detailed, prioritized backlog is tracked in
 [`ONBOARDING_AUDIT_TODOS.md`](ONBOARDING_AUDIT_TODOS.md).
 
@@ -26,14 +28,16 @@ Completed on `master`:
 - [x] add a single contributor entrypoint,
 - [x] complete the command, prerequisite, link, and scope-language pass.
 
-Remaining before this gate closes:
+Completion evidence:
 
-- [ ] run and record the literal clean-checkout newcomer gate, including pinned external QA and
-      planning paths.
+- [x] run and record the literal clean-checkout newcomer gate, including pinned external QA and
+      planning paths, in
+      [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
 
-As of 2026-07-27, all eight audit remediation items are complete. Gate A remains open until the
-fresh-checkout acceptance report records the full newcomer and pinned external paths without hidden
-workarounds.
+The acceptance run tested `master` at `4467fc2` from a genuinely fresh checkout. It recorded the
+full newcomer and pinned external paths without hidden setup or any documented-path workaround. No
+model provider was configured, and realized API spend was $0. Later roadmap gates and release
+claims remain independent.
 
 ### 0. Integrity Pass
 
