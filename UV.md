@@ -2,6 +2,11 @@
 
 This is the smallest `uv` guide you need to work confidently in this repo.
 
+## Source Checkout Boundary
+
+`nanoRLM` is supported as a clone-only reference repository. Run the commands in this guide from
+the repository root. A pip-installed library and an installed public API are not supported.
+
 ## Mental Model
 
 - [`pyproject.toml`](pyproject.toml) is the project definition.
@@ -9,6 +14,9 @@ This is the smallest `uv` guide you need to work confidently in this repo.
 - [`uv.lock`](uv.lock) is the resolved lockfile.
 - [`.venv/`](.venv/) is the local environment `uv` manages for this repo.
 - `[tool.uv] package = false` means this repo uses `uv` as an environment-and-runner workflow, not as a package publishing workflow.
+- Explicit empty setuptools package and module lists prevent metadata builds from accidentally
+  presenting only part of the checkout as an installable product. Those artifacts are not a
+  supported consumption path.
 
 ## Three Commands That Matter Most
 

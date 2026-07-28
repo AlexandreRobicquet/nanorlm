@@ -16,3 +16,7 @@ license-files = ["LICENSE"]
 
 [tool.uv]
 package = false
+
+[tool.setuptools]
+packages = []
+py-modules = []
