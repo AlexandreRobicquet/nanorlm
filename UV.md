@@ -42,9 +42,13 @@ uv run python bench.py --dataset ruler_synthetic --limit 4 --budget 90 --depth 4
 uv run python bench.py --dataset babilong_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
 uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
-uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1
-uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 2 --learned-eval-limit 2
+uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1 --output-root outputs/e2e --run-id verify-smoke
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 2 --learned-eval-limit 2 --output-root outputs/e2e --run-id verify-learned
 ```
+
+The five direct `bench.py` commands intentionally run in stdout-only smoke mode and do not write
+report bundles. The evidence-producing e2e commands persist manifests and bundles under their
+explicitly named run roots.
 
 You should see:
 
@@ -94,7 +98,11 @@ Run the canonical verification block above.
 Run a compact e2e benchmark workflow with manifest output:
 
 ```bash
-uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1
+uv run python scripts/run_benchmark_e2e.py \
+  --phases smoke \
+  --smoke-limit 1 \
+  --output-root outputs/e2e \
+  --run-id compact-smoke
 ```
 
 You want to confirm which Python `uv` is actually using:

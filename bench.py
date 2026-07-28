@@ -1678,7 +1678,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--budget", type=int, default=120)
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--repo-root", type=str, default="/tmp/nanorlm-verifiers")
-    parser.add_argument("--output-dir", type=str, default="")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="",
+        metavar="DIR",
+        help=(
+            "Write the report bundle to DIR. Omit for stdout-only output; "
+            "no report bundle is written."
+        ),
+    )
     parser.add_argument("--policies", type=str, default=",".join(DEFAULT_POLICIES))
     parser.add_argument("--curve-budgets", type=str, default="")
     parser.add_argument("--curve-depths", type=str, default="")
@@ -1708,6 +1717,7 @@ def main() -> None:
     provider = resolve_provider_choice(args.provider, args.openai)
     policies = parse_csv_strings(args.policies)
     cache_dir = None if args.no_cache else args.cache_dir or None
+    report_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
     try:
         validate_benchmark_cost_support(provider, args.model, args.base_url or None)
         examples = build_dataset(
@@ -1728,7 +1738,7 @@ def main() -> None:
         policies,
         budget=args.budget,
         max_depth=args.depth,
-        output_dir=args.output_dir or None,
+        output_dir=report_dir,
         provider=provider,
         model=args.model,
         base_url=args.base_url or None,
@@ -1770,9 +1780,9 @@ def main() -> None:
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
-    if args.output_dir:
+    if report_dir is not None:
         write_report_bundle(
-            args.output_dir,
+            report_dir,
             dataset_name=args.dataset,
             summaries=summaries,
             curves=curves,
@@ -1792,6 +1802,10 @@ def main() -> None:
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),
             metadata=report_metadata,
+        )
+        print(
+            f"Report bundle: {report_dir} "
+            "| first human-readable artifact: experiment_report.md"
         )
 
 
