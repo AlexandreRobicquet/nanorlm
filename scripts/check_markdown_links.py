@@ -11,7 +11,6 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INLINE_LINK_START_RE = re.compile(r"!?\[(?:\\.|[^\]\n])*\]\(")
 REFERENCE_DEFINITION_RE = re.compile(
     r"^\s{0,3}\[[^\]\n]+\]:\s*(?P<destination><[^>\n]+>|\S+)"
 )
@@ -57,11 +56,13 @@ def tracked_repository_files(root: Path = ROOT) -> list[Path]:
             capture_output=True,
         )
     except OSError as exc:
-        raise RuntimeError(f"could not run git to enumerate tracked Markdown: {exc}") from exc
+        raise RuntimeError(
+            f"could not run git to enumerate tracked repository files: {exc}"
+        ) from exc
 
     if completed.returncode != 0:
         detail = completed.stderr.decode(errors="replace").strip() or "git ls-files failed"
-        raise RuntimeError(f"could not enumerate tracked Markdown: {detail}")
+        raise RuntimeError(f"could not enumerate tracked repository files: {detail}")
 
     return sorted(
         [
@@ -201,9 +202,37 @@ def _inline_destination(line: str, index: int) -> str | None:
     return None
 
 
+def _is_escaped(line: str, index: int) -> bool:
+    backslashes = 0
+    index -= 1
+    while index >= 0 and line[index] == "\\":
+        backslashes += 1
+        index -= 1
+    return backslashes % 2 == 1
+
+
 def inline_destinations(line: str) -> Iterator[str]:
-    for match in INLINE_LINK_START_RE.finditer(line):
-        destination = _inline_destination(line, match.end())
+    for label_start, character in enumerate(line):
+        if character != "[" or _is_escaped(line, label_start):
+            continue
+
+        bracket_depth = 1
+        index = label_start + 1
+        while index < len(line) and bracket_depth:
+            character = line[index]
+            if character == "\\" and index + 1 < len(line):
+                index += 2
+                continue
+            if character == "[":
+                bracket_depth += 1
+            elif character == "]":
+                bracket_depth -= 1
+            index += 1
+
+        if bracket_depth or index >= len(line) or line[index] != "(":
+            continue
+
+        destination = _inline_destination(line, index + 1)
         if destination is not None:
             yield destination
 
@@ -263,7 +292,7 @@ def _heading_slug(heading: str) -> str:
 
 def anchors_in_document(source: Path) -> set[str]:
     anchors: set[str] = set()
-    slug_counts: dict[str, int] = {}
+    generated_slugs: set[str] = set()
     fence_character = ""
     fence_length = 0
     previous_line: str | None = None
@@ -298,13 +327,13 @@ def anchors_in_document(source: Path) -> set[str]:
         if heading is not None:
             base_slug = _heading_slug(heading)
             if base_slug:
-                duplicate_index = slug_counts.get(base_slug, 0)
-                slug_counts[base_slug] = duplicate_index + 1
-                anchors.add(
-                    base_slug
-                    if duplicate_index == 0
-                    else f"{base_slug}-{duplicate_index}"
-                )
+                slug = base_slug
+                suffix = 1
+                while slug in generated_slugs:
+                    slug = f"{base_slug}-{suffix}"
+                    suffix += 1
+                generated_slugs.add(slug)
+                anchors.add(slug)
 
         previous_line = raw_line
 

@@ -87,6 +87,37 @@ class MarkdownLinkCheckerTests(unittest.TestCase):
                 ["README.md#missing", "target.md#also-missing"],
             )
 
+    def test_checks_links_with_nested_bracket_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "README.md"
+            source.write_text(
+                "[see [the guide]](missing.md)\n",
+                encoding="utf-8",
+            )
+
+            result = check_markdown_links.check_markdown_links(root, [source])
+
+            self.assertEqual(len(result.issues), 1)
+            self.assertEqual(result.issues[0].reason, "missing")
+            self.assertEqual(result.issues[0].resolved, "missing.md")
+
+    def test_heading_slugs_avoid_collisions_with_suffixed_headings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "README.md"
+            source.write_text(
+                "# Foo\n\n# Foo-1\n\n# Foo\n\n[third](#foo-2)\n",
+                encoding="utf-8",
+            )
+
+            result = check_markdown_links.check_markdown_links(
+                source.parent,
+                [source],
+            )
+
+            self.assertEqual(result.issues, ())
+            self.assertIn("foo-2", check_markdown_links.anchors_in_document(source))
+
     def test_aggregates_missing_absolute_and_outside_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "repo"
