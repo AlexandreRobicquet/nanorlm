@@ -20,7 +20,7 @@ needed an undisclosed setup step or a product/runtime workaround.
 | Model-provider configuration | None; heuristic/deterministic paths only |
 | API spend | **$0** |
 | Documented-path workarounds | **None** |
-| Observer-side diagnostic incidents | Three, recorded below |
+| Observer-side diagnostic incidents | Four, recorded below |
 
 This report was added after the tested revision. Its eventual documentation-only commit is not the
 system-under-test revision above.
@@ -89,12 +89,16 @@ commands. Separately recorded command timings were:
 | Empty-cache `uv sync` | 0.27 s |
 | Clone + sync + Python-version active command time | 0.97 s |
 | First meaningful environment output (`Python 3.11.15`) | 58 s wall-clock from gate start |
-| First benchmark result table | 2.47 s cumulative active command time, after the full unittest run |
+| First benchmark result table | Exact original duration unavailable; same-checkout timed reruns imply 2.59–2.93 s comparable cumulative active time |
 | Full gate interval | 443 s |
 
 “Active command time” is subprocess runtime and excludes the evidence inspection between commands.
 Wall time is reported separately so the faster active figure is not presented as end-to-end elapsed
-time.
+time. The original benchmark subprocess timer emitted an impossible 0.000002917-second value, so
+the earlier 2.47-second subtotal represented setup plus unittest only and is withdrawn as a
+first-table measurement. Two same-checkout reruns with `/usr/bin/time -p` measured the benchmark at
+0.46 seconds and then 0.12 seconds; adding those observations to the 2.47-second subtotal gives the
+2.59–2.93-second comparable range above. The exact original benchmark duration was not preserved.
 
 ## Literal newcomer and contributor commands
 
@@ -120,7 +124,7 @@ uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limi
 | --- | --- | ---: | --- |
 | Python selection | Passed | included above | `Python 3.11.15` |
 | Complete unittest discovery | Passed | 1.50 s tool time; 1.332 s test time | 92 tests |
-| `verifiers_smoke` quickstart | Passed | included in 2.47 s first-table active time | 2 cases; stdout-only; no bundle, as documented |
+| `verifiers_smoke` quickstart | Passed | Original timer invalid; same-checkout timed reruns 0.46 s and 0.12 s | 2 cases; stdout-only; no bundle, as documented |
 | Four-case DossierBench quickstart | Passed | 0.817 s | Complete bundle at `outputs/quickstart/dossierbench` |
 | Learned quickstart E2E | Passed operationally | 1.351 s | Manifest passed at `outputs/e2e/quickstart-learned`; verdict `negative_or_inconclusive` |
 
@@ -537,7 +541,7 @@ also subject to the Python 3.11/3.12 CI matrix before merge.
 
 ## Diagnostic incidents and workarounds
 
-No documented-path workaround was used. Three observer-side incidents were corrected and retained
+No documented-path workaround was used. Four observer-side incidents were corrected and retained
 in the receipt:
 
 1. A freshness preflight used `path` as a zsh variable name. Because `path` is tied to `PATH` in
@@ -551,6 +555,25 @@ in the receipt:
 3. `uv build` created `nanorlm.egg-info/` in the checkout. It was inspected and moved to the
    external packaging directory so final cleanliness could be verified. No runtime or tracked file
    changed.
+4. The acceptance orchestrator reported 0.000002917 seconds for the first `verifiers_smoke`
+   subprocess, which is not a credible Python process duration. The initial report consequently
+   omitted the benchmark itself from its 2.47-second cumulative figure. After review, the unchanged
+   checkout reran the exact command twice with:
+
+   ```bash
+   /usr/bin/time -p env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+     UV_CACHE_DIR=/tmp/nanorlm-onboarding-uv-cache.5JKF72 \
+     uv run python bench.py \
+       --dataset verifiers_smoke \
+       --limit 2 \
+       --budget 80 \
+       --depth 2 \
+       --repo-root tests/fixtures/verifiers-mini
+   ```
+
+   The timed reruns produced the same table and reported 0.46 seconds and 0.12 seconds. The receipt
+   now gives the resulting 2.59–2.93-second comparable cumulative range and explicitly leaves the
+   exact original duration unavailable instead of presenting false precision.
 
 None of these incidents converted a failed newcomer promise into a pass.
 
