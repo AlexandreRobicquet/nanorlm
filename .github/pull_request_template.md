@@ -1,3 +1,6 @@
+Contributor workflow and evidence rules:
+[CONTRIBUTING.md](https://github.com/AlexandreRobicquet/nanorlm/blob/master/CONTRIBUTING.md).
+
 ## Why
 
 Briefly explain the user-facing, research, or maintenance reason for this change.
@@ -8,14 +11,13 @@ Briefly explain the user-facing, research, or maintenance reason for this change
 
 ## Validation
 
-- [ ] `uv lock --check`
-- [ ] `uv sync --frozen`
-- [ ] `uv run python -m unittest discover -s tests -v`
-- [ ] `uv run --frozen pytest`
-- [ ] `uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py`
-- [ ] `uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2`
-- [ ] `uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini`
-- [ ] `uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1`
+- [ ] I ran the full
+      [canonical verification block](https://github.com/AlexandreRobicquet/nanorlm/blob/master/UV.md#canonical-verification).
+- [ ] I listed any additional change-specific checks below.
+
+Additional checks:
+
+- <!-- List additional commands and results here. -->
 
 ## Repo-Specific Evidence
 

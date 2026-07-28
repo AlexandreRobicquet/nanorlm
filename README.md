@@ -50,6 +50,7 @@ writes no report bundle. The dossier and e2e commands persist evidence at the pa
 The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
 
 For the repo-specific mental model, exact smoke commands, and a short cheat sheet, see [UV.md](UV.md).
+To make a change, start with the one-page [contributor guide](CONTRIBUTING.md).
 
 ## Tiny Example
 
