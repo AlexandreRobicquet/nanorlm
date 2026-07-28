@@ -458,6 +458,68 @@ class NanoRLMTests(unittest.TestCase):
             self.assertIn("## Failure Clusters", report)
             self.assertIn("`pairwise_tournament`", report)
 
+    def test_cli_report_bundle_and_stdout_only_contract(self) -> None:
+        help_text = bench.build_parser().format_help()
+        self.assertIn("stdout-only", help_text)
+        self.assertIn("no report bundle is written", help_text)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_root = Path(tmpdir)
+            report_dir = temp_root / "unused" / ".." / "bundle"
+            argv = [
+                "bench.py",
+                "--dataset",
+                "pairbench",
+                "--limit",
+                "1",
+                "--budget",
+                "20",
+                "--depth",
+                "1",
+                "--policies",
+                "direct_full_context",
+                "--output-dir",
+                str(report_dir),
+            ]
+            saved_stdout = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv),
+                contextlib.redirect_stdout(saved_stdout),
+            ):
+                bench.main()
+
+            normalized_report_dir = report_dir.resolve()
+            for filename in [
+                "summary.json",
+                "per_case.jsonl",
+                "curves.json",
+                "experiment_report.md",
+            ]:
+                self.assertTrue((normalized_report_dir / filename).is_file(), filename)
+            self.assertTrue((normalized_report_dir / "trace_examples").is_dir())
+
+            report_line = next(
+                line
+                for line in saved_stdout.getvalue().splitlines()
+                if line.startswith("Report bundle: ")
+            )
+            path_text, artifact_text = report_line.removeprefix("Report bundle: ").split(
+                " | first human-readable artifact: ",
+                maxsplit=1,
+            )
+            self.assertEqual(Path(path_text), normalized_report_dir)
+            self.assertEqual(artifact_text, "experiment_report.md")
+
+            before_stdout_only = set(temp_root.rglob("*"))
+            stdout_only = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv[:-2]),
+                contextlib.redirect_stdout(stdout_only),
+            ):
+                bench.main()
+            self.assertNotIn("Report bundle:", stdout_only.getvalue())
+            self.assertEqual(set(temp_root.rglob("*")), before_stdout_only)
+
     def test_experiment_insights_groups_failure_modes(self) -> None:
         summaries = [
             {

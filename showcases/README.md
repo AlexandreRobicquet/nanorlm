@@ -44,6 +44,7 @@ uv run python bench.py \
 ```
 
 This runs externally generated benchmark rows through nanoRLM. It does not vendor benchmark data or turn adapter smoke output into headline evidence.
+It intentionally omits `--output-dir` and is stdout-only; no report bundle is written.
 
 Grounded planning showcase:
 
@@ -59,12 +60,15 @@ python examples/run_planning.py \
 Render launch assets from a saved report bundle:
 
 ```bash
-python showcases/generate_assets.py --report-dir outputs/dossierbench
+python showcases/generate_assets.py \
+  --report-dir outputs/dossierbench \
+  --assets-dir outputs/dossierbench/assets
 ```
 
 ## Output Contract
 
-Benchmark runs produce:
+Benchmark runs with `--output-dir` produce the following bundle. Start with
+`experiment_report.md`; `summary.json` is the machine-readable entry point.
 
 - `summary.json`
 - `per_case.jsonl`

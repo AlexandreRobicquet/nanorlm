@@ -4,8 +4,8 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-01 implementation commit `673d00f`, based on
-`master` at `aa0d400`.
+Last reconciled: 2026-07-27 against NR-ONB-02 implementation commit `80022c4`, based on
+`master` at `2dc038e`.
 
 ## Status Legend
 
@@ -24,7 +24,7 @@ newcomer journey and rerun the item-specific acceptance checks.
 | P0 | Restore pinned Verifiers compatibility | Done | Integrity Pass, Honest Baseline, Real Benchmarks |
 | P0 | Ship the declared MIT license | Done | Integrity Pass, Release Bar |
 | P1 | Make the Tiny Example exercise recursion and retention | Done | Honest Baseline |
-| P1 | Make report bundles part of the golden path | Open | Honest Baseline |
+| P1 | Make report bundles part of the golden path | Done | Honest Baseline |
 | P1 | Resolve clone-only versus installable packaging | Done | Integrity Pass, Release Bar |
 | P2 | Add a concise contributor entrypoint | Open | Integrity Pass |
 | P2 | Make the pytest verification dependency reproducible | Open | Integrity Pass |
@@ -32,16 +32,14 @@ newcomer journey and rerun the item-specific acceptance checks.
 
 ## Recommended Execution Order
 
-The three completed fixes establish a trustworthy baseline. Finish the remaining work in four
+The five completed fixes establish a trustworthy baseline. Finish the remaining work in three
 reviewable slices:
 
-1. **Decide packaging intent.** This choice controls installation language, wheel checks, and the
-   contributor setup path, so make it before rewriting those docs.
-2. **Make report bundles explicit.** Update the documented benchmark commands, CLI confirmation,
-   and bundle-contract test together.
-3. **Consolidate contributor verification.** Pin pytest, add the contributor entrypoint, and make
-   CI, `UV.md`, and the pull-request template name the same fast and full checks.
-4. **Run the documentation consistency pass.** Apply the packaging decision everywhere, add
+1. **Lock pytest verification.** Put pytest inside the development lock while retaining the stdlib
+   suite as the dependency-free core check.
+2. **Add the contributor entrypoint.** Describe the settled packaging and verification paths in
+   one concise guide.
+3. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
    prerequisite/cost/runtime notes, fix links and command forms, then rerun all Markdown and
    newcomer-path checks.
 
@@ -155,21 +153,21 @@ assert result.retention_stats["max_memory_depth"] >= 1
 
 ## P1 — Make Report Bundles Part of the Golden Path
 
-Status: **Open**
+Status: **Done**
 
 Several documented `bench.py` commands print a table but omit `--output-dir`, so they do not create
 the report bundle described by the README.
 
 ### Work
 
-- [ ] Inventory every benchmark command in `README.md`, `UV.md`, and `showcases/README.md`, and
+- [x] Inventory every benchmark command in `README.md`, `UV.md`, and `showcases/README.md`, and
       classify it as stdout-only smoke or evidence-producing run.
-- [ ] Add explicit, deterministic `--output-dir` arguments to every evidence-producing command.
-- [ ] State in `bench.py --help` and the docs that omitting `--output-dir` is intentional
+- [x] Add explicit, deterministic `--output-dir` arguments to every evidence-producing command.
+- [x] State in `bench.py --help` and the docs that omitting `--output-dir` is intentional
       stdout-only mode.
-- [ ] Print the normalized report location after `bench.py` writes a bundle.
-- [ ] Point newcomers first to `experiment_report.md`, then to machine-readable `summary.json`.
-- [ ] Extend `tests/test_nanorlm.py` or add a documentation test that runs the golden command shape
+- [x] Print the normalized report location after `bench.py` writes a bundle.
+- [x] Point newcomers first to `experiment_report.md`, then to machine-readable `summary.json`.
+- [x] Extend `tests/test_nanorlm.py` or add a documentation test that runs the golden command shape
       and checks the complete bundle.
 
 ### Required output contract
@@ -184,6 +182,25 @@ the report bundle described by the README.
 
 Every command described as producing evidence names its output directory, and a fresh run creates
 the complete contract at that location.
+
+### Completion evidence
+
+- [x] Classified 32 benchmark-runner command occurrences across the three documentation files:
+      11 intentional stdout-only smoke runs and 21 evidence-producing runs.
+- [x] Named deterministic destinations under ignored `outputs/`, `examples/outputs/`, or
+      `showcases/outputs/` roots; e2e commands name both `--output-root` and `--run-id`.
+- [x] Normalized the direct CLI output path once, used it for traces and report writing, and printed
+      one stable location line only after a successful write.
+- [x] Documented stdout-only omission in CLI help and pointed saved-run readers to
+      `experiment_report.md` before `summary.json`.
+- [x] Added a real CLI-level test covering all five bundle components, normalized stdout, and the
+      no-claim stdout-only path.
+- [x] From a clean archive of `80022c4`, passed `uv lock --check`, `uv sync --frozen`, all 35
+      targeted nanoRLM tests, and all 79 tests on Python 3.11.15 and Python 3.12.13.
+- [x] Passed the 79-test temporary pytest run, compile check, all five direct offline smoke
+      benchmarks, and the explicitly rooted smoke and learned e2e phases.
+- [x] Ran the four-case PairBench golden command and verified `summary.json`, `per_case.jsonl`,
+      `curves.json`, `experiment_report.md`, `trace_examples/`, and the printed normalized path.
 
 ## P1 — Resolve Packaging Intent
 

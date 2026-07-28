@@ -40,9 +40,12 @@ uv sync
 uv run python --version
 uv run python -m unittest discover -s tests -v
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
-uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4
-uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4
+uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4 --output-dir outputs/quickstart/dossierbench
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4 --output-root outputs/e2e --run-id quickstart-learned
 ```
+
+The `verifiers_smoke` command intentionally omits `--output-dir`: it prints a policy table and
+writes no report bundle. The dossier and e2e commands persist evidence at the paths named above.
 
 The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
 
@@ -145,6 +148,11 @@ The repo already emits a stable report bundle:
 - `experiment_report.md`
 - `trace_examples/`
 
+A direct `bench.py` run writes this bundle only when `--output-dir` is supplied. Omitting the flag
+selects intentional stdout-only smoke mode. For a saved run, open
+`<output-dir>/experiment_report.md` first; use `<output-dir>/summary.json` as the machine-readable
+entry point.
+
 That makes the current artifact useful for:
 
 - provider-portable recursive runs over the same engine
@@ -185,7 +193,8 @@ git -C /tmp/nanorlm-verifiers checkout --detach FETCH_HEAD
 
 uv run python examples/run_verifiers.py \
   --repo-root /tmp/nanorlm-verifiers \
-  --limit 30
+  --limit 30 \
+  --output-dir outputs/verifiers_30/heuristic
 ```
 
 This is the full 30-case benchmark. The CLI default remains a quick 10-case sample when `--limit` is omitted. The pinned revision is recorded alongside the actual checkout revision in generated `summary.json` metadata.
@@ -205,7 +214,8 @@ uv run python examples/run_verifiers.py \
   --base-url https://api.openai.com/v1 \
   --max-estimated-cost 5 \
   --repo-root /tmp/nanorlm-verifiers \
-  --limit 10
+  --limit 10 \
+  --output-dir outputs/verifiers_30/openai-gpt-4.1-mini
 ```
 
 For a local OpenAI-compatible endpoint such as Ollama:
@@ -216,7 +226,8 @@ uv run python examples/run_verifiers.py \
   --model qwen3:14b \
   --base-url http://localhost:11434/v1 \
   --repo-root /tmp/nanorlm-verifiers \
-  --limit 10
+  --limit 10 \
+  --output-dir outputs/verifiers_30/local-qwen3-14b
 ```
 
 The Anthropic Messages backend is implemented, but the benchmark harness currently rejects Anthropic and unknown remote models because report bundles include cost estimates and there is no checked-in pricing table for those models.
@@ -232,7 +243,11 @@ Portability limits:
 `examples/run_dossiers.py` is the main retention showcase: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
 
 ```bash
-uv run python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
+uv run python examples/run_dossiers.py \
+  --limit 12 \
+  --budget 80 \
+  --depth 4 \
+  --output-dir outputs/dossierbench
 ```
 
 Treat dossier results as an internal synthetic regression surface, not as headline evidence of general long-context performance.
@@ -264,7 +279,10 @@ uv run python bench.py \
 For the full offline workflow, use:
 
 ```bash
-uv run python scripts/run_benchmark_e2e.py --phases learned
+uv run python scripts/run_benchmark_e2e.py \
+  --phases learned \
+  --output-root outputs/e2e \
+  --run-id learned
 ```
 
 That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative. A win requires a reward delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at least eight examples are acceptance-eligible. If the learned policy does not beat `pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for where hand-coded retention is still enough.
@@ -286,7 +304,9 @@ uv run python scripts/run_benchmark_e2e.py \
   --phases learned \
   --learned-verifiers-repo-root /tmp/nanorlm-verifiers \
   --learned-ruler-path /tmp/nanorlm-ruler.jsonl \
-  --learned-babilong-path /tmp/nanorlm-babilong.jsonl
+  --learned-babilong-path /tmp/nanorlm-babilong.jsonl \
+  --output-root outputs/e2e \
+  --run-id learned-external
 ```
 
 The learned report labels these as `ruler_external` and `babilong_external`. They remain local evaluation slices, not leaderboard submissions.
@@ -302,7 +322,8 @@ uv run python examples/run_planning.py \
   --repo-root /tmp/nanorlm-verifiers \
   --limit 10 \
   --budget 140 \
-  --depth 2
+  --depth 2 \
+  --output-dir showcases/outputs/planning
 ```
 
 The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` under `showcases/outputs/planning/`.
@@ -314,12 +335,16 @@ For the smallest synthetic sanity checks:
 
 ```bash
 uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
+uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3 --output-dir examples/outputs/needlepairs
 uv run python bench.py --dataset ruler_synthetic --limit 10 --budget 90 --depth 4
 uv run python bench.py --dataset babilong_synthetic --limit 10 --budget 90 --depth 4
 ```
 
-These are useful for quick smoke tests, trace demos, and test-friendly regressions. The RULER and BABILong variants are synthetic task-shape slices for multi-hop, aggregation, and distributed-fact retention; they are not official benchmark results.
+The three direct `bench.py` commands intentionally use stdout-only smoke mode. The NeedlePairs
+wrapper is evidence-producing and writes to its named output directory. These runs are useful for
+quick smoke tests, trace demos, and test-friendly regressions. The RULER and BABILong variants are
+synthetic task-shape slices for multi-hop, aggregation, and distributed-fact retention; they are
+not official benchmark results.
 
 ### 6. External Benchmark JSONL
 
@@ -334,7 +359,9 @@ uv run python bench.py \
   --depth 2
 ```
 
-This is adapter support, not a published benchmark result. Any README metrics from external data should include the exact generation source, command, model, and output bundle.
+This intentionally omits `--output-dir` and is a stdout-only adapter smoke run; it does not write a
+report bundle. This is adapter support, not a published benchmark result. Any README metrics from
+external data should include the exact generation source, command, model, and output bundle.
 
 For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape:
 
@@ -379,7 +406,9 @@ Small OpenAI-backed snapshots are tracked as mechanics and reproducibility artif
 Run a benchmark, then turn its saved report bundle into launch-ready figures:
 
 ```bash
-uv run python showcases/generate_assets.py --report-dir outputs/dossierbench
+uv run python showcases/generate_assets.py \
+  --report-dir outputs/dossierbench \
+  --assets-dir outputs/dossierbench/assets
 ```
 
 This writes:
@@ -396,7 +425,9 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 Use the e2e runner when you want the repo checks, benchmark smoke paths, report bundles, and generated assets captured in one manifest:
 
 ```bash
-uv run python scripts/run_benchmark_e2e.py
+uv run python scripts/run_benchmark_e2e.py \
+  --output-root outputs/e2e \
+  --run-id default
 ```
 
 By default this runs local checks, smoke benchmarks, synthetic benchmarks, the checked-in external JSONL fixture, and asset generation under `outputs/e2e/<run-id>/`.
@@ -404,7 +435,11 @@ By default this runs local checks, smoke benchmarks, synthetic benchmarks, the c
 For repo-QA coverage against a local Verifiers checkout:
 
 ```bash
-uv run python scripts/run_benchmark_e2e.py --phases offline --repo-root /tmp/nanorlm-verifiers
+uv run python scripts/run_benchmark_e2e.py \
+  --phases offline \
+  --repo-root /tmp/nanorlm-verifiers \
+  --output-root outputs/e2e \
+  --run-id offline
 ```
 
 Use the pinned shallow Verifiers checkout from the Codebase QA section; a current-HEAD clone is intentionally not the reproducible compatibility target.
@@ -417,7 +452,9 @@ uv run python scripts/run_benchmark_e2e.py \
   --phases real_model \
   --external-dataset-path /tmp/nanorlm-ruler-small.jsonl \
   --real-model gpt-4.1-mini \
-  --real-cache-dir outputs/cache/openai-gpt-4.1-mini
+  --real-cache-dir outputs/cache/openai-gpt-4.1-mini \
+  --output-root outputs/e2e \
+  --run-id real-model
 ```
 
 Hosted OpenAI-compatible runs fail fast when the model has no cost table entry or no API key. The cost cap is enforced between benchmark cases, not before each individual model call.
