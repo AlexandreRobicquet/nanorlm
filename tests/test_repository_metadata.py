@@ -35,6 +35,16 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertEqual(setuptools["packages"], [])
         self.assertEqual(setuptools["py-modules"], [])
 
+    def test_pytest_is_locked_as_a_development_dependency_only(self) -> None:
+        with (REPO_ROOT / "pyproject.toml").open("rb") as pyproject_file:
+            pyproject = tomllib.load(pyproject_file)
+
+        self.assertEqual(pyproject["project"].get("dependencies", []), [])
+        self.assertEqual(
+            pyproject["dependency-groups"]["dev"],
+            ["pytest>=9.1.1,<9.2"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,8 @@ concurrency:
 jobs:
   tests:
     name: tests-${{ matrix.python-version }}
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -47,8 +49,14 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Run unit tests
+      - name: Confirm matrix Python
+        run: uv run python --version
+
+      - name: Run stdlib unittest suite
         run: uv run python -m unittest discover -s tests -v
+
+      - name: Run locked pytest suite
+        run: uv run --frozen pytest
 
       - name: Verify core files compile
         run: uv run python -m py_compile learned_retention.py nanorlm.py policies.py bench.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py

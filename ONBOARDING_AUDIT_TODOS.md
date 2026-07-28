@@ -4,8 +4,8 @@ This document turns the 2026-07-17 full newcomer audit into a durable, reviewabl
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
-Last reconciled: 2026-07-27 against NR-ONB-02 implementation commit `80022c4`, based on
-`master` at `2dc038e`.
+Last reconciled: 2026-07-27 against NR-ONB-03 implementation commit `8fba876`, based on
+`master` at `507e337`.
 
 ## Status Legend
 
@@ -27,19 +27,17 @@ newcomer journey and rerun the item-specific acceptance checks.
 | P1 | Make report bundles part of the golden path | Done | Honest Baseline |
 | P1 | Resolve clone-only versus installable packaging | Done | Integrity Pass, Release Bar |
 | P2 | Add a concise contributor entrypoint | Open | Integrity Pass |
-| P2 | Make the pytest verification dependency reproducible | Open | Integrity Pass |
+| P2 | Make the pytest verification dependency reproducible | Done | Integrity Pass |
 | P3 | Clean up command, prerequisite, link, and scope language | Open | Honest Baseline, Release Bar |
 
 ## Recommended Execution Order
 
-The five completed fixes establish a trustworthy baseline. Finish the remaining work in three
+The six completed fixes establish a trustworthy baseline. Finish the remaining work in two
 reviewable slices:
 
-1. **Lock pytest verification.** Put pytest inside the development lock while retaining the stdlib
-   suite as the dependency-free core check.
-2. **Add the contributor entrypoint.** Describe the settled packaging and verification paths in
+1. **Add the contributor entrypoint.** Describe the settled packaging and verification paths in
    one concise guide.
-3. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
+2. **Run the documentation consistency pass.** Apply the settled contracts everywhere, add
    prerequisite/cost/runtime notes, fix links and command forms, then rerun all Markdown and
    newcomer-path checks.
 
@@ -278,24 +276,43 @@ handling, and PR expectations from one page.
 
 ## P2 — Make Pytest Verification Reproducible
 
-Status: **Open**
+Status: **Done**
 
 The canonical `uv run --with pytest pytest` command resolves the current pytest release at execution
 time, leaving part of the verification path outside the lockfile.
 
 ### Work
 
-- [ ] Add a locked development dependency group for pytest; keep runtime dependencies empty.
-- [ ] Update `UV.md`, CI where appropriate, and the pull-request template to use the same versioned path.
-- [ ] Keep the stdlib `unittest` path available as the dependency-free core check.
-- [ ] Add `uv lock --check` coverage that fails when the declared development dependency and lock
+- [x] Add a locked development dependency group for pytest; keep runtime dependencies empty.
+- [x] Update `UV.md`, CI where appropriate, and the pull-request template to use the same versioned path.
+- [x] Keep the stdlib `unittest` path available as the dependency-free core check.
+- [x] Add `uv lock --check` coverage that fails when the declared development dependency and lock
       drift apart.
-- [ ] Confirm the locked pytest path and stdlib discovery path collect the same tests.
+- [x] Confirm the locked pytest path and stdlib discovery path collect the same tests.
 
 ### Acceptance
 
 The lockfile or the documented command fixes the pytest version, and both unittest and pytest runs
 execute the same complete suite without dependency drift.
+
+### Completion evidence
+
+- [x] Declared `pytest>=9.1.1,<9.2` in the standardized default `dev` dependency group while
+      retaining an empty runtime dependency set.
+- [x] Locked pytest 9.1.1 with iniconfig 2.3.0, packaging 26.2, pluggy 1.6.0, Pygments 2.20.0,
+      and the Windows-only colorama 0.4.6 dependency.
+- [x] Replaced execution-time pytest resolution in `UV.md` and the benchmark e2e check phase,
+      aligned the pull-request checklist, and made both locked and stdlib suites explicit in CI.
+- [x] Added an explicit CI matrix interpreter override and version log so `.python-version` cannot
+      silently collapse the Python 3.12 job onto Python 3.11.
+- [x] From clean archives of `8fba876`, passed `uv lock --check`, frozen sync, all 80 unittest
+      cases, and all 80 locked pytest items on Python 3.11.15 and Python 3.12.13.
+- [x] Compared every public pytest collection ID with recursively discovered unittest IDs and
+      confirmed the same complete 80-test set on both Python minors.
+- [x] Passed offline frozen pytest runs, proving no execution-time resolution, and separately
+      passed all 80 unittest cases from a frozen `--no-dev` environment with no importable pytest.
+- [x] Passed the GitHub 3.11, 3.12, and smoke checks for
+      [PR #38](https://github.com/AlexandreRobicquet/nanorlm/pull/38).
 
 ## P3 — Documentation Consistency and Scope Polish
 
