@@ -22,15 +22,15 @@ Completed on `master`:
 - [x] make the smallest example visibly exercise recursion and retention,
 - [x] enforce the clone-only source-checkout packaging boundary,
 - [x] make report bundles explicit in the golden path,
-- [x] lock the pytest verification dependency.
+- [x] lock the pytest verification dependency,
+- [x] add a single contributor entrypoint.
 
 Remaining before this gate closes:
 
-- [ ] add a single contributor entrypoint,
 - [ ] complete the command, prerequisite, link, and scope-language pass.
 
-As of 2026-07-27, six of eight audit items are complete and two are open. Complete the remaining
-work in the order defined by the remediation backlog before expanding the research surface.
+As of 2026-07-27, seven of eight audit items are complete and one is open. Complete the remaining
+documentation consistency pass before expanding the research surface.
 
 ### 0. Integrity Pass
 
