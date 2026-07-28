@@ -26,6 +26,15 @@ class RepositoryMetadataTests(unittest.TestCase):
         self.assertEqual(project["license"], "MIT")
         self.assertEqual(project["license-files"], ["LICENSE"])
 
+    def test_pyproject_enforces_clone_only_distribution_boundary(self) -> None:
+        with (REPO_ROOT / "pyproject.toml").open("rb") as pyproject_file:
+            pyproject = tomllib.load(pyproject_file)
+
+        self.assertFalse(pyproject["tool"]["uv"]["package"])
+        setuptools = pyproject["tool"]["setuptools"]
+        self.assertEqual(setuptools["packages"], [])
+        self.assertEqual(setuptools["py-modules"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

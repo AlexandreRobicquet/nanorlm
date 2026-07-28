@@ -19,19 +19,18 @@ Completed on `master`:
 
 - [x] restore pinned external Codebase QA and grounded-planning paths,
 - [x] ship the declared MIT license and metadata guard,
-- [x] make the smallest example visibly exercise recursion and retention.
+- [x] make the smallest example visibly exercise recursion and retention,
+- [x] enforce the clone-only source-checkout packaging boundary.
 
 Remaining before this gate closes:
 
 - [ ] make report bundles explicit in the golden path,
-- [ ] decide and enforce whether the repository is clone-only or installable,
 - [ ] add a single contributor entrypoint,
 - [ ] lock the pytest verification dependency,
 - [ ] complete the command, prerequisite, link, and scope-language pass.
 
-As of 2026-07-24, three of eight audit items are complete, four are open, and one requires a
-maintainer decision. Complete the remaining work in the order defined by the remediation backlog
-before expanding the research surface.
+As of 2026-07-27, four of eight audit items are complete and four are open. Complete the remaining
+work in the order defined by the remediation backlog before expanding the research surface.
 
 ### 0. Integrity Pass
 

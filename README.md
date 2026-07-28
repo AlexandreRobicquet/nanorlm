@@ -27,7 +27,11 @@ Modern long-context systems still fail in a very specific way: they look at ever
 
 ## Quickstart With `uv`
 
-This repo is meant to stay easy to run from a fresh machine with `uv`.
+`nanoRLM` is a clone-only reference repository. Run it from a source checkout; a
+pip-installed library and an installed public API are not supported. The import examples below
+work because the checkout root is the active working directory.
+
+The repository is meant to stay easy to run from a fresh machine with `uv`.
 
 If you are learning the repo day to day, use this flow first:
 
@@ -445,7 +449,7 @@ CI intentionally does not run real-model jobs, networked benchmark jobs, or full
 
 Implemented now:
 
-- small recursive inference engine with stable public API
+- small recursive inference engine with a stable source-checkout interface
 - five retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends
 - richer `RLMResult` metadata for retention analysis
