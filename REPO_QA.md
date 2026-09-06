@@ -34,7 +34,7 @@ Evidence reuse verifies its checksum, source identifiers and span hashes. It use
 
 ## Strategies and budgets
 
-`--strategy lexical` is the provisional default: BM25 over source text and path terms, with neighboring windows to preserve function boundaries, followed by one answer call. The normal evidence budget is 6,000 estimated tokens including source headers.
+`--strategy lexical` is the default selected by the [audited comparison](RESULTS.md): BM25 over source text and path terms, with neighboring windows to preserve function boundaries, followed by one answer call. The normal evidence budget is 6,000 estimated tokens including source headers.
 
 `--strategy retention` runs recursive inspection and the selected retention policy over the lexical candidate pool, then answers from the retained original source spans. It adds model calls; use it only when an evaluation justifies that cost. `--retention-policy` accepts the existing policies. `--learned-model` is optional and experimental. Defaults are 16,000 candidate tokens and 512 summary-memory tokens. Incomplete inspection is reported in the run receipt.
 

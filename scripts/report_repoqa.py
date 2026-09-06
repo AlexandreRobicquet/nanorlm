@@ -85,6 +85,25 @@ def select_strategy(summaries: dict) -> tuple[list[str], str | None]:
     return eligible, selected
 
 
+def require_source_audit(original: dict, final: dict, audit: dict, claim_count: int) -> None:
+    if audit.get('facts_reviewed') is not True:
+        raise ValueError('mandatory audit must review every fact judgment')
+    required = set()
+    for grade in (original, final):
+        if 'error' in grade or grade.get('requires_adjudication'):
+            required.update(range(1, claim_count+1))
+            continue
+        claims = grade['claims']
+        if all(fact['correct'] for fact in grade['facts']) and not any(c['materially_incorrect'] for c in claims):
+            required.update(range(1, claim_count+1))
+        required.update(c['index'] for c in claims if not c['supported'] or c['materially_incorrect'])
+    reviewed = audit.get('source_reviewed_claims', [])
+    if not isinstance(reviewed, list) or any(type(i) is not int or not 1<=i<=claim_count for i in reviewed):
+        raise ValueError('source audit must name valid claim indices')
+    if not required.issubset(reviewed):
+        raise ValueError('mandatory source audit is incomplete for flagged or fully-correct answer claims')
+
+
 def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: Path | None) -> None:
     data = json.loads(dataset.read_text())
     manifest = json.loads((experiment / 'experiment.json').read_text())
@@ -96,6 +115,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         raise ValueError('expected exactly one result for every task and strategy')
     tasks = {task['id']: task for task in data['tasks']}
     audits = json.loads(audit.read_text()) if audit else {'cases': {}, 'method': 'No secondary audit recorded.'}
+    grading_protocol = json.loads((grades/'protocol.json').read_text())
     accounting = batch_accounting(experiment,data['protocol']['model']) if manifest['protocol'].get('execution') == 'batch' else {}
     if accounting and set(accounting) - {row['directory'] for row in results['rows']}:
         raise ValueError('billed batch requests are not assigned to evaluated cases')
@@ -124,6 +144,8 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
             raise ValueError('graded source excerpts or reference facts changed')
         grade = adjudicate_grade(receipt['grade'], audits.get('cases', {}).get(row['directory'], {}),
                                  checksum, len(task['expected_facts']), len(answer['claims']))
+        if grading_protocol.get('mandatory_audit'):
+            require_source_audit(receipt['grade'], grade, audits.get('cases',{}).get(row['directory'],{}), len(answer['claims']))
         facts = sum(item['correct'] for item in grade['facts'])
         incorrect = sum(item['materially_incorrect'] for item in grade['claims'])
         supported = sum(item['supported'] for item in grade['claims'])

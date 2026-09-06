@@ -1,194 +1,157 @@
 # Repository QA usefulness evaluation
 
-`repoqa_v1.json` freezes 30 questions, 90 expected facts, source excerpts and exact
-repository commits before the first evaluation call. The three public Python
-repositories are [backoff](https://github.com/litl/backoff),
+The [v0.2 results](../RESULTS.md) select lexical retrieval. This directory contains
+the frozen 30-question dataset, upstream licenses, machine-readable results and
+source adjudication. The release evidence archive contains the original execution
+and grading receipts. Neither the questions nor the grading are an independent
+human benchmark.
+
+## Frozen answer comparison
+
+`repoqa_v1.json` contains 30 questions, 90 expected facts, reference excerpts and
+exact commits for [backoff](https://github.com/litl/backoff),
 [python-dotenv](https://github.com/theskumar/python-dotenv) and
-[cachetools](https://github.com/tkem/cachetools). Their licenses are preserved in
-`licenses/`. The reference excerpts retain the respective upstream licenses.
+[cachetools](https://github.com/tkem/cachetools). The implementation assistant wrote
+the questions after the initial implementation freeze and before generating any
+evaluation answers. Two source-lineage/rendering fixes landed before execution.
+The dataset records that implementation commit. No answer or retrieval prompt was
+tuned using the evaluation responses. Public sources may occur in pretraining.
 
-Questions were written by the implementation assistant using source inspection,
-after the initial implementation freeze. Two review-driven fixes to source
-lineage and Markdown rendering landed before execution. The final implementation
-commit is pinned in the dataset. No evaluation answers were used for retrieval or
-prompt tuning. This is a small engineering evaluation, not an independent public
-benchmark; public source code may occur in the model's pretraining data.
+All three strategies use `gpt-4.1-mini-2025-04-14`, the same final-answer prompt and
+1,600-token output limit. Lexical retrieval and recursive retention receive the
+same 6,000-token candidate pool. Retention uses `pairwise_tournament`, a 512-token
+memory budget, and retained **original source spans** for the final answer. Full
+context receives every span admitted by the same scanner and refuses truncation.
+Expected facts and reference answers never enter the answer model's context.
 
-All strategies use `gpt-4.1-mini-2025-04-14`, the same answer prompt and output
-limit. Lexical retrieval and retention receive the same 6,000-token candidate
-pool. Retention compresses that pool with a 512-token memory budget and then
-answers from its retained **original source spans**. Full context receives every
-span admitted by the same scanner, including tests and documentation. It refuses
-truncation. Scanner exclusions apply to all strategies. The model never receives
-expected facts or reference answers.
+Each case binds the dataset, implementation, source commit/snapshot, evidence,
+answer and usage receipts. All attempts and failures remain recorded. The answer
+experiment has a USD 5 estimated inference cap. Cost reservations precede network
+calls; unknown billing stops that execution rather than silently retrying it.
 
-The runner rotates strategy order, executes sequentially, disables local response
-caching and records every attempted case, including failures. Each case binds the
-dataset, implementation, question, strategy, source snapshot, evidence and usage
-receipts. The total estimated inference cap is USD 5. Unknown remote billing stops
-the experiment; reported prices are list-price estimates, not invoice totals.
+The original synchronous runner at `532a3b8` completed four cases before the
+account exhausted its 50-request daily model quota during the fifth. That pilot is
+excluded from the comparison. The complete experiment uses the batch runner at
+`c6708b4`, with unchanged questions, model, prompts, budgets and source snapshots.
+The original all-request batch was rejected by the account's queued-input limit;
+the completed execution submits at most 140,000 tokenizer-counted input tokens
+per round. This scheduling amendment changes transport, not answer selection.
 
-Clone the three repositories into a parent directory with the names `backoff`,
-`dotenv`, and `cachetools`, checking out the exact commits in the dataset. From a
-clean nanoRLM checkout:
+Fourteen completed batches contain 574 billed requests and all 90 cases. The
+engine generates inspection, repair and final-answer requests in dependency order.
+Only provider responses bound to their exact request bodies become evidence;
+planning placeholders are discarded. No failed final answer is retried or fuzzily
+repaired. Later scanner fixes for non-UTF-8 filenames and special files were
+verified not to change these three eligible source inventories.
+
+To reproduce original answer generation, use the pinned checkout and clone the
+source commits into a parent directory named `backoff`, `dotenv`, and `cachetools`:
 
 ```bash
-uv run python scripts/evaluate_repoqa.py \
-  --repositories /path/to/pinned-checkouts --output outputs/repoqa-v1
+# At nanoRLM commit c6708b4, with OPENAI_API_KEY configured:
+uv run --with tiktoken python scripts/batch_repoqa.py \
+  --repositories /path/to/pinned-checkouts --output outputs/repoqa-v1-batch --submit
 ```
 
-The original synchronous runner is pinned at `532a3b8`; use that checkout to
-reproduce it. It deliberately refuses later implementation changes. The quota-aware
-batch execution is pinned at `c6708b4`. New experiments record their own checkout
-and script hashes; do not overwrite an existing experiment after changing code.
+Run the identical command to collect a finished round and submit its dependents;
+omit `--submit` to inspect without submitting. Each batch may take up to 24 hours.
+Use a fresh experiment for changed implementations. Resuming an interrupted request
+requires reconciliation, never an unrecorded retry.
 
-Set `OPENAI_API_KEY` first. `--resume` accepts only the exact same experiment and
-checksummed completed case directories; it neither overwrites nor retries failed
-answers. An interrupted partial case requires investigation, not silent retry.
+## Grading and adjudication
 
-## Scoring and selection
+A complete answer expresses all three expected facts and contains no materially
+incorrect extra claim. Each factual claim is separately judged against **its own
+cited excerpts**; their union must establish every material assertion. Valid source
+IDs and hashes prove identity, not semantic support. A failed answer receives zero
+completeness and contributes no accepted claims to the citation denominator.
 
-Score each of the three expected facts as present and correct or missing/wrong.
-A fully correct question needs all three facts and no materially incorrect
-additional claim. Score semantic support for every factual claim against its
-actual cited excerpts, separately from valid source IDs and checksums. Report
-abstentions and failures. Do not substitute substring matching for correctness.
-Report factual coverage, fully correct questions, citation support, median and
-tail latency, and total estimated cost separately, by strategy and repository.
+Final grading is pinned at `05ae795` and uses
+`scripts/grade_grouped_repoqa.py`: GPT-5.4 mini, medium reasoning, strict JSON schema
+counts, and each claim's original cited text attached directly. Seed-0 grouping
+places at most two different questions in each call. Strategy names, costs and
+competing answers to one question are hidden. The 81 usable answers took 41 calls;
+the nine failed answers needed no grading request.
 
-`scripts/grade_repoqa.py` applies the fixed checklist using
-`gpt-5.4-2026-03-05`, with strategy names, costs and competing answers hidden from
-the grader. It receives each claim's actual cited excerpts and separate reference
-excerpts, and records per-fact and per-claim explanations. Grading starts after all
-answer runs finish. Its separate USD 6 cap and full usage receipts distinguish
-evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini) , [GPT-5.4 prices](https://developers.openai.com/api/docs/models/gpt-5.4) and [GPT-5.4 mini prices](https://developers.openai.com/api/docs/models/gpt-5.4-mini), checked on 2026-09-06. A subsequent assistant
-audit of flagged cases and a spread of passing cases is recorded separately;
-this is **not human adjudication**. Both models share a provider, so correlated
-grading errors remain a limitation. The grader and its prompt are frozen before
-grading, and raw judgments are retained when an audit changes a score.
+The complete USD 3.346866 conservative reservation fit a separate USD 6 grading
+cap. Group receipts retain exact requests, responses, model identifiers, timing
+and usage. Per-case grading expense is an explicitly equal allocation of actual
+group cost, not separately observed token usage. Actual final grading cost was
+USD 0.870716, reconciled against every group and case receipt.
 
-The first grading protocol used GPT-4.1. It produced 61 structurally invalid
-receipts out of 90, usually combining three required fact judgments into one.
-Spot checks also found contradictory valid judgments. That entire grading pass
-is preserved separately and excluded from scoring (USD 0.63249 normal-price
-estimate; USD 0.316245 batch estimate). The second protocol numbers every fact
-and claim, asks for candidate claim indices proving coverage, and separates
-coverage, contradiction and citation entailment before deriving score flags.
-It passed a synthetic calibration containing a correct claim, a wrong numeric
-value and an omitted fact before being applied to the unchanged 90 answer runs.
-The preceding failed calibration attempts are preserved; the first call's usage
-was not retained and has only its conservative USD 0.05 reservation bound.
-The second pass still produced one malformed receipt and repeated semantic
-errors, including treating supplied citations as missing and accepting explicitly
-contradicted facts. It too is entirely excluded from scoring (normal-price
-estimate USD 0.3072683; batch estimate USD 0.15363413).
-
-The third protocol uses GPT-5.4 with each claim's exact cited text attached to that
-claim, avoiding an opaque-ID lookup by the grader. It passed a harder synthetic
-calibration with conditional and behavioral contradictions plus an omitted fact.
-Its USD 6 conservative reservation is separate from the discarded grading passes;
-actual grading expense remains separate from all answer inference costs. GPT-5.4
-requests are restricted below its 272,000-token price tier by a conservative byte
-bound. The default reasoning setting is unchanged (none).
-These are grading changes, not answer or retrieval tuning on the held-out set.
+The final synthetic calibration correctly classified coverage and citation support
+but missed a conditional error label. It is preserved as a failure. Therefore
+**model judgments alone cannot publish the report**. The implementation assistant
+reviewed all 270 fact judgments and 205/276 claims against their actual citations,
+including all flagged claims, all claims in provisionally complete answers, and 16
+predefined source-audit cases. Remaining claims retain model judgments. This audit
+could see strategy labels and is not independent human adjudication.
 
 ```bash
-uv run python scripts/grade_repoqa.py \
-  --experiment outputs/repoqa-v1 --output outputs/repoqa-v1-grades
-```
-
-## Batch transport amendment, 2026-09-06
-
-The synchronous run completed four cases before the API account exhausted its
-50-request daily model quota during the fifth. Those partial results are retained
-separately and cannot select a default. The Anthropic connection was unavailable.
-The comparison therefore has a separate batch execution protocol, with the same
-questions, model, prompts, budgets, source snapshots and failure scoring. A later
-review-driven fix omits undecodable filenames; it does not change the eligible
-source inventory in these three repositories.
-
-The [Batch API](https://developers.openai.com/api/docs/guides/batch) uses separate
-limits. The first round submits independent inspection leaves and baseline
-answers. Subsequent rounds submit required schema repairs and retention answers
-after their actual inspections are available. The original engine constructs and
-validates all prompts. Local planning placeholders are discarded; only complete
-responses bound to their exact request bodies can become experiment artifacts.
-
-```bash
-uv run --with tiktoken python scripts/batch_repoqa.py --repositories /path/to/pinned-checkouts \
-  --output outputs/repoqa-v1-batch --submit
-```
-
-Run the same command to collect a completed round and submit dependent requests.
-Omit `--submit` to prepare or inspect without submitting another round. Batches
-can take up to 24 hours per round. Each submission records its conservative cost
-reservation. No failed/expired batch is silently retried.
-
-The initial all-request submission was rejected before executing any requests
-because this account also has a 200,000 queued-input-token limit. A fresh batch
-experiment therefore sends at most 140,000 tokenizer-counted input tokens at a
-time. The rejected submission is retained separately. Each submission records the
-tokenizer version; unsubmitted requests wait until earlier batches complete.
-This scheduling change does not modify prompts or select results by quality.
-
-## Audit and report
-
-Use `scripts/report_repoqa.py --experiment ... --grades ... --output ... --audit
-audit.json` to aggregate completed cases. The audit JSON contains a `method`
-description and a `cases` object keyed by case directory name. Each audited case
-must include `receipt_sha256` matching the original grading receipt's `sha256`.
-An optional `changes` list identifies `kind` (`facts` or `claims`), a 1-based
-`index`, the changed boolean `values`, and an evidence-specific `reason`.
-
-A malformed grader response remains an error, with its raw response and paid
-receipt preserved. To adjudicate it, provide a complete `replacement_grade`
-containing all fact and claim judgments in the grader schema, plus a nonempty
-case-level `reason`. Missing judgments cannot become automatic zeroes or passes.
-The original receipt is never overwritten, and the report records the audit hash.
-
-**Batch results cannot establish interactive latency.** Receipts set interactive
-latency to null and distinguish local replay assembly time from provider batch
-turnaround. Normal list-price estimates and the 50%-discounted batch estimates
-are reported separately. The earlier interactive observations remain a small,
-quota-interrupted pilot, not a 30-question latency comparison. A release decision
-must disclose this limitation.
-
-Prefer the lowest-cost strategy within one fully correct question of the best and
-within five percentage points of its citation-support precision. Retention needs
-at least three additional fully correct questions over lexical retrieval to
-justify its overhead. Publish raw counts and limitations, even if no strategy
-meets the rule. Learned retention remains experimental and is not evaluated here.
-
-## Synchronous grouped grading amendment
-
-The GPT-5.4 batch produced no responses during an extended provider wait. The
-final grading route uses `scripts/grade_grouped_repoqa.py`: the same source-bound
-packets, GPT-5.4 mini with medium reasoning, and a strict JSON schema for every
-fact and claim. Seed-0 grouping places at most two different questions in a call;
-competing answers to one question are never visible together. The 81 usable
-answers require 41 calls, fitting the verified remaining request quota. The nine
-failed answers receive zero completeness without grading calls.
-
-The packet, schema, grouping, price reservation and script hashes are frozen
-before execution. The complete conservative reservation is checked against a
-separate USD 6 grading cap. Group receipts preserve original requests, responses,
-usage, model identifiers and rate-limit headers. Per-case grading expense is an
-explicit equal allocation of the actual group expense, not separately measured
-case token usage. Token pacing respects the reported synchronous allowance.
-
-A synthetic paired calibration correctly classified fact coverage and citation
-support, but missed one conditional factual-error label. Its raw failure is
-preserved; it is not claimed as a clean pass. Before scoring, the assistant must
-review every fact judgment, every unsupported or materially incorrect claim,
-every claim in a provisionally fully-correct answer, and the predefined source
-audit cases. Model output alone cannot pass the release gate. Normalization derives
-factual incorrectness for claims explicitly identified as contradicting accepted
-reference facts; inconsistent raw model flags remain preserved in the receipt.
-The assistant source audit is still required. This changes grading only: all 90
-answer runs and their cost and latency observations remain unchanged.
-
-```bash
+# At nanoRLM commit 05ae795:
 uv run --with tiktoken python scripts/grade_grouped_repoqa.py \
   --experiment outputs/repoqa-v1-batch --output outputs/repoqa-v1-grouped-grades
-# Inspect the plan and reservation, then run the identical command with --execute.
+# Inspect the plan, then repeat the identical command with --execute.
 ```
+
+An audit JSON contains a `method` and `cases` keyed by case directory. Every case
+binds its original `receipt_sha256`, records `facts_reviewed: true`, and lists the
+`source_reviewed_claims`. Boolean amendments identify `kind` (`facts` or `claims`),
+1-based `index`, `values`, and an evidence-specific `reason`. Raw model receipts
+remain unchanged. Malformed grading requires a complete explained
+`replacement_grade`; missing judgments never become automatic passes or zeroes.
+The report verifies audit coverage for both original and amended judgments, so
+promoting an answer to complete requires checking all its claims.
+
+```bash
+uv run python scripts/report_repoqa.py \
+  --experiment /path/to/release-evidence/answers \
+  --grades /path/to/release-evidence/grading-grouped-v4/grades \
+  --audit /path/to/release-evidence/repoqa-audit.json \
+  --output outputs/reproduced-report
+```
+
+The [checked-in audit](results/repoqa-v1/audit.json) and
+[summary](results/repoqa-v1/summary.json) bind the full source evidence archive.
+Helper names and equivalent wording may be paraphrased, but composite checklist
+facts require material behavior, distinct modes and requested test coverage.
+Some checklist details go beyond the literal question; completeness is not a
+human usefulness score. Acknowledged missing evidence is not itself treated as a
+positive false behavioral claim.
+
+## Preserved grading failures and expense
+
+| Attempt | Outcome | Estimated billed-price expense |
+|---|---|---:|
+| GPT-4.1 batch, V1 | 61 malformed receipts plus semantic contradictions; entirely excluded | $0.316245 |
+| GPT-5.4 mini batch, V2 | One malformed receipt and repeated source/coverage mistakes; entirely excluded | $0.153634 |
+| GPT-5.4 batch, V3 | No responses before cancellation was requested; excluded | See terminal or pending provider status in release accounting |
+| GPT-5.4 mini grouped, V4 | Complete strict-schema output, then mandatory source adjudication | $0.870716 |
+
+Calibration receipts, discarded responses and billing limitations are preserved in
+the archive. One early calibration did not retain usage and has only its USD 0.05
+conservative bound. Any unfinished provider cancellation is explicitly bounded,
+not called a zero-cost completion. These expenses are separate from user-facing
+answer inference. Grading amendments never regenerate or tune the frozen answers.
+
+Price tables use official [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1),
+[GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
+[GPT-5.4](https://developers.openai.com/api/docs/models/gpt-5.4) and
+[GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini) prices
+checked on 2026-09-06. These are estimates from reported tokens, not invoices;
+server-side prompt-cache discounts are not deducted. GPT-5.4 requests are bounded
+below its long-context price tier.
+
+## Latency and release decision
+
+**The batch comparison does not establish interactive latency.** Interactive
+latency fields are null. Batch availability includes shared queue waiting; local
+replay assembly times are not API response times. The interrupted synchronous pilot
+and single release-candidate smoke do not substitute for a 30-question timing study.
+
+The frozen selection rule prefers the cheapest approach within one complete answer
+of the best and five percentage points of its citation support. Retention needs
+at least three additional complete answers over lexical to justify its overhead.
+Only lexical qualifies on these data. Learned retention remains experimental and
+was not evaluated here. Publish the raw counts and these limitations; use a fresh,
+independently authored set for the [next version](../NEXT_STEPS.md).

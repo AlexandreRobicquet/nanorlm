@@ -14,7 +14,7 @@ uv run python ask.py 'Where is the retry limit set, what overrides it, and which
   --repo /path/to/repository --model gpt-4.1-mini-2025-04-14 --output outputs/retry-answer
 ```
 
-Open `answer.md` for an answer with source-span citations, and `evidence.json` for reusable evidence, source hashes and omissions. Omit `--model` for local evidence only. Lexical retrieval is the provisional default; recursive and learned retention remain optional pending independent usefulness evidence. See [the repository-question guide](REPO_QA.md) for budgets, evidence reuse and source boundaries.
+Open `answer.md` for an answer with source-span citations, and `evidence.json` for reusable evidence, source hashes and omissions. Omit `--model` for local evidence only. Lexical retrieval is the default selected by the [30-question comparison](RESULTS.md): 16 complete answers versus 9 with full context and 3 with retention, at the lowest inference cost. Citation support was 77.5%, so inspect the cited source. Recursive and learned retention remain optional. See [the repository-question guide](REPO_QA.md) for budgets, evidence reuse and source boundaries.
 
 Useful starting questions concern configuration defaults and overrides, retry and
 cache behavior, or the tests that cover a specific edge case. Answers describe the

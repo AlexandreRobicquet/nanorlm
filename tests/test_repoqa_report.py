@@ -2,11 +2,26 @@ import unittest
 import json
 import tempfile
 from pathlib import Path
-from scripts.report_repoqa import adjudicate_grade, batch_accounting, select_strategy
+from scripts.report_repoqa import adjudicate_grade, batch_accounting, require_source_audit, select_strategy
 from scripts.evaluate_repoqa import file_hash
 
 
 class SelectionTests(unittest.TestCase):
+    def test_audit_covers_flagged_claims_and_every_claim_when_promoting_a_pass(self):
+        original={'facts':[{'correct':False}], 'claims':[
+            {'index':1,'supported':False,'materially_incorrect':False},
+            {'index':2,'supported':True,'materially_incorrect':False}]}
+        audit={'facts_reviewed':True,'source_reviewed_claims':[1]}
+        require_source_audit(original,original,audit,2)
+        final={**original,'facts':[{'correct':True}]}
+        with self.assertRaisesRegex(ValueError,'incomplete'):
+            require_source_audit(original,final,audit,2)
+        audit['source_reviewed_claims']=[1,2]
+        require_source_audit(original,final,audit,2)
+        audit['facts_reviewed']=False
+        with self.assertRaisesRegex(ValueError,'every fact'):
+            require_source_audit(original,final,audit,2)
+
     def test_batch_costs_count_all_calls_and_measure_shared_turnaround(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
