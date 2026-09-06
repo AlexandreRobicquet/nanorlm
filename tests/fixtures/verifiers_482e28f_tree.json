@@ -1,0 +1,32 @@
+{
+  "name": "PrimeIntellect-ai/verifiers",
+  "revision": "482e28ffa1f2613325867badaba4707b7c751d28",
+  "source": "git ls-tree -r --name-only 482e28ffa1f2613325867badaba4707b7c751d28",
+  "required_paths": [
+    "README.md",
+    "docs/development.md",
+    "docs/environments.md",
+    "docs/evaluation.md",
+    "docs/reference.md",
+    "docs/training.md",
+    "pyproject.toml",
+    "tests/test_browser_env.py",
+    "tests/test_endpoint_registry.py",
+    "tests/test_eval_cli.py",
+    "tests/test_eval_display.py",
+    "tests/test_save_utils.py",
+    "verifiers/cli/tui.py",
+    "verifiers/envs/environment.py",
+    "verifiers/envs/experimental/composable/README.md",
+    "verifiers/envs/experimental/composable/task.py",
+    "verifiers/envs/integrations/README.md",
+    "verifiers/envs/integrations/browser_env/README.md",
+    "verifiers/scripts/eval.py",
+    "verifiers/scripts/init.py",
+    "verifiers/scripts/tui.py",
+    "verifiers/utils/config_utils.py",
+    "verifiers/utils/eval_display.py",
+    "verifiers/utils/eval_utils.py",
+    "verifiers/utils/save_utils.py"
+  ]
+}

@@ -9,7 +9,7 @@ import shutil
 import statistics
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +29,7 @@ from nanorlm import (  # noqa: E402
     OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
     REMOTE_MODEL_PRICES,
     estimate_tokens,
+    split_context_blocks,
     is_local_base_url,
     normalize_provider_name,
     openai_compatible_cache_key,
@@ -46,7 +47,8 @@ MATCHED_POLICIES = [
 SIMPLE_POLICIES = ["keep_recent", "summary_only", "single_critic_topk"]
 DEFAULT_BUDGETS = [96, 128, 192]
 PHASES = ("offline", "pilot", "confirmation")
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
+RUNTIME_CONTRACT = "bounded_inspection_v2_summary_tokens_v2_reward_no_wall_time"
 FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 CACHE_RECORD_RE = re.compile(r"[0-9a-f]{64}\.json")
@@ -142,8 +144,19 @@ def validate_response_cache_record(
             raise ValueError(f"response-cache record has invalid usage: {path.name}")
     if usage["calls"] < 1:
         raise ValueError(f"response-cache record has no logical model call: {path.name}")
-    serialized = canonical_json(payload).lower()
-    if "authorization" in serialized or "api_key" in serialized or "api-key" in serialized:
+    def credential_field(value: Any) -> bool:
+        if isinstance(value, dict):
+            return any(str(key).lower().replace("-", "_") in {
+                "authorization", "api_key", "access_token", "secret_key", "password"
+            } or credential_field(item) for key, item in value.items())
+        if isinstance(value, list):
+            return any(credential_field(item) for item in value)
+        return False
+
+    serialized = canonical_json(payload)
+    actual_secret = any(pattern.search(serialized) for code, pattern in AUDIT_PATTERNS.items()
+                        if code in {"openai_style_secret", "bearer_secret"})
+    if credential_field(payload) or actual_secret:
         raise ValueError(f"response-cache record contains credential material: {path.name}")
     return {
         "path": path.name,
@@ -300,23 +313,21 @@ def validate_dataset_hashes(
 
 
 def git_snapshot(path: Path) -> dict[str, Any]:
-    def run(*args: str) -> str:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=path,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ""
+    def run(*args: str) -> str | None:
+        try:
+            result = subprocess.run(["git", *args], cwd=path, text=True,
+                                    capture_output=True, check=False)
+        except OSError:
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
 
     status = run("status", "--porcelain")
     commit = run("rev-parse", "HEAD")
     return {
         "is_repository": bool(commit),
-        "commit": commit,
+        "commit": commit or "",
         "branch": run("branch", "--show-current") or "detached",
-        "clean": not bool(status),
+        "clean": bool(commit) and status is not None and not bool(status),
         "status_entries": len(status.splitlines()) if status else 0,
     }
 
@@ -501,7 +512,7 @@ def conservative_cost_upper_bound(
     normalized_provider = normalize_provider_name(provider)
     if normalized_provider == "heuristic" or is_local_base_url(base_url):
         return {
-            "formula_version": 2,
+            "formula_version": 3,
             "logical_policy_upper_bound_usd": 0.0,
             "prompt_safety_factor": 4,
             "json_repair_calls_upper_bound": 0,
@@ -515,7 +526,7 @@ def conservative_cost_upper_bound(
     completion_tokens_upper = 0
     json_repair_calls_upper = 0
     for _, example in tasks:
-        leaf_calls = min(max(1, len(example.context)), 2**depth)
+        leaf_calls = min(max(1, len(split_context_blocks(example.context, 2048))), 2**depth)
         context_tokens = sum(block.tokens for block in example.context)
         query_tokens = estimate_tokens(example.query)
         inspection_prompt = context_tokens + leaf_calls * (query_tokens + 512)
@@ -528,7 +539,7 @@ def conservative_cost_upper_bound(
         json_repair_calls_upper += leaf_calls * len(MATCHED_POLICIES)
     cost = prompt_tokens_upper * prompt_price + completion_tokens_upper * completion_price
     return {
-        "formula_version": 2,
+        "formula_version": 3,
         "logical_policy_upper_bound_usd": round(cost, 6),
         "prompt_tokens_upper_bound": prompt_tokens_upper,
         "completion_tokens_upper_bound": completion_tokens_upper,
@@ -613,6 +624,9 @@ def decision_signature(row: Mapping[str, Any]) -> list[tuple[tuple[str, str], ..
 def normalized_row(row: Mapping[str, Any]) -> dict[str, Any]:
     usage = row.get("usage", {})
     return {
+        "task_id": row.get("task_id"),
+        "completed": row.get("completed"),
+        "stop_reasons": row.get("stop_reasons"),
         "answer": row.get("answer"),
         "retained_tokens": row.get("retained_tokens"),
         "retained_summaries": row.get("retained_summaries"),
@@ -640,8 +654,12 @@ def budget_diagnostics(
     judge_call_violations = []
     final_call_violations = []
     model_identifier_violations = []
+    incomplete_tasks = []
+    duplicate_policy_rows = []
     observed_model_identifiers: set[str] = set()
     for row in rows:
+        if row.get("completed") is not True:
+            incomplete_tasks.append(str(row.get("task_id", row.get("name"))))
         decisions = list(row.get("retention_decisions", []))
         pressures.append(
             max((float(decision.get("before_tokens", 0)) / budget for decision in decisions), default=0.0)
@@ -682,9 +700,12 @@ def budget_diagnostics(
 
     by_task: dict[tuple[str, str], dict[str, Mapping[str, Any]]] = {}
     for row in rows:
-        by_task.setdefault((str(row.get("dataset")), str(row.get("name"))), {})[
-            str(row.get("policy"))
-        ] = row
+        key = (str(row.get("dataset")), str(row.get("task_id", "")))
+        group = by_task.setdefault(key, {})
+        policy = str(row.get("policy"))
+        if not key[1] or policy in group:
+            duplicate_policy_rows.append(f"{key}:{policy}")
+        group[policy] = row
 
     matched_ledger_violations = []
     replay_hash_violations = []
@@ -736,6 +757,8 @@ def budget_diagnostics(
         and nonempty_rate >= 0.95
         and median_pressure >= 1.5
         and not budget_violations
+        and not incomplete_tasks
+        and not duplicate_policy_rows
         and not judge_call_violations
         and not final_call_violations
         and not model_identifier_violations
@@ -753,6 +776,8 @@ def budget_diagnostics(
         "nonempty_rate": round(nonempty_rate, 6),
         "median_max_pre_retention_pressure": round(median_pressure, 6),
         "budget_violations": budget_violations,
+        "incomplete_tasks": incomplete_tasks,
+        "duplicate_policy_rows": duplicate_policy_rows,
         "remote_retention_judge_call_violations": judge_call_violations,
         "final_answer_call_violations": final_call_violations,
         "response_model_identifier_violations": model_identifier_violations,
@@ -763,6 +788,25 @@ def budget_diagnostics(
         "pairwise_difference_rates": difference_rates,
         "distinctness_pass": distinct,
     }
+
+
+def audit_trace_bindings(budget_root: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Bind each emitted trace to its manifest-derived result, not just a count."""
+    violations = []
+    expected_paths = set()
+    for row in rows:
+        path = budget_root / "reports" / row["dataset"] / "loom_traces" / row["policy"] / (row["artifact_stem"] + ".jsonl")
+        expected_paths.add(path)
+        try:
+            events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            if not events or any(event.get("task_id") != row["task_id"] for event in events):
+                violations.append(f"{row['task_id']}:{row['policy']}:task-identity")
+        except (OSError, ValueError, AttributeError):
+            violations.append(f"{row['task_id']}:{row['policy']}:unreadable-trace")
+    observed_paths = set(budget_root.glob("reports/*/loom_traces/*/*.jsonl"))
+    if observed_paths != expected_paths or len(expected_paths) != len(rows):
+        violations.append("trace-inventory-mismatch")
+    return {"ok": not violations, "checked_rows": len(rows), "violations": violations}
 
 
 def validate_loom_traces(
@@ -924,6 +968,7 @@ def run_budget(
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             break
         task_record = example_record(spec, task_index, example)
+        example = replace(example, task_id=task_record["task_id"])
         block = {
             "task_index": task_index,
             "task_id": task_record["task_id"],
@@ -954,7 +999,8 @@ def run_budget(
             if len(summary.get("results", [])) != 1:
                 raise RuntimeError(f"incomplete policy result for {spec.label}:{example.name}:{policy}")
             row = summary["results"][0]
-            row["task_id"] = task_record["task_id"]
+            if row.get("task_id") != task_record["task_id"]:
+                raise RuntimeError("benchmark row task ID differs from the frozen task manifest")
             cumulative_cost = round(cumulative_cost + float(row.get("cost_estimate", 0.0)), 6)
             row["cumulative_cost_estimate"] = cumulative_cost
             parts[spec.label][policy].append(summary)
@@ -1035,10 +1081,11 @@ def determinism_check(
     max_output_tokens: int,
 ) -> dict[str, Any]:
     budget = int(budget_result["budget"])
+    first_example = replace(first_example, task_id=example_record(first_spec, 0, first_example)["task_id"])
     original_rows = {
         str(row["policy"]): row
         for row in budget_result["rows"]
-        if row["dataset"] == first_spec.label and row["name"] == first_example.name
+        if row["task_id"] == first_example.task_id
     }
     mismatches = []
     for policy in MATCHED_POLICIES:
@@ -1795,6 +1842,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     ]
     task_manifest = {
         "schema_version": SCHEMA_VERSION,
+        "runtime_contract": RUNTIME_CONTRACT,
         "seed": args.seed,
         "start_index": args.start_index,
         "limit_per_family": args.limit,
@@ -1900,6 +1948,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         inventory_exclusions = ["manifest.json", "release_audit.json", "checksums.txt"]
         preflight_manifest = {
             "schema_version": SCHEMA_VERSION,
+        "runtime_contract": RUNTIME_CONTRACT,
             "phase": f"{args.phase}_preflight",
             "requested_phase": args.phase,
             "preflight_only": True,
@@ -1995,12 +2044,14 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
             trace_paths,
             expected_count=len(result["rows"]),
         )
+        result["trace_bindings"] = audit_trace_bindings(budget_root, result["rows"])
         write_json(
             budget_root / "validation.json",
             {
                 "diagnostics": result["diagnostics"],
                 "determinism": result["determinism"],
                 "loom_validation": result["loom_validation"],
+                "trace_bindings": result["trace_bindings"],
             },
         )
         budget_results.append(result)
@@ -2053,6 +2104,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "eligible_budget": selected_budget is not None,
         "all_determinism_checks": all(result["determinism"]["ok"] for result in budget_results),
         "all_loom_traces_valid": all(result["loom_validation"]["all_valid"] for result in budget_results),
+        "all_task_identities_bound": all(result["trace_bindings"]["ok"] for result in budget_results),
         "all_phase_diagnostics": (
             args.phase == "offline"
             or all(result["diagnostics"]["eligible"] for result in budget_results)
@@ -2084,6 +2136,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     inventory = artifact_inventory(output_root, excluded=inventory_exclusions)
     manifest = {
         "schema_version": SCHEMA_VERSION,
+        "runtime_contract": RUNTIME_CONTRACT,
         "phase": args.phase,
         "status": "pending_release_audit",
         "repositories": {"nanorlm": code_snapshot, "loom": loom_snapshot},
@@ -2165,6 +2218,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 "diagnostics": result["diagnostics"],
                 "determinism": result["determinism"],
                 "loom_validation": result["loom_validation"],
+                "trace_bindings": result["trace_bindings"],
                 "reports": result["reports"],
                 "execution_order": result["execution_order"],
             }

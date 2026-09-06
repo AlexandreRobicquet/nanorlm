@@ -44,6 +44,8 @@ def result_row(policy: str, *, selected_pointer: str, retained_tokens: int = 48)
     return {
         "dataset": "fixture",
         "name": "case-1",
+        "task_id": "task_fixture_1",
+        "completed": True,
         "policy": policy,
         "retained_items": 1,
         "retained_tokens": retained_tokens,
@@ -295,6 +297,10 @@ class MatchedRetentionTests(unittest.TestCase):
                 },
             }
             (cache / f"{cache_key}.json").write_text(json.dumps(record))
+            # Ordinary benchmark text can discuss credentials without containing them.
+            self.assertEqual(prepare_response_cache(cache, binding)["record_count"], 1)
+            record["request"]["headers"] = {"Authorization": "Bearer test-token"}
+            (cache / f"{cache_key}.json").write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError, "credential material"):
                 prepare_response_cache(cache, binding)
 
@@ -351,11 +357,13 @@ class MatchedRetentionTests(unittest.TestCase):
 
             def fake_run_dataset(_examples, policy, **kwargs):
                 observed_kwargs.append(kwargs)
+                self.assertEqual(_examples[0].task_id, example_record(spec, 0, example)["task_id"])
                 row = result_row(
                     policy,
                     selected_pointer="root.1" if policy == "pairwise_tournament" else "root.0",
                 )
                 row["dataset"] = "ruler"
+                row["task_id"] = _examples[0].task_id
                 row["cost_estimate"] = 0.001
                 row["retention_stats"]["response_model_identifiers"] = [
                     "gpt-5.4-mini-2026-07-01"
@@ -972,9 +980,9 @@ class MatchedRetentionTests(unittest.TestCase):
             depth=3,
             max_output_tokens=512,
         )
-        self.assertEqual(reservation["formula_version"], 2)
-        self.assertEqual(reservation["completion_tokens_upper_bound"], 3 * 512 * 5)
-        self.assertEqual(reservation["json_repair_calls_upper_bound"], 5)
+        self.assertEqual(reservation["formula_version"], 3)
+        self.assertEqual(reservation["completion_tokens_upper_bound"], 5 * 512 * 5)
+        self.assertEqual(reservation["json_repair_calls_upper_bound"], 10)
         self.assertGreater(reservation["logical_policy_upper_bound_usd"], 0.0)
         self.assertLess(reservation["logical_policy_upper_bound_usd"], 5.0)
 

@@ -25,6 +25,7 @@ from bench import (  # noqa: E402
     parse_csv_strings,
     policy_sweep,
     resolve_provider_choice,
+    verifiers_report_metadata,
     write_report_bundle,
 )
 from learned_retention import FEATURE_NAMES, TRAINING_OBJECTIVES, LearnedRetentionModel  # noqa: E402
@@ -43,12 +44,15 @@ PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", 
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
 OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
+    "artifacts.py",
     "inspection_replay.py",
     "learned_retention.py",
     "loom_trace.py",
     "nanorlm.py",
     "policies.py",
     "bench.py",
+    "scripts/check_markdown_links.py",
+    "scripts/check_verifiers_compatibility.py",
     "scripts/prepare_ruler_external_jsonl.py",
     "scripts/train_learned_retention.py",
     "scripts/run_benchmark_e2e.py",
@@ -185,8 +189,9 @@ def run_check_phase(run_root: Path) -> dict[str, Any]:
     commands = [
         ["uv", "lock", "--check"],
         ["uv", "sync", "--frozen"],
+        ["uv", "run", "python", "scripts/check_markdown_links.py"],
         ["uv", "run", "python", "-m", "unittest", "discover", "-s", "tests", "-v"],
-        ["uv", "run", "--with", "pytest", "pytest"],
+        ["uv", "run", "--frozen", "pytest"],
         ["uv", "run", "python", "-m", "py_compile", *COMPILE_TARGETS],
     ]
     return {"commands": [run_command(command, phase_dir=phase_dir) for command in commands]}
@@ -311,6 +316,7 @@ def run_benchmark_spec(run_root: Path, spec: BenchmarkSpec) -> dict[str, Any]:
         summaries=summaries,
         curves=curves,
         command=benchmark_command(spec),
+        metadata=verifiers_report_metadata(spec.repo_root) if spec.dataset == "verifiers_30" else None,
     )
     report = validate_report_bundle(output_dir)
     report.update(
@@ -707,8 +713,8 @@ def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, 
                 "pairwise_only_provenance": _evidence_delta(pairwise, learned),
                 "learned_dropped_expected_provenance": _dropped_expected_provenance(learned),
                 "pairwise_dropped_expected_provenance": _dropped_expected_provenance(pairwise),
-                "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{name}.tree.txt"),
-                "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{name}.tree.txt"),
+                "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{learned.get('artifact_stem', name)}.tree.txt"),
+                "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{pairwise.get('artifact_stem', name)}.tree.txt"),
             }
         )
         if len(failures) >= limit:

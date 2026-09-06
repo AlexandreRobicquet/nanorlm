@@ -11,7 +11,16 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import CLI_PROVIDER_CHOICES, extract_anchor_blocks, resolve_provider_choice
+from bench import (
+    CLI_PROVIDER_CHOICES,
+    DatasetCompatibilityError,
+    dataset_required_paths,
+    extract_anchor_blocks,
+    load_verifiers_compatibility,
+    resolve_provider_choice,
+    validate_repository_paths,
+    verifiers_report_metadata,
+)
 from nanorlm import ContextBlock, RLM, RLMConfig, RLMResult, item_source_paths
 
 @dataclass(slots=True)
@@ -66,6 +75,12 @@ class GroundedPlan:
 def load_planning_tasks(repo_root: str | Path, tasks_path: str | Path | None = None) -> list[PlanningTask]:
     repo_root = Path(repo_root)
     task_rows = json.loads((Path(tasks_path) if tasks_path else ROOT / "showcases" / "planning_tasks.json").read_text())
+    validate_repository_paths(
+        repo_root,
+        dataset_required_paths(task_rows, "evidence_files"),
+        dataset_name="Verifiers grounded planning",
+        compatibility=load_verifiers_compatibility(),
+    )
     tasks: list[PlanningTask] = []
     for row in task_rows:
         context: list[ContextBlock] = []
@@ -268,6 +283,8 @@ def run_planning_suite(
         "missing_critical_file_rate": round(sum(1 for row in rows if row["file_recall"] < 1.0) / len(rows), 3) if rows else 0.0,
         "results": rows,
     }
+    if tasks:
+        summary["metadata"] = verifiers_report_metadata(tasks[0].repo_root)
     if output_path is not None:
         (output_path / "summary.json").write_text(json.dumps(summary, indent=2))
         with (output_path / "per_case.jsonl").open("w") as handle:
@@ -301,7 +318,10 @@ def main() -> None:
     args = parser.parse_args()
 
     provider = resolve_provider_choice(args.provider, args.openai)
-    tasks = load_planning_tasks(args.repo_root, args.tasks_path or None)[: args.limit]
+    try:
+        tasks = load_planning_tasks(args.repo_root, args.tasks_path or None)[: args.limit]
+    except DatasetCompatibilityError as exc:
+        parser.exit(2, f"error: {exc}\n")
     summary = run_planning_suite(
         tasks,
         budget=args.budget,

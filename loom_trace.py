@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from nanorlm import MemoryItem, RLMResult, memory_item_record
+from artifacts import write_text_atomic
+from nanorlm import MemoryItem, RLMResult, memory_item_record, normalize_text
 
 
 SCHEMA_VERSION = "0.1"
@@ -103,10 +104,11 @@ def build_loom_trace(
     expected_answer: str,
     expected_provenance: Sequence[str],
     started_at: datetime | None = None,
+    task_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build one complete, cross-reference-safe LOOM v0.1 event stream."""
 
-    task_id = _stable_id("task", {"dataset": dataset, "case": case_name, "query": query})
+    task_id = task_id or _stable_id("task", {"dataset": dataset, "case": case_name, "query": query})
     trace_started_at = started_at or datetime.now(timezone.utc)
     if trace_started_at.tzinfo is None:
         trace_started_at = trace_started_at.replace(tzinfo=timezone.utc)
@@ -349,7 +351,10 @@ def build_loom_trace(
             "memory_budget_tokens": budget_tokens,
             "expected_answer": expected_answer,
             "expected_provenance": list(expected_provenance),
-            "exact_match": float(answer_score),
+            "containment_accuracy": float(answer_score),
+            "exact_match": float(normalize_text(result.answer) == normalize_text(expected_answer)),
+            "completed": result.completed,
+            "stop_reasons": result.stop_reasons,
             "provenance_score": float(provenance_score),
             "answer_artifact_id": answer_artifact_id,
         },
@@ -362,8 +367,5 @@ def write_loom_trace(path: str | Path, events: Sequence[Mapping[str, Any]]) -> P
 
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        "".join(f"{json.dumps(dict(event), sort_keys=True)}\n" for event in events),
-        encoding="utf-8",
-    )
+    write_text_atomic(output_path, "".join(f"{json.dumps(dict(event), sort_keys=True)}\n" for event in events))
     return output_path

@@ -10,6 +10,35 @@ The live `ROADMAP.md` is gitignored on purpose so contributors can keep private 
 
 ## Current Milestones
 
+### Gate A. Newcomer Readiness
+
+Status: **Closed — 2026-07-28**
+
+The detailed, prioritized backlog is tracked in
+[`ONBOARDING_AUDIT_TODOS.md`](ONBOARDING_AUDIT_TODOS.md).
+
+Completed on `master`:
+
+- [x] restore pinned external Codebase QA and grounded-planning paths,
+- [x] ship the declared MIT license and metadata guard,
+- [x] make the smallest example visibly exercise recursion and retention,
+- [x] enforce the clone-only source-checkout packaging boundary,
+- [x] make report bundles explicit in the golden path,
+- [x] lock the pytest verification dependency,
+- [x] add a single contributor entrypoint,
+- [x] complete the command, prerequisite, link, and scope-language pass.
+
+Completion evidence:
+
+- [x] run and record the literal clean-checkout newcomer gate, including pinned external QA and
+      planning paths, in
+      [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+
+The acceptance run tested `master` at `4467fc2` from a genuinely fresh checkout. It recorded the
+full newcomer and pinned external paths without hidden setup or any documented-path workaround. No
+model provider was configured, and realized API spend was $0. Later roadmap gates and release
+claims remain independent.
+
 ### 0. Integrity Pass
 
 - remove benchmark-specific shortcuts from backends and policies,
@@ -57,7 +86,10 @@ The live `ROADMAP.md` is gitignored on purpose so contributors can keep private 
 
 The repo is ready for a bigger `v1.0` push when:
 
+- the literal newcomer path passes from a clean checkout,
+- the public license and packaging intent are unambiguous,
+- the pinned external benchmark and planning paths pass their compatibility preflight,
 - the headline results are honest,
 - at least one headline result comes from an established benchmark,
 - the retention story generalizes beyond synthetic markers,
-- the core is still readable in one sitting.
+- the documented minimum reading path still explains the core end to end.

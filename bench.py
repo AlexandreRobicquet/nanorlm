@@ -5,6 +5,7 @@ import hashlib
 import json
 import random
 import statistics
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -13,6 +14,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 from inspection_replay import InspectionReplayBackend, REPLAY_MODES
 from loom_trace import build_loom_trace, write_loom_trace
+from artifacts import artifact_path
+
 from nanorlm import (
     ContextBlock,
     RLM,
@@ -48,6 +51,7 @@ DEFAULT_POLICIES = [
     "pairwise_tournament",
     "learned_retention",
 ]
+VERIFIERS_COMPATIBILITY_PATH = ROOT / "examples" / "verifiers_compatibility.json"
 
 
 @dataclass(slots=True)
@@ -60,6 +64,125 @@ class BenchmarkExample:
     expected_provenance: list[str] = field(default_factory=list)
     task_class: str = "general"
     metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
+
+
+def input_fingerprint(example: BenchmarkExample, dataset: str) -> str:
+    """Input identity excludes gold answers and binds the actual context."""
+    payload = {"dataset": dataset, "name": example.name, "query": example.query,
+               "task_class": example.task_class,
+               "source_index": example.metadata.get("source_index"),
+               "context": [{"name": block.name, "text": block.text} for block in example.context]}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return digest
+
+
+def task_identity(example: BenchmarkExample, dataset: str) -> str:
+    return example.task_id or f"task_{input_fingerprint(example, dataset)[:24]}"
+
+
+def case_artifact_stem(example: BenchmarkExample, dataset: str, index: int) -> str:
+    # Never interpret display names or caller task IDs as path components.
+    digest = hashlib.sha256((task_identity(example, dataset) + input_fingerprint(example, dataset)).encode()).hexdigest()[:16]
+    return f"{slugify(example.name)[:64]}-{digest}-{index:04d}"
+
+
+class DatasetCompatibilityError(ValueError):
+    """Raised when a repository-backed dataset cannot load its required files."""
+
+
+def load_verifiers_compatibility(path: str | Path | None = None) -> dict[str, str]:
+    manifest_path = Path(path) if path else VERIFIERS_COMPATIBILITY_PATH
+    payload = json.loads(manifest_path.read_text())
+    required = ("name", "url", "revision", "default_checkout")
+    missing = [key for key in required if not isinstance(payload.get(key), str) or not payload[key].strip()]
+    if missing:
+        raise ValueError(
+            f"{manifest_path} is missing compatibility field(s): {', '.join(sorted(missing))}"
+        )
+    return {key: str(payload[key]) for key in required}
+
+
+def dataset_required_paths(rows: Sequence[dict[str, Any]], path_field: str) -> list[str]:
+    required: set[str] = set()
+    for index, row in enumerate(rows):
+        paths = row.get(path_field)
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) and path for path in paths):
+            raise ValueError(f"dataset row {index + 1} must define a non-empty string list in {path_field!r}")
+        required.update(paths)
+    return sorted(required)
+
+
+def _pinned_verifiers_instructions(compatibility: dict[str, str]) -> list[str]:
+    checkout = compatibility["default_checkout"]
+    return [
+        f"git init {checkout}",
+        f"git -C {checkout} remote add origin {compatibility['url']}",
+        f"git -C {checkout} fetch --depth 1 origin {compatibility['revision']}",
+        f"git -C {checkout} checkout --detach FETCH_HEAD",
+    ]
+
+
+def validate_repository_paths(
+    repo_root: str | Path,
+    required_paths: Sequence[str],
+    *,
+    dataset_name: str,
+    compatibility: dict[str, str] | None = None,
+) -> None:
+    root = Path(repo_root)
+    missing_paths = sorted(path for path in set(required_paths) if not (root / path).is_file())
+    if root.is_dir() and not missing_paths:
+        return
+
+    lines = [f"{dataset_name} compatibility preflight failed for {root}."]
+    if not root.is_dir():
+        lines.append("The repository root does not exist or is not a directory.")
+    if missing_paths:
+        lines.append(f"Missing {len(missing_paths)} required file(s):")
+        lines.extend(f"  - {path}" for path in missing_paths)
+    if compatibility:
+        lines.extend(
+            [
+                f"Use the verified {compatibility['name']} revision {compatibility['revision']}:",
+                *[f"  {command}" for command in _pinned_verifiers_instructions(compatibility)],
+            ]
+        )
+    else:
+        lines.append("Provide --repo-root pointing to a compatible repository checkout.")
+    raise DatasetCompatibilityError("\n".join(lines))
+
+
+def _git_revision(repo_root: str | Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path(repo_root)), "rev-parse", "HEAD"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and revision else None
+
+
+def verifiers_report_metadata(repo_root: str | Path) -> dict[str, Any]:
+    compatibility = load_verifiers_compatibility()
+    revision = _git_revision(repo_root)
+    return {
+        "source_repository": {
+            "name": compatibility["name"],
+            "url": compatibility["url"],
+            "repo_root": str(Path(repo_root).resolve()),
+            "revision": revision,
+            "compatibility_revision": compatibility["revision"],
+            "matches_compatibility_revision": (
+                revision == compatibility["revision"] if revision is not None else None
+            ),
+        }
+    }
 
 
 def extract_anchor_blocks(path: str | Path, anchors: Sequence[str], window: int = 6) -> list[ContextBlock]:
@@ -689,11 +812,19 @@ def load_curated_dataset(
     *,
     distractors: int = 4,
     seed: int = 0,
+    dataset_name: str = "curated dataset",
+    compatibility: dict[str, str] | None = None,
 ) -> list[BenchmarkExample]:
     rng = random.Random(seed)
     repo_root = Path(repo_root)
     dataset_path = Path(dataset_path)
     rows = json.loads(dataset_path.read_text())
+    validate_repository_paths(
+        repo_root,
+        dataset_required_paths(rows, "provenance"),
+        dataset_name=dataset_name,
+        compatibility=compatibility,
+    )
     pool = sorted(path for path in repo_root.rglob("*") if path.is_file() and ".git" not in path.parts)
     examples: list[BenchmarkExample] = []
     for row in rows:
@@ -726,6 +857,8 @@ def load_verifiers_30(repo_root: str | Path, dataset_path: str | Path | None = N
         dataset_path=dataset_path or ROOT / "examples" / "verifiers_30.json",
         distractors=distractors,
         seed=seed,
+        dataset_name="Verifiers-30",
+        compatibility=load_verifiers_compatibility(),
     )
 
 
@@ -735,6 +868,7 @@ def load_verifiers_smoke(repo_root: str | Path, dataset_path: str | Path | None 
         dataset_path=dataset_path or ROOT / "tests" / "fixtures" / "verifiers_smoke.json",
         distractors=distractors,
         seed=seed,
+        dataset_name="Verifiers smoke fixture",
     )
 
 
@@ -932,7 +1066,7 @@ def run_policy_case(
             inspection_replay_path,
             mode=inspection_replay_mode,
             namespace={
-                "engine": "nanorlm-inspect-v1",
+                "engine": "nanorlm-inspect-v2",
                 "provider": provider,
                 "model": model,
                 "base_url_sha256": hashlib.sha256((base_url or "").encode("utf-8")).hexdigest(),
@@ -973,6 +1107,8 @@ def run_dataset(
     cache_preserve_usage: bool = False,
     cache_namespace: str = "",
 ) -> dict[str, Any]:
+    if policy not in DEFAULT_POLICIES:
+        raise ValueError(f"unknown retention policy: {policy}")
     provider = resolve_provider_arg(provider, use_openai_backend)
     validate_benchmark_cost_support(provider, model, base_url)
     results: list[dict[str, Any]] = []
@@ -981,13 +1117,24 @@ def run_dataset(
     trace_root: Path | None = None
     loom_trace_root: Path | None = None
     if output_dir is not None:
-        trace_root = Path(output_dir) / "trace_examples" / policy
+        trace_root = artifact_path(output_dir, "trace_examples", policy)
         trace_root.mkdir(parents=True, exist_ok=True)
-        loom_trace_root = Path(output_dir) / "loom_traces" / policy
+        loom_trace_root = artifact_path(output_dir, "loom_traces", policy)
         loom_trace_root.mkdir(parents=True, exist_ok=True)
     if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost and examples:
         stop_reason = "cost_cap"
-    for example in examples:
+    artifact_stems = [case_artifact_stem(example, dataset_name, index) for index, example in enumerate(examples)]
+    # Validate all destinations before the first model call.
+    for stem in artifact_stems:
+        for root, suffixes in ((trace_root, (".jsonl", ".tree.txt")), (loom_trace_root, (".jsonl",))):
+            if root is not None:
+                for suffix in suffixes:
+                    destination = artifact_path(root, stem + suffix)
+                    if destination.exists():
+                        raise ValueError(f"trace artifact already exists: {destination}; use a fresh output directory")
+    for case_index, example in enumerate(examples):
+        artifact_stem = artifact_stems[case_index]
+        task_id = task_identity(example, dataset_name)
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             stop_reason = "cost_cap"
             break
@@ -995,14 +1142,12 @@ def run_dataset(
         started = time.perf_counter()
         inspection_replay_path: str | None = None
         if inspection_replay_dir is not None and policy != "direct_full_context":
-            case_digest = hashlib.sha256(
-                f"{dataset_name}\0{example.name}\0{example.query}".encode("utf-8")
-            ).hexdigest()[:12]
-            inspection_replay_path = str(
-                Path(inspection_replay_dir)
-                / slugify(dataset_name)
-                / f"{slugify(example.name)}-{case_digest}.json"
-            )
+            capture_config = {"task_id": task_id, "provider": provider, "model": model,
+                              "base_url": base_url, "budget": budget, "depth": max_depth,
+                              "max_output_tokens": max_output_tokens, "seed": seed, "version": 2}
+            case_digest = hashlib.sha256(json.dumps(capture_config, sort_keys=True).encode()).hexdigest()[:16]
+            inspection_replay_path = str(artifact_path(
+                inspection_replay_dir, slugify(dataset_name), f"{artifact_stem}-{case_digest}.json"))
         result = run_policy_case(
             example,
             policy,
@@ -1032,13 +1177,18 @@ def run_dataset(
             answer_accuracy=answer_accuracy,
             provenance_score=provenance_score,
             compactness=compactness,
-            latency_ms=elapsed_ms,
+            latency_ms=0.0,
             cost_estimate=result.cost_estimate,
         )
         row = {
             "dataset": dataset_name,
             "seed": seed,
             "name": example.name,
+            "task_id": task_id,
+            "artifact_stem": artifact_stem,
+            "completed": result.completed,
+            "stop_reasons": result.stop_reasons,
+            "reward_contract": "quality_cost_v2_no_wall_time",
             "task_class": example.task_class,
             "policy": policy,
             "retention_judge": retention_judge,
@@ -1071,8 +1221,8 @@ def run_dataset(
             "stage_budgets": result.stage_budgets,
         }
         if trace_root is not None:
-            write_trace(result, trace_root / f"{example.name}.jsonl")
-            result.trace.write_tree(trace_root / f"{example.name}.tree.txt")
+            write_trace(result, artifact_path(trace_root, artifact_stem + ".jsonl"))
+            result.trace.write_tree(artifact_path(trace_root, artifact_stem + ".tree.txt"))
         if loom_trace_root is not None:
             loom_events = build_loom_trace(
                 result,
@@ -1089,8 +1239,9 @@ def run_dataset(
                 expected_answer=example.answer,
                 expected_provenance=example.expected_provenance,
                 started_at=case_started_at,
+                task_id=task_id,
             )
-            write_loom_trace(loom_trace_root / f"{example.name}.jsonl", loom_events)
+            write_loom_trace(artifact_path(loom_trace_root, artifact_stem + ".jsonl"), loom_events)
         results.append(row)
 
     def mean(key: str) -> float:
@@ -1133,9 +1284,9 @@ def run_dataset(
         "initial_cost_estimate": round(initial_cost_estimate, 6),
         "final_cumulative_cost_estimate": cumulative_cost,
         "max_estimated_cost": max_estimated_cost,
-        "completed": stop_reason is None,
-        "stop_reason": stop_reason,
-        "last_completed_case": results[-1]["name"] if results else None,
+        "completed": stop_reason is None and all(row["completed"] for row in results),
+        "stop_reason": stop_reason or ("incomplete_context" if any(not row["completed"] for row in results) else None),
+        "last_completed_case": next((row["name"] for row in reversed(results) if row["completed"]), None),
         "results": results,
     }
     return summary
@@ -1347,6 +1498,7 @@ def write_report_bundle(
     summaries: Sequence[dict[str, Any]],
     curves: dict[str, Any],
     command: str,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1359,13 +1511,15 @@ def write_report_bundle(
         "insights": insights,
         "summaries": list(summaries),
     }
-    (output_path / "summary.json").write_text(json.dumps(summary_payload, indent=2))
-    with (output_path / "per_case.jsonl").open("w") as handle:
+    if metadata is not None:
+        summary_payload["metadata"] = metadata
+    artifact_path(output_path, "summary.json").write_text(json.dumps(summary_payload, indent=2))
+    with artifact_path(output_path, "per_case.jsonl").open("w") as handle:
         for summary in summaries:
             for row in summary["results"]:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
-    (output_path / "curves.json").write_text(json.dumps(curves, indent=2))
-    (output_path / "experiment_report.md").write_text(
+    artifact_path(output_path, "curves.json").write_text(json.dumps(curves, indent=2))
+    artifact_path(output_path, "experiment_report.md").write_text(
         format_experiment_report(
             dataset_name=dataset_name,
             summaries=summaries,
@@ -1671,7 +1825,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--budget", type=int, default=120)
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--repo-root", type=str, default="/tmp/nanorlm-verifiers")
-    parser.add_argument("--output-dir", type=str, default="")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="",
+        metavar="DIR",
+        help=(
+            "Write the report bundle to DIR. Omit for stdout-only output; "
+            "no report bundle is written."
+        ),
+    )
     parser.add_argument("--policies", type=str, default=",".join(DEFAULT_POLICIES))
     parser.add_argument("--curve-budgets", type=str, default="")
     parser.add_argument("--curve-depths", type=str, default="")
@@ -1725,6 +1888,7 @@ def main() -> None:
     provider = resolve_provider_choice(args.provider, args.openai)
     policies = parse_csv_strings(args.policies)
     cache_dir = None if args.no_cache else args.cache_dir or None
+    report_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
     try:
         validate_benchmark_cost_support(provider, args.model, args.base_url or None)
         examples = build_dataset(
@@ -1735,14 +1899,17 @@ def main() -> None:
             dataset_path=args.dataset_path or None,
             start_index=args.start_index,
         )
+    except DatasetCompatibilityError as exc:
+        parser.exit(2, f"error: {exc}\n")
     except ValueError as exc:
         parser.error(str(exc))
+    report_metadata = verifiers_report_metadata(args.repo_root) if args.dataset == "verifiers_30" else None
     summaries = policy_sweep(
         examples,
         policies,
         budget=args.budget,
         max_depth=args.depth,
-        output_dir=args.output_dir or None,
+        output_dir=report_dir,
         provider=provider,
         model=args.model,
         base_url=args.base_url or None,
@@ -1793,9 +1960,9 @@ def main() -> None:
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
-    if args.output_dir:
+    if report_dir is not None:
         write_report_bundle(
-            args.output_dir,
+            report_dir,
             dataset_name=args.dataset,
             summaries=summaries,
             curves=curves,
@@ -1817,6 +1984,11 @@ def main() -> None:
                 f"--max-output-tokens {args.max_output_tokens}",
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),
+            metadata=report_metadata,
+        )
+        print(
+            f"Report bundle: {report_dir} "
+            "| first human-readable artifact: experiment_report.md"
         )
 
 

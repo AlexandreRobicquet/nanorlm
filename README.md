@@ -2,7 +2,9 @@
 
 `nanoRLM` is a small, inference-only reference implementation for recursive long-context inspection with pluggable retention policies.
 
-The goal is not to be a framework. The goal is to be the repo you can read in one sitting and still get real recursive traces, provider-portable runs, and reproducible report bundles out of it.
+The goal is not to be a framework. The goal is a compact reference whose documented minimum
+reading path explains the core end to end while still producing real recursive traces,
+provider-portable runs, and reproducible report bundles.
 
 ## What We Are Building
 
@@ -27,22 +29,40 @@ Modern long-context systems still fail in a very specific way: they look at ever
 
 ## Quickstart With `uv`
 
-This repo is meant to stay easy to run from a fresh machine with `uv`.
+`nanoRLM` is a clone-only reference repository. Run it from a source checkout; a
+pip-installed library and an installed public API are not supported. The import examples below
+work because the checkout root is the active working directory.
+
+The repository is meant to stay easy to run from a fresh machine with `uv`.
+Install `uv` with its
+[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+before running the first command.
 
 If you are learning the repo day to day, use this flow first:
+
+The initial `uv sync` may download the exact locked tools and therefore needs package-network
+access on an empty machine; it needs no account credential and incurs no model API cost. Every test
+and benchmark step after that sync is offline. The stdout-only smoke writes nothing; the dossier and
+learned phases write small JSON, JSONL, Markdown, and trace bundles only under the named ignored
+`outputs/` roots. The fixed limits make this a short local workflow, although exact runtime and
+trace size vary by machine.
 
 ```bash
 uv sync
 uv run python --version
 uv run python -m unittest discover -s tests -v
 uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
-uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4
-uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4
+uv run python examples/run_dossiers.py --limit 4 --budget 80 --depth 4 --output-dir outputs/quickstart/dossierbench
+uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 4 --learned-eval-limit 4 --output-root outputs/e2e --run-id quickstart-learned
 ```
+
+The `verifiers_smoke` command intentionally omits `--output-dir`: it prints a policy table and
+writes no report bundle. The dossier and e2e commands persist evidence at the paths named above.
 
 The repo pins Python in [`.python-version`](.python-version), keeps project metadata in [`pyproject.toml`](pyproject.toml), and resolves the environment through [`uv.lock`](uv.lock).
 
 For the repo-specific mental model, exact smoke commands, and a short cheat sheet, see [UV.md](UV.md).
+To make a change, start with the one-page [contributor guide](CONTRIBUTING.md).
 
 ## Tiny Example
 
@@ -50,28 +70,70 @@ For the repo-specific mental model, exact smoke commands, and a short cheat shee
 from nanorlm import ContextBlock, RLM, RLMConfig
 
 context = [
-    ContextBlock(name="incident-a.txt", text="The API gateway rollout is blocked by a stale endpoint registry cache."),
-    ContextBlock(name="incident-b.txt", text="Reloading the registry and invalidating the cache unblocks the rollout."),
-    ContextBlock(name="incident-c.txt", text="The infra team owns the fix and plans the patch after the next deploy window."),
+    ContextBlock(
+        name="incident-a.txt",
+        text="Deployment validation says the API gateway rollout is blocked by a "
+        "stale endpoint registry cache from the previous release; the new gateway "
+        "binary passed all of its health checks.",
+    ),
+    ContextBlock(
+        name="incident-b.txt",
+        text="The rollout can proceed by reloading the endpoint registry and "
+        "invalidating the cache before the gateway reads route metadata again, then "
+        "rerunning deployment validation against every refreshed endpoint.",
+    ),
+    ContextBlock(
+        name="incident-c.txt",
+        text="The observability team completed its dashboard migration and archived "
+        "the old alert definitions after confirming that historical charts and "
+        "service-level panels render correctly in every production region.",
+    ),
+    ContextBlock(
+        name="incident-d.txt",
+        text="A separate storage review recommends revisiting backup retention next "
+        "quarter, after capacity forecasts, recovery drills, and vendor pricing "
+        "have been updated by the infrastructure finance group.",
+    ),
 ]
 
 config = RLMConfig(
     model="demo/heuristic",
     provider="heuristic",
     max_depth=4,
-    memory_budget_tokens=60,
+    memory_budget_tokens=120,
     retention_policy="pairwise_tournament",
     seed=0,
 )
 
 result = RLM(config).completion(
-    "What is blocking the rollout, and what change fixes it?",
+    (
+        "What blocks the API gateway rollout, and how should the endpoint "
+        "registry and cache be refreshed to fix it?"
+    ),
     context,
 )
 
 print(result.answer)
 print(result.trace.tree)
+print("retained:", sorted(item.provenance for item in result.kept_items))
+print("dropped:", sorted(item["provenance"] for item in result.drop_reasons))
+print("max memory depth:", result.retention_stats["max_memory_depth"])
 ```
+
+Expected output (abridged):
+
+```text
+... stale endpoint registry cache ...
+... reloading the endpoint registry and invalidating the cache ...
+- [split] root split ...
+  - [split] root.0 split ...
+    - [inspect] root.0.0 leaf ...
+retained: ['incident-a.txt', 'incident-b.txt']
+dropped: ['incident-c.txt', 'incident-d.txt']
+max memory depth: 2
+```
+
+The root context and both of its halves exceed the engine's 64-token leaf floor, so the run creates four depth-2 leaf memories; the 120-token budget then keeps the complementary blocker and fix while dropping both distractors.
 
 `provider` selects `heuristic`, `openai_compatible`, `anthropic`, or `auto`. `base_url` is optional and defaults to the right endpoint for the chosen network provider.
 
@@ -86,6 +148,19 @@ print(result.trace.tree)
 - `drop_reasons`
 - `per_step_budget`
 - `retention_decisions`, with the complete candidate set, selected ranks, and budget for each retention step
+- `completed` and `stop_reasons`, plus omitted source spans when traversal limits prevent full inspection
+
+Memory budgets apply to estimated summary tokens at every leaf and parent exit. The v2 estimate
+uses the larger of the word estimate and UTF-8 bytes / 4; it is not a provider tokenizer. Oversized
+individual inputs are split losslessly with source coordinates (`max_leaf_tokens`, default 2048).
+If the depth or step limit prevents inspection, the result explicitly reports incomplete coverage.
+Remote requests also enforce `max_input_tokens` (default 32768) using a conservative UTF-8 byte
+bound with prompt headroom. `max_output_tokens` is a separate provider-enforced response cap.
+
+Report filenames are opaque content-bound IDs; use each row's `artifact_stem` to locate its trace.
+Use a fresh output directory for each saved run. Quality rewards exclude observed wall time;
+`latency_ms` reports actual execution including cache/replay speedups. These contract changes
+invalidate comparison with older receipts unless those runs are regenerated.
 - `stage_budgets`, with prompt tokens, completion tokens, calls, and wall time for inspection and final-answer stages
 
 Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
@@ -100,6 +175,11 @@ The repo already emits a stable report bundle:
 - `experiment_report.md`
 - `trace_examples/`
 - `loom_traces/`, exported as standalone LOOM trace-contract v0.1 JSONL
+
+A direct `bench.py` run writes this bundle only when `--output-dir` is supplied. Omitting the flag
+selects intentional stdout-only smoke mode. For a saved run, open
+`<output-dir>/experiment_report.md` first; use `<output-dir>/summary.json` as the machine-readable
+entry point.
 
 That makes the current artifact useful for:
 
@@ -141,6 +221,8 @@ uv run python bench.py \
 Because replay preserves the captured usage ledger, `--max-estimated-cost` remains a conservative counterfactual allocation across policies; it is an upper bound on the API work actually issued by a replayed sweep, not a billing receipt.
 
 For a protocol-bound sweep, use `scripts/run_matched_retention.py`. It runs the five frozen policies task-by-task, selects the smallest structurally eligible budget from the development grid, reruns a fixed task in replay-only mode, validates every exported trace with a clean LOOM checkout, and writes a manifest, privacy audit, and checksums. Accuracy is deliberately excluded from budget selection.
+
+Matched bundle schema 0.2 binds the bounded-inspection v2 runtime contract. Task IDs are assigned before execution and checked against every exported trace; duplicate policy rows and incomplete traversal fail the evidence gate. Reservation formula v3 accounts for inspections created by splitting oversized source blocks. These changes require fresh same-commit training, offline and preflight bundles. The historical 96/128/192 development grid is retained; a failed eligibility gate remains a failed gate.
 
 The default protocol sweep uses `dossierbench`, `ruler_synthetic`, and `babilong_synthetic`. PairBench remains an engineering fixture and is not included in the protocol model or budget-selection evidence.
 
@@ -220,14 +302,40 @@ uv run loom-validate-trace /path/to/output/loom_traces/pairwise_tournament/examp
 - `config-resolution`
 - `implementation-location`
 
+Operational boundary: the shallow Git fetch is networked but uses a public repository and needs no
+model credential. The benchmark that follows is deterministic and has no API cost. The checkout's
+disk use and fetch time depend on the upstream repository and connection. The run uses a 30-row
+dataset across the documented policy and curve sweep, writes one report bundle under
+`outputs/verifiers_30/heuristic/`, and scales with the policy/curve grid as well as checkout size.
+
 Run it with:
 
 ```bash
-git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-uv run python examples/run_verifiers.py --repo-root /tmp/nanorlm-verifiers
+git init /tmp/nanorlm-verifiers
+git -C /tmp/nanorlm-verifiers remote add origin https://github.com/PrimeIntellect-ai/verifiers.git
+git -C /tmp/nanorlm-verifiers fetch --depth 1 origin 482e28ffa1f2613325867badaba4707b7c751d28
+git -C /tmp/nanorlm-verifiers checkout --detach FETCH_HEAD
+
+uv run python examples/run_verifiers.py \
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 30 \
+  --output-dir outputs/verifiers_30/heuristic
 ```
 
-The deterministic backend is only a smoke path here. The flagship use is to point the same engine at a real OpenAI-compatible model:
+This is the full 30-case benchmark. The CLI default remains a quick 10-case sample when `--limit` is omitted. The pinned revision is recorded alongside the actual checkout revision in generated `summary.json` metadata.
+The compatibility source of truth is `examples/verifiers_compatibility.json`. To check either dataset against a checkout without running benchmark policies:
+
+```bash
+uv run python scripts/check_verifiers_compatibility.py --repo-root /tmp/nanorlm-verifiers
+```
+
+The deterministic backend is only a smoke path here. The flagship use is to point the same engine at
+a real OpenAI-compatible model.
+
+Operational boundary: this command is networked, requires `OPENAI_API_KEY`, and writes both cached
+responses and a report bundle below `outputs/verifiers_30/`. Runtime depends on provider latency and
+rate limits. The `$5` estimate guard is enforced between cases, so the final completed case can move
+the estimate slightly beyond the nominal cap.
 
 ```bash
 export OPENAI_API_KEY=...
@@ -235,18 +343,27 @@ uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model gpt-4.1-mini \
   --base-url https://api.openai.com/v1 \
+  --cache-dir outputs/cache/openai-gpt-4.1-mini \
   --max-estimated-cost 5 \
-  --repo-root /tmp/nanorlm-verifiers
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 10 \
+  --output-dir outputs/verifiers_30/openai-gpt-4.1-mini
 ```
 
-For a local OpenAI-compatible endpoint such as Ollama:
+For a local OpenAI-compatible endpoint such as Ollama, start the server before running this command.
+It uses loopback networking, needs no hosted API credential, and incurs no hosted-model charge; the
+repository therefore applies no dollar guard. Output lands in
+`outputs/verifiers_30/local-qwen3-14b/`, while runtime and external model storage depend on the
+local server and hardware.
 
 ```bash
 uv run python examples/run_verifiers.py \
   --provider openai-compatible \
   --model qwen3:14b \
   --base-url http://localhost:11434/v1 \
-  --repo-root /tmp/nanorlm-verifiers
+  --repo-root /tmp/nanorlm-verifiers \
+  --limit 10 \
+  --output-dir outputs/verifiers_30/local-qwen3-14b
 ```
 
 The Anthropic Messages backend is implemented, but the benchmark harness currently rejects Anthropic and unknown remote models because report bundles include cost estimates and there is no checked-in pricing table for those models.
@@ -261,17 +378,30 @@ Portability limits:
 
 `examples/run_dossiers.py` is the main retention showcase: noisy incident, migration, and release-blocker dossiers where the answer depends on keeping complementary clues across recursive branches.
 
+This 12-case workflow is offline, deterministic, credential-free, and has no API cost. It is a
+bounded local run that writes one report bundle and its traces under `outputs/dossierbench/`; exact
+runtime and bundle size scale with the policy sweep, curve grid, and trace depth.
+
 ```bash
-uv run python examples/run_dossiers.py --limit 12 --budget 80 --depth 4
+uv run python examples/run_dossiers.py \
+  --limit 12 \
+  --budget 80 \
+  --depth 4 \
+  --output-dir outputs/dossierbench
 ```
 
 Treat dossier results as an internal synthetic regression surface, not as headline evidence of general long-context performance.
 
 ### 3. Learned Retention
 
-`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
+`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, and cost contract as evaluation; offline heuristic collection has zero model cost and records latency separately from quality reward. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
 Pairwise training requires `--training-source traces`, where candidates share an explicit retention decision. The legacy `--training-source blocks` ablation is only valid with `--objective pointwise`.
+
+These training and evaluation commands are offline, require no credentials, and incur no API cost.
+They write raw training rows, traces, a small model JSON, and evaluation bundles below
+`outputs/learned_retention/`. Treat them as a multi-step local workflow rather than a smoke test:
+runtime and disk use scale with datasets, seeds, and trace counts.
 
 ```bash
 uv run python scripts/train_learned_retention.py \
@@ -291,15 +421,33 @@ uv run python bench.py \
   --output-dir outputs/learned_retention/ruler_eval
 ```
 
-For the full offline workflow, use:
+For the full offline workflow, use the e2e form below. It needs no credentials or API budget and
+writes multiple report bundles plus `learned_retention_report.md` under
+`outputs/e2e/learned/`; runtime and disk use scale with the configured training and evaluation
+slices.
 
 ```bash
-uv run python scripts/run_benchmark_e2e.py --phases learned
+uv run python scripts/run_benchmark_e2e.py \
+  --phases learned \
+  --output-root outputs/e2e \
+  --run-id learned
 ```
 
-That phase trains on offline slices, evaluates on held-out seeds, and writes `learned_retention_report.md`. The report is allowed to be negative. A win requires a reward delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at least eight examples are acceptance-eligible. If the learned policy does not beat `pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for where hand-coded retention is still enough.
+That phase trains on offline slices and evaluates held-out seeds. A top-level e2e status of
+`passed` means the commands and artifact checks completed; it is not a positive research verdict.
+`learned_retention_report.md` may still report `negative_or_inconclusive`. A win requires a reward
+delta of at least `0.01` with no answer or provenance regression. Only completed, equal-size
+DossierBench, Verifiers-30, or explicitly supplied external RULER/BABILong comparisons with at
+least eight examples are acceptance-eligible. If the learned policy does not beat
+`pairwise_tournament` on at least two eligible slices, the bundle should be read as evidence for
+where hand-coded retention is still enough.
 
-To add distinct external RULER and BABILong exports to the same fixed-budget comparison, convert them to the external JSONL contract and pass both paths:
+To add distinct external RULER and BABILong exports to the same fixed-budget comparison, convert
+them to the external JSONL contract and pass both paths. After the input files and pinned Verifiers
+checkout exist, these commands are offline, credential-free, and have no API cost. Conversion
+outputs go to `/tmp`; the e2e run writes multiple bundles under
+`outputs/e2e/learned-external/`. Runtime and disk use depend on the supplied dataset sizes and
+checkout.
 
 ```bash
 uv run python scripts/prepare_ruler_external_jsonl.py \
@@ -316,56 +464,80 @@ uv run python scripts/run_benchmark_e2e.py \
   --phases learned \
   --learned-verifiers-repo-root /tmp/nanorlm-verifiers \
   --learned-ruler-path /tmp/nanorlm-ruler.jsonl \
-  --learned-babilong-path /tmp/nanorlm-babilong.jsonl
+  --learned-babilong-path /tmp/nanorlm-babilong.jsonl \
+  --output-root outputs/e2e \
+  --run-id learned-external
 ```
 
 The learned report labels these as `ruler_external` and `babilong_external`. They remain local evaluation slices, not leaderboard submissions.
 
-To include the full `Verifiers-30` curated slice in training or eval, first clone the external repo and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
+To include the full `Verifiers-30` curated slice in training or eval, first use the pinned shallow checkout above and pass it as `--repo-root`; for example add `verifiers_30` to `--datasets` when running `scripts/train_learned_retention.py`.
 
 ### 4. Grounded Planning
 
 `examples/run_planning.py` turns retained evidence into a read-only patch plan with ordered steps, citations, and explicit unknowns.
+
+Once the pinned Verifiers checkout exists, this 10-task workflow is offline, deterministic,
+credential-free, and has no API cost. It writes Markdown plans, JSON/JSONL summaries, and traces
+under `showcases/outputs/planning/`; runtime and disk use scale with checkout size and trace depth.
 
 ```bash
 uv run python examples/run_planning.py \
   --repo-root /tmp/nanorlm-verifiers \
   --limit 10 \
   --budget 140 \
-  --depth 2
+  --depth 2 \
+  --output-dir showcases/outputs/planning
 ```
 
 The planning suite writes markdown plans plus `summary.json` / `per_case.jsonl` under `showcases/outputs/planning/`.
+It uses the same compatibility preflight and records the pinned and actual Verifiers revisions in `summary.json`.
 
 ### 5. PairBench, NeedlePairs, RULER Synthetic, And BABILong Synthetic
 
 For the smallest synthetic sanity checks:
 
+All four commands are offline, deterministic, credential-free, and have no API cost. They are
+bounded smoke-class runs: three print tables only, while NeedlePairs writes its small report bundle
+under `examples/outputs/needlepairs/`.
+
 ```bash
 uv run python bench.py --dataset pairbench --limit 10 --budget 60 --depth 2
-uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3
+uv run python examples/run_needlepairs.py --limit 10 --budget 60 --depth 3 --output-dir examples/outputs/needlepairs
 uv run python bench.py --dataset ruler_synthetic --limit 10 --budget 90 --depth 4
 uv run python bench.py --dataset babilong_synthetic --limit 10 --budget 90 --depth 4
 ```
 
-These are useful for quick smoke tests, trace demos, and test-friendly regressions. The RULER and BABILong variants are synthetic task-shape slices for multi-hop, aggregation, and distributed-fact retention; they are not official benchmark results.
+The three direct `bench.py` commands intentionally use stdout-only smoke mode. The NeedlePairs
+wrapper is evidence-producing and writes to its named output directory. These runs are useful for
+quick smoke tests, trace demos, and test-friendly regressions. The RULER and BABILong variants are
+synthetic task-shape slices for multi-hop, aggregation, and distributed-fact retention; they are
+not official benchmark results.
 
 ### 6. External Benchmark JSONL
 
 `external_jsonl` is an adapter for externally generated long-context benchmark exports, including RULER-style JSONL rows. It lets the same nanoRLM harness run over established benchmark data without vendoring benchmark datasets into this repo.
 
+The runnable smoke below uses the two-row tracked fixture. It is offline, credential-free,
+API-cost-free, and stdout-only. Replace the fixture path and limit with your own normalized export
+when doing external-data work; runtime then scales with its row and context sizes.
+
 ```bash
 uv run python bench.py \
   --dataset external_jsonl \
-  --dataset-path /tmp/ruler-or-other-long-context-export.jsonl \
-  --limit 4 \
+  --dataset-path tests/fixtures/external-benchmark-mini.jsonl \
+  --limit 2 \
   --budget 80 \
   --depth 2
 ```
 
-This is adapter support, not a published benchmark result. Any README metrics from external data should include the exact generation source, command, model, and output bundle.
+This intentionally omits `--output-dir` and is a stdout-only adapter smoke run; it does not write a
+report bundle. This is adapter support, not a published benchmark result. Any README metrics from
+external data should include the exact generation source, command, model, and output bundle.
 
-For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape:
+For RULER-generated JSON or JSONL files, first normalize the export into the adapter shape. This
+conversion is offline, needs no credentials or API budget, writes the named `/tmp` JSONL file, and
+scales linearly with the input size.
 
 ```bash
 uv run python scripts/prepare_ruler_external_jsonl.py \
@@ -374,7 +546,12 @@ uv run python scripts/prepare_ruler_external_jsonl.py \
   --limit 12
 ```
 
-For a bounded OpenAI-compatible real-model run, use a cache directory plus a cost cap:
+For a bounded OpenAI-compatible real-model run, use a cache directory plus a cost cap. This command
+is networked and requires `OPENAI_API_KEY`. It writes cached responses under
+`outputs/cache/openai-gpt-5.4-mini/` and a report bundle under
+`outputs/real-runs/openai-ruler-small/`; runtime depends on model latency, context size, and rate
+limits. The `$20` guard is enforced between cases, so the final completed case may move the estimate
+slightly beyond the nominal cap.
 
 ```bash
 uv run python bench.py \
@@ -405,10 +582,15 @@ Small OpenAI-backed snapshots are tracked as mechanics and reproducibility artif
 
 ## Generate Assets
 
-Run a benchmark, then turn its saved report bundle into launch-ready figures:
+Run a benchmark, then turn its saved report bundle into launch-ready figures. Asset generation is
+offline, needs no credentials, and incurs no API cost. It reads an existing bundle and writes four
+small Markdown/SVG artifacts below `outputs/dossierbench/assets/`; runtime and disk use scale with
+the supplied traces and curves.
 
 ```bash
-uv run python showcases/generate_assets.py --report-dir outputs/dossierbench
+uv run python showcases/generate_assets.py \
+  --report-dir outputs/dossierbench \
+  --assets-dir outputs/dossierbench/assets
 ```
 
 This writes:
@@ -424,20 +606,46 @@ The showcase workflow is documented in [showcases/README.md](showcases/README.md
 
 Use the e2e runner when you want the repo checks, benchmark smoke paths, report bundles, and generated assets captured in one manifest:
 
+The default command is model/data-offline after the locked tools are synced, credential-free, and
+has no API cost. Its internal check repeats `uv sync --frozen`, which may need package-network
+access in an empty environment. It writes several report bundles, logs, a manifest, and generated
+assets under `outputs/e2e/default/`; expect a multi-step local workflow whose runtime and disk use
+scale with case counts and traces. A top-level `status: passed` establishes operational completion
+only, not a positive benchmark or policy verdict.
+
 ```bash
-uv run python scripts/run_benchmark_e2e.py
+uv run python scripts/run_benchmark_e2e.py \
+  --output-root outputs/e2e \
+  --run-id default
 ```
 
 By default this runs local checks, smoke benchmarks, synthetic benchmarks, the checked-in external JSONL fixture, and asset generation under `outputs/e2e/<run-id>/`.
 
-For repo-QA coverage against a local Verifiers checkout:
+For repo-QA coverage against a local Verifiers checkout, use the pinned shallow checkout from the
+Codebase QA section. After that networked fetch and the locked-tool sync, this e2e command is
+model/data-offline, needs no credentials, and has no API cost. Its internal frozen sync may still
+need the package network in an empty environment. It writes its manifest, logs, and bundles under
+`outputs/e2e/offline/`; runtime and disk use scale with the external checkout and bounded case
+counts.
 
 ```bash
-git clone --depth 1 https://github.com/PrimeIntellect-ai/verifiers.git /tmp/nanorlm-verifiers
-uv run python scripts/run_benchmark_e2e.py --phases offline --repo-root /tmp/nanorlm-verifiers
+uv run python scripts/run_benchmark_e2e.py \
+  --phases offline \
+  --repo-root /tmp/nanorlm-verifiers \
+  --output-root outputs/e2e \
+  --run-id offline
 ```
 
+The command name `offline` refers to model/network behavior during the run; it does not create or
+update the required checkout. A current-HEAD clone is intentionally not the reproducible
+compatibility target.
+
 For a bounded hosted-model run, first generate or provide an external benchmark JSONL file, then run only the real-model phase with an explicit cache:
+
+This phase is networked, requires `OPENAI_API_KEY`, and writes cached responses plus a report bundle
+under the named `outputs/` roots. Runtime depends on dataset size, model latency, and provider rate
+limits. The explicit `$20` estimate guard is enforced between cases, so a final completed case can
+move slightly past it.
 
 ```bash
 export OPENAI_API_KEY=...
@@ -445,10 +653,24 @@ uv run python scripts/run_benchmark_e2e.py \
   --phases real_model \
   --external-dataset-path /tmp/nanorlm-ruler-small.jsonl \
   --real-model gpt-4.1-mini \
-  --real-cache-dir outputs/cache/openai-gpt-4.1-mini
+  --real-cache-dir outputs/cache/openai-gpt-4.1-mini \
+  --real-max-estimated-cost 20 \
+  --output-root outputs/e2e \
+  --run-id real-model
 ```
 
 Hosted OpenAI-compatible runs fail fast when the model has no cost table entry or no API key. The cost cap is enforced between benchmark cases, not before each individual model call.
+
+## Minimum Reading Path
+
+To understand the core without reading every workflow and receipt:
+
+1. Read [`nanorlm.py`](nanorlm.py) for the recursive engine and result/trace contract.
+2. Read [`policies.py`](policies.py) for side-by-side retention behavior.
+3. Read `build_pairbench` in [`bench.py`](bench.py) as one concrete dataset builder.
+4. Inspect the saved tree in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
+5. Run the quickstart dossier command and open
+   `outputs/quickstart/dossierbench/experiment_report.md`.
 
 ## Repo Layout
 
@@ -468,8 +690,10 @@ Use [UV.md](UV.md#canonical-verification) as the canonical local verification pa
 
 GitHub Actions keeps PR checks fast:
 
-- `CI` runs `uv lock --check`, frozen sync, unit tests, and the compile check on Python 3.11 and 3.12.
-- `smoke` uses the same `uv` setup on Python 3.11, then runs the same core checks plus the deterministic PairBench and Verifiers smoke fixtures.
+- `CI` runs the lock and Markdown-link checks, frozen sync, stdlib unittest and locked pytest
+  suites, and compilation on Python 3.11 and 3.12.
+- `smoke` uses the same locked `uv` setup on Python 3.11, then runs unittest, compilation, and the
+  deterministic PairBench and Verifiers smoke fixtures.
 
 CI intentionally does not run real-model jobs, networked benchmark jobs, or full benchmark sweeps.
 
@@ -477,7 +701,7 @@ CI intentionally does not run real-model jobs, networked benchmark jobs, or full
 
 Implemented now:
 
-- small recursive inference engine with stable public API
+- small recursive inference engine with a stable source-checkout interface
 - five retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends
 - richer `RLMResult` metadata for retention analysis

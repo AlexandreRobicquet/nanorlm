@@ -110,9 +110,13 @@ class PairwiseTournamentPolicy(RetentionPolicy):
 
     def __init__(self, judge: Judge, seed: int = 0, rounds: int = 3) -> None:
         self.judge = judge
+        self.seed = seed
         self.random = random.Random(seed)
         self.rounds = rounds
         self._decision_candidates: list[MemoryItem] = []
+
+    def reset(self) -> None:
+        self.random.seed(self.seed)
 
     def decision_candidates(self) -> Sequence[MemoryItem]:
         return tuple(self._decision_candidates)

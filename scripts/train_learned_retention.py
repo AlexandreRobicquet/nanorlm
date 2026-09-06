@@ -394,21 +394,19 @@ def artifact_record(path: Path, output_dir: Path) -> dict[str, Any]:
 
 
 def repository_record() -> dict[str, Any]:
-    def run(*args: str) -> str:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        return result.stdout.strip() if result.returncode == 0 else ""
+    def run(*args: str) -> str | None:
+        try:
+            result = subprocess.run(["git", *args], cwd=ROOT, text=True,
+                                    capture_output=True, check=False)
+        except OSError:
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
 
     commit = run("rev-parse", "HEAD")
     status = run("status", "--porcelain")
     return {
-        "commit": commit,
-        "clean": bool(commit) and not bool(status),
+        "commit": commit or "",
+        "clean": bool(commit) and status is not None and not bool(status),
         "status_entries": len(status.splitlines()) if status else 0,
     }
 

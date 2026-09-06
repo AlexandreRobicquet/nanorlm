@@ -18,6 +18,8 @@ concurrency:
 jobs:
   tests:
     name: tests-${{ matrix.python-version }}
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -27,18 +29,19 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.7"
           enable-cache: true
+          prune-cache: true
 
       - name: Check lockfile
         run: uv lock --check
@@ -46,8 +49,17 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Run unit tests
+      - name: Confirm matrix Python
+        run: uv run python --version
+
+      - name: Check Markdown links
+        run: uv run python scripts/check_markdown_links.py
+
+      - name: Run stdlib unittest suite
         run: uv run python -m unittest discover -s tests -v
 
+      - name: Run locked pytest suite
+        run: uv run --frozen pytest
+
       - name: Verify core files compile
-        run: uv run python -m py_compile inspection_replay.py learned_retention.py loom_trace.py nanorlm.py policies.py bench.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py scripts/run_matched_retention.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py
+        run: uv run python -m py_compile artifacts.py learned_retention.py nanorlm.py policies.py bench.py scripts/check_markdown_links.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py inspection_replay.py loom_trace.py scripts/run_matched_retention.py

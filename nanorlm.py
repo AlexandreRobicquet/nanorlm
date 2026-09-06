@@ -45,7 +45,9 @@ def openai_compatible_cache_key(
 
 
 def estimate_tokens(text: str) -> int:
-    return max(1, math.ceil(len(WORD_RE.findall(text)) * 1.3))
+    # A documented estimate, not a provider tokenizer. The byte floor also
+    # accounts for punctuation, long identifiers and non-ASCII text.
+    return max(1, math.ceil(len(WORD_RE.findall(text)) * 1.3), math.ceil(len(text.encode("utf-8")) / 4))
 
 
 def truncate_words(text: str, max_words: int) -> str:
@@ -97,19 +99,17 @@ def memory_identity(item: "MemoryItem") -> tuple[str, str, float]:
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
+    """Decode the first JSON object, honoring strings, escapes and nested values."""
     start = text.find("{")
     if start == -1:
         raise ValueError("response did not contain JSON")
-    depth = 0
-    for index in range(start, len(text)):
-        char = text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start : index + 1])
-    raise ValueError("response contained an unterminated JSON object")
+    try:
+        value, _ = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"response contained invalid JSON: {exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("response JSON must be an object")
+    return value
 
 
 def strip_code_fences(text: str) -> str:
@@ -337,6 +337,8 @@ class RLMResult:
     per_step_budget: list[dict[str, Any]] = field(default_factory=list)
     retention_decisions: list[dict[str, Any]] = field(default_factory=list)
     stage_budgets: dict[str, dict[str, int]] = field(default_factory=dict)
+    completed: bool = True
+    stop_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -351,12 +353,21 @@ class RLMConfig:
     max_output_tokens: int = 1024
     max_depth: int = 1
     max_steps: int = 64
+    max_leaf_tokens: int = 2048
+    max_input_tokens: int = 32768
     memory_budget_tokens: int = 320
     retention_policy: str = "pairwise_tournament"
     retention_judge: Literal["backend", "heuristic"] = "backend"
     retention_model_path: str | None = None
     sandbox: str | None = None
     seed: int = 0
+
+    def __post_init__(self) -> None:
+        for name, minimum in (("max_depth", 0), ("max_steps", 1), ("memory_budget_tokens", 0),
+                              ("max_leaf_tokens", 1), ("max_input_tokens", 1), ("max_output_tokens", 1)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer >= {minimum}")
 
 
 class RetentionPolicy(Protocol):
@@ -422,6 +433,52 @@ def materialize_context(context: str | Sequence[ContextBlock | dict[str, Any] | 
     return blocks
 
 
+def split_context_blocks(blocks: Sequence[ContextBlock], max_tokens: int) -> list[ContextBlock]:
+    """Split without losing text; preserve original character and line coordinates."""
+    if max_tokens < 1:
+        raise ValueError("max_tokens must be positive")
+    result: list[ContextBlock] = []
+    for block in blocks:
+        text = block.text
+        source_name = str(block.metadata.get("source_name", block.name))
+        source_hash = block.metadata.get("source_sha256") or hashlib.sha256(text.encode("utf-8")).hexdigest()
+        offset = int(block.metadata.get("char_start", 0))
+        first_line = int(block.metadata.get("line_start", 1))
+        start = 0
+        while start < len(text) or (not text and start == 0):
+            # The byte floor bounds the search and prevents quadratic scans of a
+            # huge single-line input. Character count never exceeds UTF-8 bytes.
+            low, high = start, min(len(text), start + max_tokens * 4)
+            while low < high:
+                mid = (low + high + 1) // 2
+                if estimate_tokens(text[start:mid]) <= max_tokens:
+                    low = mid
+                else:
+                    high = mid - 1
+            end = low
+            if end == start and text:
+                raise ValueError("max_tokens cannot accommodate one input character")
+            if end < len(text):
+                newline = text.rfind("\n", start, end)
+                if newline >= start + (end - start) // 2:
+                    end = newline + 1
+            chunk = text[start:end]
+            line_start = first_line
+            line_end = line_start + chunk.count("\n") - int(chunk.endswith("\n"))
+            metadata = {**block.metadata, "path": block.metadata.get("path", source_name),
+                        "source_name": source_name, "source_sha256": source_hash,
+                        "char_start": offset + start, "char_end": offset + end,
+                        "line_start": line_start, "line_end": max(line_start, line_end),
+                        "text_sha256": hashlib.sha256(chunk.encode("utf-8")).hexdigest()}
+            name = block.name if start == 0 and end == len(text) else f"{source_name}@{offset + start}:{offset + end}"
+            result.append(ContextBlock(name=name, text=chunk, metadata=metadata))
+            first_line += chunk.count("\n")
+            if end == len(text):
+                break
+            start = end
+    return result
+
+
 class HeuristicBackend:
     """Deterministic offline backend for tests, demos, and local development."""
 
@@ -455,7 +512,14 @@ class HeuristicBackend:
         for item in ranked[:3]:
             snippet = item.summary or item.answer_candidate
             if snippet:
-                lines.append(f"{item.provenance}: {snippet}")
+                provenance_prefix = f"{item.provenance}: "
+                provenance_parts = [part.strip() for part in item.provenance.split(",")]
+                has_provenance = snippet.startswith(provenance_prefix) or any(
+                    snippet.startswith(f"{part}: ") for part in provenance_parts if part and part != "..."
+                )
+                if not has_provenance:
+                    snippet = f"{provenance_prefix}{snippet}"
+                lines.append(snippet)
         answer = "\n".join(lines) if lines else "I do not have enough retained evidence."
         usage = Usage(prompt_tokens=sum(item.tokens for item in memory), completion_tokens=estimate_tokens(answer), calls=1)
         return AnswerResult(answer=answer, confidence=0.65 if memory else 0.1, usage=usage)
@@ -630,16 +694,27 @@ class StructuredOutputBackend:
     def _parse_json_payload(self, content: str, required_keys: Sequence[str]) -> dict[str, Any]:
         clean = strip_code_fences(content)
         data = validate_required_keys(extract_json_object(clean), required_keys)
-        confidence = data.get("confidence")
-        if confidence is not None:
-            float(confidence)
-        score = data.get("score")
-        if score is not None:
-            float(score)
+        for key, upper in (("confidence", 1.0), ("score", 10.0)):
+            if key in data:
+                value = data[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= upper:
+                    raise ValueError(f"{key} must be a finite number in [0, {upper:g}]")
+        for key in ("summary", "answer_candidate"):
+            if key in data and not isinstance(data[key], str):
+                raise ValueError(f"{key} must be a string")
+        if "evidence" in data and (not isinstance(data["evidence"], list) or not all(isinstance(item, str) for item in data["evidence"])):
+            raise ValueError("evidence must be a list of strings")
         winner = data.get("winner")
         if winner is not None and str(winner).lower() not in {"left", "right", "tie"}:
             raise ValueError("winner must be left, right, or tie")
         return data
+
+    def _validate_input(self, system_prompt: str, user_prompt: str) -> None:
+        # Each UTF-8 byte can consume a token. Include serialization/scaffolding
+        # headroom rather than presenting the word estimator as a tokenizer.
+        bound = len(system_prompt.encode("utf-8")) + len(user_prompt.encode("utf-8")) + 256
+        if bound > self.config.max_input_tokens:
+            raise ValueError(f"request input exceeds conservative max_input_tokens={self.config.max_input_tokens} (byte bound {bound})")
 
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         raise NotImplementedError
@@ -748,6 +823,7 @@ class OpenAICompatibleBackend(StructuredOutputBackend):
         return min(120.0, 5.0 * (2**attempt))
 
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        self._validate_input(system_prompt, user_prompt)
         base_url = (self.config.base_url or OPENAI_COMPATIBLE_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/chat/completions"
         payload = {
@@ -814,6 +890,7 @@ class AnthropicMessagesBackend(StructuredOutputBackend):
     anthropic_version = "2023-06-01"
 
     def _chat_text(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        self._validate_input(system_prompt, user_prompt)
         base_url = (self.config.base_url or ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/messages" if base_url.endswith("/v1") else f"{base_url}/v1/messages"
         payload = {
@@ -889,7 +966,10 @@ class RLM:
         self.random = random.Random(config.seed)
 
     def completion(self, query: str, context: str | Sequence[ContextBlock | dict[str, Any] | tuple[str, str]]) -> RLMResult:
-        blocks = materialize_context(context)
+        reset = getattr(self.policy, "reset", None)
+        if callable(reset):
+            reset()
+        blocks = split_context_blocks(materialize_context(context), self.config.max_leaf_tokens)
         recorder = TraceRecorder()
         usage = Usage()
         drop_reasons: list[dict[str, Any]] = []
@@ -898,6 +978,7 @@ class RLM:
         inspect_usage = Usage()
         inspect_wall_ms = [0.0]
         step_counter = [0]
+        omitted: list[dict[str, Any]] = []
         recorder.emit("inspect", 0, "root query", query=truncate_words(query, 16), blocks=len(blocks))
         kept_items = self._walk(
             query=query,
@@ -912,6 +993,7 @@ class RLM:
             retention_decisions=retention_decisions,
             inspect_usage=inspect_usage,
             inspect_wall_ms=inspect_wall_ms,
+            omitted=omitted,
         )
         answer_started = time.perf_counter()
         final = self.backend.answer(query, kept_items)
@@ -922,6 +1004,11 @@ class RLM:
         retention_stats = {
             "policy": self.policy.name,
             "steps_used": step_counter[0],
+            "input_blocks": len(blocks),
+            "omitted_blocks": omitted,
+            "inspected_blocks": len(blocks) - len(omitted),
+            "budget_unit": "estimated_summary_tokens_v2",
+            "completed": not omitted,
             "total_retention_steps": len(per_step_budget),
             "total_dropped_items": len(drop_reasons),
             "final_retained_items": len(kept_items),
@@ -944,6 +1031,8 @@ class RLM:
             drop_reasons=drop_reasons,
             per_step_budget=per_step_budget,
             retention_decisions=retention_decisions,
+            completed=not omitted,
+            stop_reasons=sorted({item["reason"] for item in omitted}),
             stage_budgets={
                 "inspect": usage_budget(inspect_usage, inspect_wall_ms[0]),
                 "final_answer": usage_budget(final.usage, answer_wall_ms),
@@ -1033,11 +1122,20 @@ class RLM:
         retention_decisions: list[dict[str, Any]],
         inspect_usage: Usage,
         inspect_wall_ms: list[float],
+        omitted: list[dict[str, Any]],
     ) -> list[MemoryItem]:
-        step_counter[0] += 1
-        if step_counter[0] > self.config.max_steps:
-            recorder.emit("retain", depth, "max steps reached", kept=0)
+        if not blocks:
             return []
+        reason = None
+        if step_counter[0] >= self.config.max_steps:
+            reason = "max_steps"
+        elif depth >= self.config.max_depth and sum(block.tokens for block in blocks) > self.config.max_leaf_tokens:
+            reason = "max_depth"
+        if reason:
+            omitted.extend({"name": block.name, "reason": reason, "tokens": block.tokens, "source": block.metadata} for block in blocks)
+            recorder.emit("omitted", depth, reason, blocks=len(blocks))
+            return []
+        step_counter[0] += 1
         if self._is_leaf(blocks, depth):
             recorder.emit("inspect", depth, f"{branch} leaf", tokens=sum(block.tokens for block in blocks), blocks=len(blocks))
             inspect_started = time.perf_counter()
@@ -1054,8 +1152,9 @@ class RLM:
                     for block in blocks
                 }
             )
-            timestamp = time.time() + step_counter[0]
-            metadata = {**result.metadata, "source_paths": source_paths, "block_names": [block.name for block in blocks]}
+            timestamp = float(step_counter[0])
+            metadata = {**result.metadata, "source_paths": source_paths, "block_names": [block.name for block in blocks],
+                        "source_spans": [dict(block.metadata) for block in blocks], "evidence": list(result.evidence)}
             item = MemoryItem(
                 summary=result.summary,
                 provenance=provenance,
@@ -1068,7 +1167,8 @@ class RLM:
                 metadata=metadata,
                 score=0.0,
             )
-            return [item]
+            return self._retain(query, [item], depth, branch, recorder, usage, step_counter,
+                                drop_reasons, per_step_budget, retention_decisions)
 
         groups = self._split_blocks(blocks)
         recorder.emit("split", depth, f"{branch} split", groups=len(groups), blocks=len(blocks))
@@ -1090,98 +1190,119 @@ class RLM:
                     retention_decisions,
                     inspect_usage,
                     inspect_wall_ms,
+                    omitted,
                 )
             )
-            before = len(memory)
-            before_items = list(memory)
-            retention_started = time.perf_counter()
-            memory = self.policy.select(query, memory, self.config.memory_budget_tokens)
-            retention_wall_ms = (time.perf_counter() - retention_started) * 1000.0
-            retention_usage = Usage()
-            drain_usage = getattr(self.backend, "drain_usage", None)
-            if callable(drain_usage):
-                extra_usage = drain_usage()
-                usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
-                retention_usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
-            decision_candidates = getattr(self.policy, "decision_candidates", None)
-            evaluated_items = decision_candidates() if callable(decision_candidates) else ()
-            evaluated_by_identity = {memory_identity(item): item for item in evaluated_items}
-            kept_by_identity = {memory_identity(item): item for item in memory}
-            kept_ids = set(kept_by_identity)
-            selection_ranks = {memory_identity(item): index for index, item in enumerate(memory)}
-            dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
-            candidates = []
-            for item in before_items:
-                identity = memory_identity(item)
-                retained_item = kept_by_identity.get(identity)
-                recorded_item = retained_item or evaluated_by_identity.get(identity) or item
-                candidates.append(
-                    {
-                        **memory_item_record(recorded_item),
-                        "input_item": memory_item_record(item),
-                        "selected": retained_item is not None,
-                        "selection_rank": selection_ranks.get(identity),
-                    }
-                )
-            decision_index = len(retention_decisions)
-            retention_decisions.append(
+            memory = self._retain(query, memory, depth, branch, recorder, usage, step_counter,
+                                  drop_reasons, per_step_budget, retention_decisions)
+        return memory
+
+    def _retain(
+        self, query: str, memory: Sequence[MemoryItem], depth: int, branch: str,
+        recorder: TraceRecorder, usage: Usage, step_counter: list[int],
+        drop_reasons: list[dict[str, Any]], per_step_budget: list[dict[str, Any]],
+        retention_decisions: list[dict[str, Any]],
+    ) -> list[MemoryItem]:
+        before = len(memory)
+        before_items = [item.clone(tokens=estimate_tokens(item.summary)) for item in memory]
+        retention_started = time.perf_counter()
+        memory = list(self.policy.select(query, before_items, self.config.memory_budget_tokens))
+        valid_ids = {memory_identity(item) for item in before_items}
+        if any(memory_identity(item) not in valid_ids for item in memory):
+            raise ValueError("retention policy returned an unknown candidate")
+        if len({memory_identity(item) for item in memory}) != len(memory):
+            raise ValueError("retention policy returned duplicate candidates")
+        memory = [item.clone(tokens=estimate_tokens(item.summary)) for item in memory]
+        if sum(item.tokens for item in memory) > self.config.memory_budget_tokens:
+            raise ValueError("retention policy exceeded the memory budget")
+        retention_wall_ms = (time.perf_counter() - retention_started) * 1000.0
+        retention_usage = Usage()
+        drain_usage = getattr(self.backend, "drain_usage", None)
+        if callable(drain_usage):
+            extra_usage = drain_usage()
+            usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
+            retention_usage.add(extra_usage.prompt_tokens, extra_usage.completion_tokens, extra_usage.calls)
+        decision_candidates = getattr(self.policy, "decision_candidates", None)
+        evaluated_items = decision_candidates() if callable(decision_candidates) else ()
+        evaluated_by_identity = {memory_identity(item): item for item in evaluated_items}
+        kept_by_identity = {memory_identity(item): item for item in memory}
+        kept_ids = set(kept_by_identity)
+        selection_ranks = {memory_identity(item): index for index, item in enumerate(memory)}
+        dropped = [item for item in before_items if memory_identity(item) not in kept_ids]
+        candidates = []
+        for item in before_items:
+            identity = memory_identity(item)
+            retained_item = kept_by_identity.get(identity)
+            recorded_item = retained_item or evaluated_by_identity.get(identity) or item
+            candidates.append(
                 {
-                    "decision_index": decision_index,
-                    "step": step_counter[0],
-                    "depth": depth,
-                    "branch": branch,
-                    "policy": self.policy.name,
-                    "budget": self.config.memory_budget_tokens,
-                    "before_tokens": sum(item.tokens for item in before_items),
-                    "after_tokens": sum(item.tokens for item in memory),
-                    "budget_used": usage_budget(retention_usage, retention_wall_ms),
-                    "candidates": candidates,
+                    **memory_item_record(recorded_item),
+                    "input_item": memory_item_record(item),
+                    "selected": retained_item is not None,
+                    "selection_rank": selection_ranks.get(identity),
                 }
             )
-            step_budget = {
+        decision_index = len(retention_decisions)
+        retention_decisions.append(
+            {
                 "decision_index": decision_index,
                 "step": step_counter[0],
                 "depth": depth,
                 "branch": branch,
                 "policy": self.policy.name,
                 "budget": self.config.memory_budget_tokens,
-                "before_count": before,
-                "after_count": len(memory),
                 "before_tokens": sum(item.tokens for item in before_items),
                 "after_tokens": sum(item.tokens for item in memory),
+                "budget_used": usage_budget(retention_usage, retention_wall_ms),
+                "candidates": candidates,
             }
-            per_step_budget.append(step_budget)
-            for item in dropped:
-                drop_reasons.append(
-                    {
-                        "step": step_counter[0],
-                        "depth": depth,
-                        "branch": branch,
-                        "policy": self.policy.name,
-                        "reason": "policy_budget_trim",
-                        "provenance": item.provenance,
-                        "summary": truncate_words(item.summary, 18),
-                        "tokens": item.tokens,
-                    }
-                )
-            recorder.emit(
-                "retain",
-                depth,
-                f"{branch} policy={self.policy.name}",
-                before=before,
-                after=len(memory),
-                budget=self.config.memory_budget_tokens,
-                dropped=len(dropped),
-                kept_tokens=sum(item.tokens for item in memory),
+        )
+        step_budget = {
+            "decision_index": decision_index,
+            "step": step_counter[0],
+            "depth": depth,
+            "branch": branch,
+            "policy": self.policy.name,
+            "budget": self.config.memory_budget_tokens,
+            "before_count": before,
+            "after_count": len(memory),
+            "before_tokens": sum(item.tokens for item in before_items),
+            "after_tokens": sum(item.tokens for item in memory),
+        }
+        per_step_budget.append(step_budget)
+        for item in dropped:
+            drop_reasons.append(
+                {
+                    "step": step_counter[0],
+                    "depth": depth,
+                    "branch": branch,
+                    "policy": self.policy.name,
+                    "reason": "policy_budget_trim",
+                    "provenance": item.provenance,
+                    "summary": truncate_words(item.summary, 18),
+                    "tokens": item.tokens,
+                }
             )
+        recorder.emit(
+            "retain",
+            depth,
+            f"{branch} policy={self.policy.name}",
+            before=before,
+            after=len(memory),
+            budget=self.config.memory_budget_tokens,
+            dropped=len(dropped),
+            kept_tokens=sum(item.tokens for item in memory),
+        )
         return memory
 
     def _is_leaf(self, blocks: Sequence[ContextBlock], depth: int) -> bool:
         if depth >= self.config.max_depth:
             return True
+        total_tokens = sum(block.tokens for block in blocks)
+        if total_tokens > self.config.max_leaf_tokens:
+            return False
         if len(blocks) <= 1:
             return True
-        total_tokens = sum(block.tokens for block in blocks)
         return total_tokens <= max(64, self.config.memory_budget_tokens // 2)
 
     def _split_blocks(self, blocks: Sequence[ContextBlock]) -> list[list[ContextBlock]]:
@@ -1206,11 +1327,23 @@ class RLM:
 def load_text_blocks(path: str | Path, chunk_size_lines: int = 48) -> list[ContextBlock]:
     file_path = Path(path)
     text = file_path.read_text()
-    chunks = chunk_lines(text, max_lines=chunk_size_lines)
+    if chunk_size_lines < 1:
+        raise ValueError("chunk_size_lines must be positive")
+    lines = text.splitlines(keepends=True)
+    chunks = ["".join(lines[index:index + chunk_size_lines]) for index in range(0, len(lines), chunk_size_lines)] or [text]
     blocks = []
+    offset = 0
+    line_start = 1
+    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     for index, chunk in enumerate(chunks):
         suffix = f":{index + 1}" if len(chunks) > 1 else ""
-        blocks.append(ContextBlock(name=f"{file_path.name}{suffix}", text=chunk, metadata={"path": str(file_path)}))
+        metadata = {"path": str(file_path), "source_name": str(file_path),
+                    "source_sha256": source_hash,
+                    "char_start": offset, "char_end": offset + len(chunk), "line_start": line_start,
+                    "line_end": max(line_start, line_start + chunk.count("\n") - int(chunk.endswith("\n")))}
+        blocks.append(ContextBlock(name=f"{file_path.name}{suffix}", text=chunk, metadata=metadata))
+        offset += len(chunk)
+        line_start += chunk.count("\n")
     return blocks
 
 

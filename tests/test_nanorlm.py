@@ -83,7 +83,7 @@ class NanoRLMTests(unittest.TestCase):
                 model="demo/heuristic",
                 base_url="http://localhost:11434/v1",
                 max_depth=4,
-                memory_budget_tokens=60,
+                memory_budget_tokens=80,
                 retention_policy="pairwise_tournament",
                 seed=0,
             ),
@@ -92,7 +92,7 @@ class NanoRLMTests(unittest.TestCase):
         result = engine.completion("What is blocking the api gateway rollout?", context)
         self.assertIn("cache", result.answer.lower())
         self.assertIn("[split]", result.trace.tree)
-        self.assertLessEqual(sum(item.tokens for item in result.kept_items), 60)
+        self.assertLessEqual(sum(item.tokens for item in result.kept_items), engine.config.memory_budget_tokens)
         self.assertEqual(result.retention_stats["policy"], "pairwise_tournament")
         self.assertGreaterEqual(result.retention_stats["total_retention_steps"], 1)
         self.assertTrue(result.per_step_budget)
@@ -187,13 +187,13 @@ class NanoRLMTests(unittest.TestCase):
         self.assertTrue(result.retention_decisions)
         self.assertTrue(all(row["budget_used"]["calls"] == 0 for row in result.retention_decisions))
 
-    def test_heuristic_answer_uses_full_retained_summary(self) -> None:
+    def test_heuristic_answer_avoids_duplicate_provenance(self) -> None:
         backend = HeuristicBackend(seed=0)
         answer = backend.answer(
             "What is the root cause and file?",
             [
                 MemoryItem(
-                    summary="root cause is stale cache | file is verifiers/clients/config.py",
+                    summary="case.md: root cause is stale cache | file is verifiers/clients/config.py",
                     provenance="case.md",
                     raw_pointer="root",
                     tokens=12,
@@ -204,14 +204,38 @@ class NanoRLMTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertIn("stale cache", answer.answer)
-        self.assertIn("verifiers/clients/config.py", answer.answer)
+        self.assertEqual(
+            answer.answer,
+            "case.md: root cause is stale cache | file is verifiers/clients/config.py",
+        )
+
+    def test_heuristic_answer_recognizes_constituent_provenance(self) -> None:
+        backend = HeuristicBackend(seed=0)
+        answer = backend.answer(
+            "What is the root cause and file?",
+            [
+                MemoryItem(
+                    summary="case.md: root cause is stale cache | file is verifiers/clients/config.py",
+                    provenance="archive.md, case.md",
+                    raw_pointer="root",
+                    tokens=12,
+                    depth=1,
+                    timestamp=1.0,
+                    answer_candidate="root cause is stale cache",
+                    confidence=0.8,
+                )
+            ],
+        )
+        self.assertEqual(
+            answer.answer,
+            "case.md: root cause is stale cache | file is verifiers/clients/config.py",
+        )
 
     def test_pairbench_fixture_produces_meaningful_heuristic_answers(self) -> None:
         summary = run_dataset(
             build_pairbench(n=4, seed=0),
             "pairwise_tournament",
-            budget=60,
+            budget=100,
             max_depth=2,
             dataset_name="pairbench",
         )
@@ -474,6 +498,7 @@ class NanoRLMTests(unittest.TestCase):
                 summaries=summaries,
                 curves=curves,
                 command="python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2",
+                metadata={"source_repository": {"revision": "fixture-revision"}},
             )
             self.assertTrue((Path(tmpdir) / "summary.json").exists())
             self.assertTrue((Path(tmpdir) / "per_case.jsonl").exists())
@@ -484,10 +509,76 @@ class NanoRLMTests(unittest.TestCase):
             summary_payload = json.loads((Path(tmpdir) / "summary.json").read_text())
             self.assertIn("insights", summary_payload)
             self.assertEqual(summary_payload["insights"]["dataset"], "pairbench")
+            self.assertEqual(
+                summary_payload["metadata"]["source_repository"]["revision"],
+                "fixture-revision",
+            )
             report = (Path(tmpdir) / "experiment_report.md").read_text()
             self.assertIn("## Policy Ranking", report)
             self.assertIn("## Failure Clusters", report)
             self.assertIn("`pairwise_tournament`", report)
+
+    def test_cli_report_bundle_and_stdout_only_contract(self) -> None:
+        help_text = bench.build_parser().format_help()
+        self.assertIn("stdout-only", help_text)
+        self.assertIn("no report bundle is written", help_text)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_root = Path(tmpdir)
+            report_dir = temp_root / "unused" / ".." / "bundle"
+            argv = [
+                "bench.py",
+                "--dataset",
+                "pairbench",
+                "--limit",
+                "1",
+                "--budget",
+                "20",
+                "--depth",
+                "1",
+                "--policies",
+                "direct_full_context",
+                "--output-dir",
+                str(report_dir),
+            ]
+            saved_stdout = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv),
+                contextlib.redirect_stdout(saved_stdout),
+            ):
+                bench.main()
+
+            normalized_report_dir = report_dir.resolve()
+            for filename in [
+                "summary.json",
+                "per_case.jsonl",
+                "curves.json",
+                "experiment_report.md",
+            ]:
+                self.assertTrue((normalized_report_dir / filename).is_file(), filename)
+            self.assertTrue((normalized_report_dir / "trace_examples").is_dir())
+
+            report_line = next(
+                line
+                for line in saved_stdout.getvalue().splitlines()
+                if line.startswith("Report bundle: ")
+            )
+            path_text, artifact_text = report_line.removeprefix("Report bundle: ").split(
+                " | first human-readable artifact: ",
+                maxsplit=1,
+            )
+            self.assertEqual(Path(path_text), normalized_report_dir)
+            self.assertEqual(artifact_text, "experiment_report.md")
+
+            before_stdout_only = set(temp_root.rglob("*"))
+            stdout_only = io.StringIO()
+            with (
+                patch.object(sys, "argv", argv[:-2]),
+                contextlib.redirect_stdout(stdout_only),
+            ):
+                bench.main()
+            self.assertNotIn("Report bundle:", stdout_only.getvalue())
+            self.assertEqual(set(temp_root.rglob("*")), before_stdout_only)
 
     def test_policy_sweep_replays_leaf_inspections_across_policies(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
