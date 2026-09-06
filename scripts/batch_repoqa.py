@@ -48,6 +48,7 @@ class Transport:
         self.missing = False
 
     def chat(self, backend, system: str, user: str) -> dict:
+        backend._validate_input(system, user)
         body = {'model': backend.config.model,
                 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
                 'temperature': 0.0, 'max_completion_tokens': backend.config.max_output_tokens}

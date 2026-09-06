@@ -57,11 +57,11 @@ Report factual coverage, fully correct questions, citation support, median and
 tail latency, and total estimated cost separately, by strategy and repository.
 
 `scripts/grade_repoqa.py` applies the fixed checklist using
-`gpt-5.4-mini-2026-03-17`, with strategy names, costs and competing answers hidden from
+`gpt-5.4-2026-03-05`, with strategy names, costs and competing answers hidden from
 the grader. It receives each claim's actual cited excerpts and separate reference
 excerpts, and records per-fact and per-claim explanations. Grading starts after all
-answer runs finish. Its separate USD 4 cap and full usage receipts distinguish
-evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini) and [GPT-5.4 mini prices](https://developers.openai.com/api/docs/models/gpt-5.4-mini), checked on 2026-09-06. A subsequent assistant
+answer runs finish. Its separate USD 6 cap and full usage receipts distinguish
+evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini) , [GPT-5.4 prices](https://developers.openai.com/api/docs/models/gpt-5.4) and [GPT-5.4 mini prices](https://developers.openai.com/api/docs/models/gpt-5.4-mini), checked on 2026-09-06. A subsequent assistant
 audit of flagged cases and a spread of passing cases is recorded separately;
 this is **not human adjudication**. Both models share a provider, so correlated
 grading errors remain a limitation. The grader and its prompt are frozen before
@@ -78,6 +78,18 @@ It passed a synthetic calibration containing a correct claim, a wrong numeric
 value and an omitted fact before being applied to the unchanged 90 answer runs.
 The preceding failed calibration attempts are preserved; the first call's usage
 was not retained and has only its conservative USD 0.05 reservation bound.
+The second pass still produced one malformed receipt and repeated semantic
+errors, including treating supplied citations as missing and accepting explicitly
+contradicted facts. It too is entirely excluded from scoring (normal-price
+estimate USD 0.3072683; batch estimate USD 0.15363413).
+
+The final protocol uses GPT-5.4 with each claim's exact cited text attached to that
+claim, avoiding an opaque-ID lookup by the grader. It passed a harder synthetic
+calibration with conditional and behavioral contradictions plus an omitted fact.
+Its USD 6 conservative reservation is separate from the discarded grading passes;
+actual grading expense remains separate from all answer inference costs. GPT-5.4
+requests are restricted below its 272,000-token price tier by a conservative byte
+bound. The default reasoning setting is unchanged (none).
 These are grading changes, not answer or retrieval tuning on the held-out set.
 
 ```bash

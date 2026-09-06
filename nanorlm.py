@@ -21,6 +21,7 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 REMOTE_MODEL_PRICES = {
     ("openai_compatible", "gpt-5.4-mini"): (0.00000075, 0.0000045),
     ("openai_compatible", "gpt-5.4-mini-2026-03-17"): (0.00000075, 0.0000045),
+    ("openai_compatible", "gpt-5.4-2026-03-05"): (0.0000025, 0.000015),
     ("openai_compatible", "gpt-5-mini"): (0.00000025, 0.000002),
     ("openai_compatible", "gpt-4.1-mini"): (0.0000004, 0.0000016),
     ("openai_compatible", "gpt-4.1"): (0.000002, 0.000008),
@@ -715,6 +716,9 @@ class StructuredOutputBackend:
         return data
 
     def _validate_input(self, system_prompt: str, user_prompt: str) -> None:
+        # This priced snapshot is supported only below its long-context price tier.
+        if self.config.model == "gpt-5.4-2026-03-05" and len((system_prompt + user_prompt).encode("utf-8")) + 256 > 272_000:
+            raise ValueError("gpt-5.4 priced requests must stay below the 272000-token tier (conservative byte bound)")
         # Each UTF-8 byte can consume a token. Include serialization/scaffolding
         # headroom rather than presenting the word estimator as a tokenizer.
         bound = len(system_prompt.encode("utf-8")) + len(user_prompt.encode("utf-8")) + 256

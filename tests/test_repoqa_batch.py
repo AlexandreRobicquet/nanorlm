@@ -11,6 +11,12 @@ from scripts.batch_repoqa import Transport, submit
 
 
 class BatchTransportTests(unittest.TestCase):
+    def test_batch_planning_enforces_model_input_and_price_tier_boundaries(self):
+        backend = MeteredBackend(RLMConfig(model='gpt-5.4-2026-03-05', max_input_tokens=1_000_000), 6)
+        pending = {}
+        with self.assertRaisesRegex(ValueError, '272000-token tier'):
+            Transport('case','grade',{},pending).chat(backend,'grade','x'*272000)
+        self.assertEqual(pending,{})
     def test_queue_limit_preserves_unsubmitted_requests(self):
         requests = {str(index): {'custom_id': str(index), 'method': 'POST', 'url': '/v1/chat/completions',
                     'body': {'model': 'gpt-4.1-mini-2025-04-14', 'max_completion_tokens': 100,
