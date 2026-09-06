@@ -14,6 +14,27 @@ from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 from scripts.grade_repoqa import validate_grade
 
 
+def adjudicate_grade(original: dict, audit: dict, checksum: str, facts: int, claims: int) -> dict:
+    grade = json.loads(json.dumps(original))
+    if audit:
+        if audit.get('receipt_sha256') != checksum:
+            raise ValueError('audit is not bound to the original grading receipt')
+        if 'replacement_grade' in audit:
+            if not isinstance(audit.get('reason'), str) or not audit['reason'].strip():
+                raise ValueError('replacement adjudication requires an explanation')
+            grade = audit['replacement_grade']
+    if grade.get('requires_adjudication') or 'error' in grade:
+        raise ValueError('malformed grader response requires a complete replacement_grade in the audit')
+    validate_grade(grade, facts, claims)
+    for change in audit.get('changes', []):
+        kind = change['kind']
+        if kind not in {'facts','claims'} or not change.get('reason') or not 1 <= change['index'] <= len(grade[kind]):
+            raise ValueError('audit must name a valid fact/claim and explain the change')
+        grade[kind][change['index']-1].update(change['values'])
+    validate_grade(grade, facts, claims)
+    return grade
+
+
 def select_strategy(summaries: dict) -> tuple[list[str], str | None]:
     best = max(summaries, key=lambda key: (summaries[key]['fully_correct'], -summaries[key]['estimated_usd']))
     best_precision = summaries[best]['citation_precision'] or 0
@@ -57,13 +78,8 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         checksum = receipt.pop('sha256')
         if digest(receipt) != checksum or receipt['answer_sha256'] != file_hash(directory / 'answer.json'):
             raise ValueError('grader receipt/answer binding mismatch')
-        grade = receipt['grade']
-        for change in audits.get('cases', {}).get(row['directory'], {}).get('changes', []):
-            kind = change['kind']
-            if kind not in {'facts','claims'} or not change.get('reason'):
-                raise ValueError('audit must name a fact/claim and explain the change')
-            grade[kind][change['index']-1].update(change['values'])
-        validate_grade(grade, len(task['expected_facts']), len(answer['claims']))
+        grade = adjudicate_grade(receipt['grade'], audits.get('cases', {}).get(row['directory'], {}),
+                                 checksum, len(task['expected_facts']), len(answer['claims']))
         facts = sum(item['correct'] for item in grade['facts'])
         incorrect = sum(item['materially_incorrect'] for item in grade['claims'])
         supported = sum(item['supported'] for item in grade['claims'])

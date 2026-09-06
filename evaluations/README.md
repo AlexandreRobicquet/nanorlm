@@ -101,6 +101,21 @@ time. The rejected submission is retained separately. Each submission records th
 tokenizer version; unsubmitted requests wait until earlier batches complete.
 This scheduling change does not modify prompts or select results by quality.
 
+## Audit and report
+
+Use `scripts/report_repoqa.py --experiment ... --grades ... --output ... --audit
+audit.json` to aggregate completed cases. The audit JSON contains a `method`
+description and a `cases` object keyed by case directory name. Each audited case
+must include `receipt_sha256` matching the original grading receipt's `sha256`.
+An optional `changes` list identifies `kind` (`facts` or `claims`), a 1-based
+`index`, the changed boolean `values`, and an evidence-specific `reason`.
+
+A malformed grader response remains an error, with its raw response and paid
+receipt preserved. To adjudicate it, provide a complete `replacement_grade`
+containing all fact and claim judgments in the grader schema, plus a nonempty
+case-level `reason`. Missing judgments cannot become automatic zeroes or passes.
+The original receipt is never overwritten, and the report records the audit hash.
+
 **Batch results cannot establish interactive latency.** Receipts set interactive
 latency to null and distinguish local replay assembly time from provider batch
 turnaround. Normal list-price estimates and the 50%-discounted batch estimates

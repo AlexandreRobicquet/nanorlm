@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 import time
 from collections import Counter
@@ -95,9 +96,17 @@ def scan_repository(root: Path, *, max_file_bytes: int = 1_000_000,
         if reason:
             omitted.append({'path': relative, 'reason': reason}); continue
         try:
-            if current.stat().st_size > max_file_bytes:
+            info = current.stat()
+            if not stat.S_ISREG(info.st_mode):
+                omitted.append({'path': relative, 'reason': 'non_regular_file'}); continue
+            if info.st_size > max_file_bytes:
                 omitted.append({'path': relative, 'reason': 'file_size_limit'}); continue
-            with current.open('rb') as handle:
+            # Recheck the opened object and avoid blocking if a regular path was
+            # replaced with a FIFO between stat and open.
+            flags = os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0)
+            with os.fdopen(os.open(current, flags), 'rb') as handle:
+                if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                    omitted.append({'path': relative, 'reason': 'non_regular_file'}); continue
                 raw = handle.read(max_file_bytes+1)
             if len(raw) > max_file_bytes:
                 omitted.append({'path':relative,'reason':'file_size_limit'}); continue

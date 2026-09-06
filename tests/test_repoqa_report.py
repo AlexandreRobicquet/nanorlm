@@ -1,8 +1,23 @@
 import unittest
-from scripts.report_repoqa import select_strategy
+from scripts.report_repoqa import adjudicate_grade, select_strategy
 
 
 class SelectionTests(unittest.TestCase):
+    def test_malformed_grade_requires_explicit_bound_adjudication(self):
+        original = {'error':'invalid JSON', 'requires_adjudication':True}
+        replacement = {'facts':[{'index':1,'correct':True,'reason':'source confirms'}],
+                       'claims':[{'index':1,'supported':True,'materially_incorrect':False,'reason':'cited code confirms'}],
+                       'reference_concern':''}
+        with self.assertRaisesRegex(ValueError, 'complete replacement_grade'):
+            adjudicate_grade(original, {}, 'abc', 1, 1)
+        audit = {'receipt_sha256':'abc','reason':'Audited the raw answer and actual citations.', 'replacement_grade':replacement}
+        self.assertEqual(adjudicate_grade(original,audit,'abc',1,1), replacement)
+        self.assertTrue(original['requires_adjudication'])
+        with self.assertRaisesRegex(ValueError, 'not bound'):
+            adjudicate_grade(original,audit,'different',1,1)
+        with self.assertRaisesRegex(ValueError, 'count mismatch'):
+            adjudicate_grade(original,audit,'abc',2,1)
+
     def summaries(self, lexical=18, full=19, retention=19):
         return {name: {'fully_correct': quality, 'citation_precision': .95, 'estimated_usd': cost}
                 for name, quality, cost in [('lexical',lexical,.1),('full',full,.4),('retention',retention,1)]}

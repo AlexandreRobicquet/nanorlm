@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -28,6 +29,21 @@ class FakeAnswerBackend(HeuristicBackend):
 
 
 class RepoQuestionTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires Unix named pipes')
+    def test_named_pipe_is_omitted_without_waiting_for_a_writer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            os.mkfifo(root/'events.py')
+            (root/'valid.py').write_text('LIMIT = 3\n')
+            result = subprocess.run([sys.executable, '-c',
+                'import json,sys;from pathlib import Path;from repoqa import scan_repository;'
+                'print(json.dumps(scan_repository(Path(sys.argv[1]))))', str(root)],
+                capture_output=True, text=True, check=True, timeout=5,
+                cwd=Path(__file__).resolve().parents[1])
+            scan = json.loads(result.stdout)
+            self.assertEqual([file['path'] for file in scan['files']], ['valid.py'])
+            self.assertEqual(scan['omitted_files'], [{'path':'events.py','reason':'non_regular_file'}])
+
     def test_non_utf8_git_filename_does_not_abort_other_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
