@@ -68,3 +68,17 @@ class MatchedContractTests(unittest.TestCase):
         args = build_parser().parse_args(['--output-dir','unused'])
         with self.assertRaisesRegex(ValueError,'three development families'):
             validate_phase_configuration(args,[DatasetSpec('pairbench','pairbench')],[96,128,192])
+
+    def test_training_configuration_cannot_substitute_datasets_or_optimizer(self):
+        from scripts.run_matched_retention import FROZEN_TRAINING, validate_training_configuration
+        payload = {'training':dict(FROZEN_TRAINING),'datasets':[
+            {'dataset':dataset,'seed':seed,'budget':80 if dataset=='dossierbench' else 90,
+             'examples':12,'status':'included','trajectories':12}
+            for dataset in FROZEN_TRAINING['datasets'] for seed in [0,1]]}
+        validate_training_configuration(payload)
+        for key in FROZEN_TRAINING:
+            changed = {**payload,'training':{**payload['training'],key:None}}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError,'frozen protocol configuration'):
+                validate_training_configuration(changed)
+        with self.assertRaisesRegex(ValueError,'frozen dataset slices'):
+            validate_training_configuration({**payload,'datasets':payload['datasets'][:-1]})

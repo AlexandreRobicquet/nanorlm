@@ -21,6 +21,7 @@ from scripts.run_matched_retention import (
     copy_and_validate_preflight_manifest,
     copy_dataset_sources,
     copy_learned_training_bundle,
+    FROZEN_TRAINING,
     example_record,
     execute,
     hosted_family_audit,
@@ -624,6 +625,7 @@ class MatchedRetentionTests(unittest.TestCase):
                 "repository": {"commit": "a" * 40, "clean": True, "status_entries": 0},
                 "training": {
                     "source": "offline_trace_training",
+                    **FROZEN_TRAINING,
                     "training_source": "traces",
                     "objective": "pairwise",
                 },
@@ -636,6 +638,10 @@ class MatchedRetentionTests(unittest.TestCase):
                     for name, path in artifact_paths.items()
                 },
             }
+            manifest_payload["datasets"] = [
+                {"dataset":dataset,"seed":seed,"budget":80 if dataset=="dossierbench" else 90,
+                 "examples":12,"status":"included","trajectories":12}
+                for dataset in FROZEN_TRAINING["datasets"] for seed in [0,1]]
             manifest = source / "manifest.json"
             manifest.write_text(json.dumps(manifest_payload))
 

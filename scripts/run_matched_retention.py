@@ -1259,6 +1259,28 @@ def reproduction_argv_template(
     return argv
 
 
+FROZEN_TRAINING = {
+    "datasets": ["dossierbench", "ruler_synthetic", "babilong_synthetic"],
+    "train_seeds": [0, 1], "limit": 12, "collection_policy": "pairwise_tournament",
+    "feature_budget": 100, "epochs": 20, "learning_rate": 0.15, "l2": 0.0005, "seed": 0,
+}
+
+
+def validate_training_configuration(payload: Mapping[str, Any]) -> None:
+    training = payload.get("training", {})
+    if any(training.get(key) != value for key, value in FROZEN_TRAINING.items()):
+        raise ValueError("learned-retention training must use the frozen protocol configuration")
+    records = payload.get("datasets", [])
+    expected = {(dataset, seed, 80 if dataset == "dossierbench" else 90, 12, "included", 12)
+                for dataset in FROZEN_TRAINING["datasets"] for seed in [0, 1]}
+    if not isinstance(records, list) or len(records) != 6 or any(not isinstance(row, dict) for row in records):
+        raise ValueError("learned-retention training must include all frozen dataset slices")
+    observed = {(row.get("dataset"), row.get("seed"), row.get("budget"), row.get("examples"),
+                 row.get("status"), row.get("trajectories")) for row in records}
+    if observed != expected:
+        raise ValueError("learned-retention training must include all frozen dataset slices")
+
+
 def copy_learned_training_bundle(
     source_manifest: Path,
     supplied_model: Path,
@@ -1274,6 +1296,7 @@ def copy_learned_training_bundle(
         raise ValueError("learned-retention model must come from offline trace training")
     if training.get("training_source") != "traces" or training.get("objective") != "pairwise":
         raise ValueError("learned-retention model must use pairwise training over decision traces")
+    validate_training_configuration(payload)
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, dict) or not isinstance(artifacts.get("model"), dict):
         raise ValueError("learned-retention training manifest is missing artifact hashes")
