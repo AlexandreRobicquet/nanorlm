@@ -37,6 +37,11 @@ uv run python scripts/evaluate_repoqa.py \
   --repositories /path/to/pinned-checkouts --output outputs/repoqa-v1
 ```
 
+The original synchronous runner is pinned at `532a3b8`; use that checkout to
+reproduce it. It deliberately refuses later implementation changes. The quota-aware
+batch execution is pinned at `c6708b4`. New experiments record their own checkout
+and script hashes; do not overwrite an existing experiment after changing code.
+
 Set `OPENAI_API_KEY` first. `--resume` accepts only the exact same experiment and
 checksummed completed case directories; it neither overwrites nor retries failed
 answers. An interrupted partial case requires investigation, not silent retry.

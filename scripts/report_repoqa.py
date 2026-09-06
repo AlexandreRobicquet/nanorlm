@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from repoqa import digest, load_evidence, validate_answer
 from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
-from scripts.grade_repoqa import validate_grade
+from scripts.grade_repoqa import grading_packet, validate_grade
 
 
 def adjudicate_grade(original: dict, audit: dict, checksum: str, facts: int, claims: int) -> dict:
@@ -78,6 +78,8 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         checksum = receipt.pop('sha256')
         if digest(receipt) != checksum or receipt['answer_sha256'] != file_hash(directory / 'answer.json'):
             raise ValueError('grader receipt/answer binding mismatch')
+        if receipt['packet_sha256'] != digest(grading_packet(task, answer, evidence)):
+            raise ValueError('graded source excerpts or reference facts changed')
         grade = adjudicate_grade(receipt['grade'], audits.get('cases', {}).get(row['directory'], {}),
                                  checksum, len(task['expected_facts']), len(answer['claims']))
         facts = sum(item['correct'] for item in grade['facts'])

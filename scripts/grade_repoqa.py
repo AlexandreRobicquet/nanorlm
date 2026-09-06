@@ -39,6 +39,15 @@ def validate_grade(grade: dict, fact_count: int, claim_count: int) -> None:
         raise ValueError('grader reference_concern must be a string')
 
 
+def grading_packet(task: dict, answer: dict, evidence: dict) -> dict:
+    spans = {span['id']: span for span in evidence['spans']}
+    cited = {citation for claim in answer['claims'] for citation in claim['citations']}
+    return {'question': task['question'], 'reference_facts': task['expected_facts'],
+            'reference_excerpts': task['reference_spans'], 'answer': answer,
+            'cited_sources': [{key: spans[sid][key] for key in ('id', 'path', 'line_start', 'line_end', 'text')}
+                             for sid in sorted(cited)]}
+
+
 def grade_experiment(dataset_path: Path, experiment: Path, output: Path) -> None:
     data = json.loads(dataset_path.read_text())
     manifest = json.loads((experiment / 'experiment.json').read_text())
@@ -78,12 +87,7 @@ def grade_experiment(dataset_path: Path, experiment: Path, output: Path) -> None
             raise ValueError('result/receipt hash mismatch')
         answer = json.loads((directory / 'answer.json').read_text())
         evidence = load_evidence(directory / 'evidence.json')
-        spans = {span['id']: span for span in evidence['spans']}
-        cited = {citation for claim in answer['claims'] for citation in claim['citations']}
-        packet = {'question': task['question'], 'reference_facts': task['expected_facts'],
-                  'reference_excerpts': task['reference_spans'], 'answer': answer,
-                  'cited_sources': [{key: spans[sid][key] for key in ('id', 'path', 'line_start', 'line_end', 'text')}
-                                   for sid in sorted(cited)]}
+        packet = grading_packet(task, answer, evidence)
         packet_hash = digest(packet)
         destination = artifact_path(output, row['directory'] + '.json')
         if destination.exists():
