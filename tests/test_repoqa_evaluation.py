@@ -7,10 +7,32 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.evaluate_repoqa import validate_dataset, verified_receipt
-from scripts.grade_repoqa import validate_grade
+from scripts.grade_repoqa import normalize_grade, validate_grade
 
 
 class EvaluationIntegrityTests(unittest.TestCase):
+    def test_grading_distinguishes_missing_contradicted_and_supported_content(self):
+        grade = {'facts': [
+            {'index':1,'covered_by_answer':True,'contradicted_by_answer':False,'claim_indices':[1],'reason':'Explicit correct value.'},
+            {'index':2,'covered_by_answer':False,'contradicted_by_answer':True,'claim_indices':[2],'reason':'Wrong value.'},
+            {'index':3,'covered_by_answer':False,'contradicted_by_answer':False,'claim_indices':[],'reason':'Not mentioned.'}],
+            'claims': [
+                {'index':1,'citation_verdict':'supports','materially_incorrect':False,'reason':'Code agrees.'},
+                {'index':2,'citation_verdict':'contradicts','materially_incorrect':True,'reason':'Code disagrees.'}],
+            'reference_concern':''}
+        normalized = normalize_grade(grade, 3, 2)
+        self.assertEqual([row['correct'] for row in normalized['facts']], [True,False,False])
+        self.assertEqual([row['supported'] for row in normalized['claims']], [True,False])
+        grade['facts'][0]['claim_indices'] = []
+        with self.assertRaisesRegex(ValueError, 'identify candidate claims'):
+            normalize_grade(grade, 3, 2)
+
+    def test_malformed_grading_rows_fail_with_a_recordable_validation_error(self):
+        with self.assertRaisesRegex(ValueError, 'schema mismatch'):
+            validate_grade({'facts':['not an object']}, 1, 0)
+        with self.assertRaisesRegex(ValueError, 'coverage flags'):
+            normalize_grade({'facts':[None]}, 1, 0)
+
     def test_grader_cannot_omit_claims_or_use_truthy_strings(self):
         grade = {'facts': [{'index': 1, 'correct': True, 'reason': 'source'}],
                  'claims': [{'index': 1, 'supported': True, 'materially_incorrect': False, 'reason': 'source'}],

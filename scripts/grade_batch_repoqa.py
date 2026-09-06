@@ -16,7 +16,7 @@ from nanorlm import OpenAICompatibleBackend
 from repoqa import digest
 from scripts.batch_repoqa import Transport, collect_responses, submit
 from scripts.evaluate_repoqa import file_hash, write_json
-from scripts.grade_repoqa import GRADER_MODEL, GRADER_PROMPT, grade_experiment
+from scripts.grade_repoqa import GRADER_MODEL, GRADER_PROMPT, GRADING_CAP, grade_experiment
 
 
 def advance(dataset: Path, experiment: Path, output: Path, send: bool) -> None:
@@ -28,7 +28,7 @@ def advance(dataset: Path, experiment: Path, output: Path, send: bool) -> None:
                 'prompt_sha256': digest(GRADER_PROMPT), 'script_sha256': file_hash(Path(__file__)),
                 'grader_sha256': file_hash(ROOT / 'scripts/grade_repoqa.py'),
                 'transport_sha256': file_hash(ROOT / 'scripts/batch_repoqa.py'),
-                'execution': 'batch', 'max_list_price_usd': 5}
+                'execution': 'batch', 'max_list_price_usd': GRADING_CAP}
     if (output / 'experiment.json').exists():
         if json.loads((output / 'experiment.json').read_text()) != protocol:
             raise ValueError('grading inputs or protocol changed')
@@ -66,7 +66,7 @@ def advance(dataset: Path, experiment: Path, output: Path, send: bool) -> None:
             print('All grading receipts assembled from actual batch responses.')
     write_json(output / 'pending.json', list(pending.values()))
     if pending and send:
-        submit(output, pending, responses, GRADER_MODEL, 5)
+        submit(output, pending, responses, GRADER_MODEL, GRADING_CAP)
 
 
 if __name__ == '__main__':

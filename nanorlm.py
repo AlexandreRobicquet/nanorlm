@@ -20,6 +20,7 @@ OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "https://api.openai.com/v1"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
 REMOTE_MODEL_PRICES = {
     ("openai_compatible", "gpt-5.4-mini"): (0.00000075, 0.0000045),
+    ("openai_compatible", "gpt-5.4-mini-2026-03-17"): (0.00000075, 0.0000045),
     ("openai_compatible", "gpt-5-mini"): (0.00000025, 0.000002),
     ("openai_compatible", "gpt-4.1-mini"): (0.0000004, 0.0000016),
     ("openai_compatible", "gpt-4.1"): (0.000002, 0.000008),

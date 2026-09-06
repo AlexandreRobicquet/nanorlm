@@ -57,15 +57,28 @@ Report factual coverage, fully correct questions, citation support, median and
 tail latency, and total estimated cost separately, by strategy and repository.
 
 `scripts/grade_repoqa.py` applies the fixed checklist using
-`gpt-4.1-2025-04-14`, with strategy names, costs and competing answers hidden from
+`gpt-5.4-mini-2026-03-17`, with strategy names, costs and competing answers hidden from
 the grader. It receives each claim's actual cited excerpts and separate reference
 excerpts, and records per-fact and per-claim explanations. Grading starts after all
-answer runs finish. Its separate USD 5 cap and full usage receipts distinguish
-evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1) and [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini), checked on 2026-09-06. A subsequent assistant
+answer runs finish. Its separate USD 4 cap and full usage receipts distinguish
+evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini) and [GPT-5.4 mini prices](https://developers.openai.com/api/docs/models/gpt-5.4-mini), checked on 2026-09-06. A subsequent assistant
 audit of flagged cases and a spread of passing cases is recorded separately;
-this is **not human adjudication**. Both models share a family, so correlated
+this is **not human adjudication**. Both models share a provider, so correlated
 grading errors remain a limitation. The grader and its prompt are frozen before
 grading, and raw judgments are retained when an audit changes a score.
+
+The first grading protocol used GPT-4.1. It produced 61 structurally invalid
+receipts out of 90, usually combining three required fact judgments into one.
+Spot checks also found contradictory valid judgments. That entire grading pass
+is preserved separately and excluded from scoring (USD 0.63249 normal-price
+estimate; USD 0.316245 batch estimate). The second protocol numbers every fact
+and claim, asks for candidate claim indices proving coverage, and separates
+coverage, contradiction and citation entailment before deriving score flags.
+It passed a synthetic calibration containing a correct claim, a wrong numeric
+value and an omitted fact before being applied to the unchanged 90 answer runs.
+The preceding failed calibration attempts are preserved; the first call's usage
+was not retained and has only its conservative USD 0.05 reservation bound.
+These are grading changes, not answer or retrieval tuning on the held-out set.
 
 ```bash
 uv run python scripts/grade_repoqa.py \
