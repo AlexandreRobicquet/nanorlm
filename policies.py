@@ -74,7 +74,7 @@ class SummaryOnlyPolicy(RetentionPolicy):
                 item,
                 summary=truncate_words(item.summary, per_item_words),
                 answer_candidate="",
-                metadata={},
+                metadata={key: item.metadata[key] for key in ("source_paths", "source_spans", "block_names") if key in item.metadata},
                 tokens=estimate_tokens(truncate_words(item.summary, per_item_words)),
             )
             for item in candidates

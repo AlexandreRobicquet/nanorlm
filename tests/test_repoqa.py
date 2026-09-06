@@ -104,7 +104,7 @@ class RepoQuestionTests(unittest.TestCase):
                 with patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('repoqa.resolved_api_key',return_value='test'):
                     run=run_question(repository=repo,question='retry limit',output=root/'out',strategy=strategy,model='gpt-4.1-mini')
                 self.assertEqual(run['status'],'answered')
-                self.assertIn('retry.py:',(root/'out/answer.md').read_text())
+                self.assertIn(r'retry\.py:',(root/'out/answer.md').read_text())
                 self.assertEqual(run['response_models'],['test-model'])
                 self.assertTrue((root/'out/checksums.json').is_file())
                 if strategy=='retention':
@@ -131,3 +131,23 @@ class RepoQuestionTests(unittest.TestCase):
         self.assertIn('finite number in [0, 1]',backend.prompts[1])
         self.assertIn('Original output instructions: probability',backend.prompts[1])
         self.assertEqual(usage.calls,2)
+
+    def test_every_retention_policy_preserves_citable_source_spans(self):
+        for policy in ['keep_recent','summary_only','single_critic_topk','pairwise_tournament','learned_retention']:
+            with self.subTest(policy=policy), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);repo=self.source(root)
+                with patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('repoqa.resolved_api_key',return_value='test'):
+                    result=run_question(repository=repo,question='retry limit',output=root/'out',strategy='retention',model='gpt-4.1-mini',retention_policy=policy)
+                self.assertEqual(result['status'],'answered')
+                self.assertTrue(load_evidence(root/'out/evidence.json')['spans'])
+
+    def test_markdown_claims_cannot_escape_their_citation(self):
+        from repoqa import render_answer
+        evidence={'spans':[{'id':'s_abc','path':'test.py','line_start':1,'line_end':2}],
+                  'coverage':{'selected_spans':1,'scanned_spans':1,'selected_files':1,'scanned_files':1},'omitted_files':[]}
+        answer={'claims':[{'text':'Supported claim\n- Uncited claim [link](https://example.com) <script>', 'citations':['s_abc']}], 'uncertainties':[]}
+        text=render_answer('question',answer,evidence,{'status':'answered','latency_ms':1})
+        self.assertEqual(sum(line.startswith('- ') for line in text.splitlines()),1)
+        self.assertNotIn('<script>',text)
+        self.assertNotIn('[link](https://example.com)',text)
+        self.assertIn('sources.md#s_abc',text)

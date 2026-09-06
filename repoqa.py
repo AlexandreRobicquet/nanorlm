@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import math
 import os
@@ -247,19 +248,25 @@ def validate_answer(payload: dict[str, Any], spans: list[dict[str, Any]]) -> dic
     return {'claims':claims,'uncertainties':uncertainty}
 
 
+def markdown_text(value: str) -> str:
+    """Model and repository text must stay within one literal Markdown claim."""
+    text = html.escape(' '.join(value.split()), quote=False)
+    return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", text)
+
+
 def render_answer(question: str, answer: dict[str, Any], evidence: dict[str, Any], run: dict[str, Any]) -> str:
     spans = {span['id']:span for span in evidence['spans']}
-    lines = [f'# {question}', '', f"Status: {run['status']}", '']
+    lines = [f'# {markdown_text(question)}', '', f"Status: {run['status']}", '']
     for claim in answer.get('claims',[]):
         labels = []
         for citation in claim['citations']:
             span = spans[citation]
-            labels.append(f"[{span['path']}:{span['line_start']}-{span['line_end']}](sources.md#{citation})")
-        lines.append(f"- {claim['text']} ({'; '.join(labels)})")
+            labels.append(f"[{markdown_text(span['path'])}:{span['line_start']}-{span['line_end']}](sources.md#{citation})")
+        lines.append(f"- {markdown_text(claim['text'])} ({'; '.join(labels)})")
     if not answer.get('claims'):
         lines.append('No supported answer was produced. Inspect evidence.json for the selected source spans.')
     if answer.get('uncertainties'):
-        lines += ['', 'Uncertainties:'] + [f'- {item}' for item in answer['uncertainties']]
+        lines += ['', 'Uncertainties:'] + [f'- {markdown_text(item)}' for item in answer['uncertainties']]
     coverage = evidence['coverage']
     lines += ['', f"Evidence: {coverage['selected_spans']}/{coverage['scanned_spans']} spans; "
               f"{coverage['selected_files']}/{coverage['scanned_files']} scanned files. "
@@ -353,9 +360,10 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
         write_text_atomic(artifact_path(root,'evidence.json'),json.dumps(evidence,indent=2)+'\n')
         source_lines = ['# Source evidence', '']
         for span in evidence['spans']:
+            fence = '~' * max(4, max((len(match[0])+1 for match in re.finditer(r'~+',span['text'])),default=0))
             source_lines += [f"## {span['id']}", '',
-                f"`{span['path']}:{span['line_start']}-{span['line_end']}` — file SHA-256 `{span['source_sha256']}`", '',
-                '~~~~', span['text'], '~~~~', '']
+                f"{markdown_text(span['path'])}:{span['line_start']}-{span['line_end']} — file SHA-256 `{span['source_sha256']}`", '',
+                fence, span['text'], fence, '']
         write_text_atomic(artifact_path(root,'sources.md'),'\n'.join(source_lines))
         if preview or backend is None:
             run['status'] = 'evidence-only'
