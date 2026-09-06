@@ -26,7 +26,7 @@ associated tests, within the same context and cost budgets. Start with concrete
 misses: finite retry-generator exhaustion, TTL expiration during `len`, callable
 configuration timing, and path-versus-stream precedence.
 
-Compare the change with the released baseline on new questions. Keep it only if
+Preserve exact symbol tokens alongside normalized words; the current simple plural stemming is applied to both query and source, but is not a language-aware morphology model. Compare any tokenizer change with the released baseline on new questions. Keep it only if
 it improves complete answers and citation support without hidden extra calls.
 Embeddings, an index service, and new retention policies need evidence of added
 value before becoming dependencies.

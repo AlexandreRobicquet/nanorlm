@@ -2,11 +2,16 @@ import unittest
 import json
 import tempfile
 from pathlib import Path
-from scripts.report_repoqa import adjudicate_grade, batch_accounting, require_source_audit, select_strategy
+from scripts.report_repoqa import adjudicate_grade, batch_accounting, p95_latency, require_source_audit, select_strategy
 from scripts.evaluate_repoqa import file_hash
 
 
 class SelectionTests(unittest.TestCase):
+    def test_p95_uses_nearest_rank_without_turning_missing_latency_into_zero(self):
+        self.assertIsNone(p95_latency([]))
+        self.assertEqual(p95_latency([3.5]),3.5)
+        self.assertEqual(p95_latency(list(range(20,0,-1))),19)
+
     def test_audit_covers_flagged_claims_and_every_claim_when_promoting_a_pass(self):
         original={'facts':[{'correct':False}], 'claims':[
             {'index':1,'supported':False,'materially_incorrect':False},

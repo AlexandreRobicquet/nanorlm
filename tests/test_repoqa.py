@@ -109,6 +109,31 @@ class RepoQuestionTests(unittest.TestCase):
             self.assertEqual(scan['chunks'][0]['text'],'MAX_RETRIES = 9\n')
             self.assertFalse(scan['repository']['working_tree_clean'])
 
+    def test_retention_preview_exposes_every_source_sent_to_inspection(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=self.source(root)
+            for index in range(8):
+                (repo/f'context_{index}.py').write_text('# retry limit '+('configuration '*30)+'\n')
+            args={'repository':repo,'question':'retry limit','strategy':'retention',
+                  'model':'gpt-4.1-mini','context_budget':250,'candidate_budget':2000}
+            with patch('urllib.request.urlopen',side_effect=AssertionError('network')):
+                run_question(**args,output=root/'preview',preview=True)
+            preview=load_evidence(root/'preview/evidence.json')
+            inspected=[]
+            def completion(_question, context):
+                inspected.extend(block.name for block in context)
+                return SimpleNamespace(kept_items=[],completed=True,stop_reasons=[],
+                                       retention_stats={},trace=SimpleNamespace(jsonl=''))
+            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('repoqa.resolved_api_key',return_value='test'),
+                  patch('repoqa.RLM') as engine):
+                engine.return_value.completion.side_effect=completion
+                run_question(**args,output=root/'actual')
+            self.assertEqual(preview['stage'],'candidates')
+            self.assertEqual([span['id'] for span in preview['spans']],inspected)
+            self.assertGreater(sum(span['estimated_tokens'] for span in preview['spans']),250)
+
     def test_citations_and_evidence_fail_closed(self):
         with self.assertRaisesRegex(ValueError,'citations'):
             validate_answer({'claims':[{'text':'unsupported','citations':['invented']}],'uncertainties':[]},[])
