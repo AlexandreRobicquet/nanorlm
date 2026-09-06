@@ -46,7 +46,8 @@ def terms(text: str) -> list[str]:
 
 def git_value(root: Path, *args: str) -> str | None:
     try:
-        result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True)
+        result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True,
+                                errors='surrogateescape')
         return (result.stdout if '-z' in args else result.stdout.strip()) if result.returncode == 0 else None
     except OSError:
         return None
@@ -71,6 +72,10 @@ def scan_repository(root: Path, *, max_file_bytes: int = 1_000_000,
     omitted, files, chunks = [], [], []
     total = 0
     for relative in paths:
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in relative):
+            omitted.append({'path': relative.encode('utf-8', 'backslashreplace').decode('utf-8'),
+                            'path_bytes_hex': os.fsencode(relative).hex(), 'reason': 'non_utf8_path'})
+            continue
         path = Path(relative)
         reason = None
         if path.is_absolute() or '..' in path.parts:

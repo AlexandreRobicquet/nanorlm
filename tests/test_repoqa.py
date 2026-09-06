@@ -28,6 +28,23 @@ class FakeAnswerBackend(HeuristicBackend):
 
 
 class RepoQuestionTests(unittest.TestCase):
+    def test_non_utf8_git_filename_does_not_abort_other_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root/'valid.py').write_text('LIMIT = 3\n')
+            real_run = subprocess.run
+            def git_output(args, **kwargs):
+                if 'ls-files' in args:
+                    return real_run([sys.executable, '-c',
+                        "import sys;sys.stdout.buffer.write(b'bad\\xff.py\\x00valid.py\\x00')"], **kwargs)
+                return real_run(args, **kwargs)
+            with patch('repoqa.subprocess.run', side_effect=git_output):
+                scan = scan_repository(root)
+            self.assertEqual([file['path'] for file in scan['files']], ['valid.py'])
+            self.assertEqual(scan['omitted_files'][0]['reason'], 'non_utf8_path')
+            self.assertEqual(scan['omitted_files'][0]['path_bytes_hex'], b'bad\xff.py'.hex())
+            json.dumps(scan, ensure_ascii=False).encode('utf-8')
+
     def source(self, root):
         repo=root/'repo';repo.mkdir()
         (repo/'retry.py').write_bytes(b'MAX_RETRIES = 3\r\n# override with retry_limit\r\ndef retry(retry_limit=MAX_RETRIES):\r\n    return retry_limit\r\n')
