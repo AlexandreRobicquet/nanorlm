@@ -82,7 +82,7 @@ class NanoRLMTests(unittest.TestCase):
                 model="demo/heuristic",
                 base_url="http://localhost:11434/v1",
                 max_depth=4,
-                memory_budget_tokens=60,
+                memory_budget_tokens=80,
                 retention_policy="pairwise_tournament",
                 seed=0,
             ),
@@ -91,7 +91,7 @@ class NanoRLMTests(unittest.TestCase):
         result = engine.completion("What is blocking the api gateway rollout?", context)
         self.assertIn("cache", result.answer.lower())
         self.assertIn("[split]", result.trace.tree)
-        self.assertLessEqual(sum(item.tokens for item in result.kept_items), 60)
+        self.assertLessEqual(sum(item.tokens for item in result.kept_items), engine.config.memory_budget_tokens)
         self.assertEqual(result.retention_stats["policy"], "pairwise_tournament")
         self.assertGreaterEqual(result.retention_stats["total_retention_steps"], 1)
         self.assertTrue(result.per_step_budget)
@@ -234,7 +234,7 @@ class NanoRLMTests(unittest.TestCase):
         summary = run_dataset(
             build_pairbench(n=4, seed=0),
             "pairwise_tournament",
-            budget=60,
+            budget=100,
             max_depth=2,
             dataset_name="pairbench",
         )

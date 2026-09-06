@@ -100,7 +100,7 @@ config = RLMConfig(
     model="demo/heuristic",
     provider="heuristic",
     max_depth=4,
-    memory_budget_tokens=80,
+    memory_budget_tokens=120,
     retention_policy="pairwise_tournament",
     seed=0,
 )
@@ -133,7 +133,7 @@ dropped: ['incident-c.txt', 'incident-d.txt']
 max memory depth: 2
 ```
 
-The root context and both of its halves exceed the engine's 64-token leaf floor, so the run creates four depth-2 leaf memories; the 80-token budget then keeps the complementary blocker and fix while dropping both distractors.
+The root context and both of its halves exceed the engine's 64-token leaf floor, so the run creates four depth-2 leaf memories; the 120-token budget then keeps the complementary blocker and fix while dropping both distractors.
 
 `provider` selects `heuristic`, `openai_compatible`, `anthropic`, or `auto`. `base_url` is optional and defaults to the right endpoint for the chosen network provider.
 
@@ -148,6 +148,19 @@ The root context and both of its halves exceed the engine's 64-token leaf floor,
 - `drop_reasons`
 - `per_step_budget`
 - `retention_decisions`, with the complete candidate set, selected ranks, and budget for each retention step
+- `completed` and `stop_reasons`, plus omitted source spans when traversal limits prevent full inspection
+
+Memory budgets apply to estimated summary tokens at every leaf and parent exit. The v2 estimate
+uses the larger of the word estimate and UTF-8 bytes / 4; it is not a provider tokenizer. Oversized
+individual inputs are split losslessly with source coordinates (`max_leaf_tokens`, default 2048).
+If the depth or step limit prevents inspection, the result explicitly reports incomplete coverage.
+Remote requests also enforce `max_input_tokens` (default 32768) using a conservative UTF-8 byte
+bound with prompt headroom. `max_output_tokens` is a separate provider-enforced response cap.
+
+Report filenames are opaque content-bound IDs; use each row's `artifact_stem` to locate its trace.
+Use a fresh output directory for each saved run. Quality rewards exclude observed wall time;
+`latency_ms` reports actual execution including cache/replay speedups. These contract changes
+invalidate comparison with older receipts unless those runs are regenerated.
 - `stage_budgets`, with prompt tokens, completion tokens, calls, and wall time for inspection and final-answer stages
 
 Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
@@ -319,7 +332,7 @@ Treat dossier results as an internal synthetic regression surface, not as headli
 
 ### 3. Learned Retention
 
-`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
+`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, and cost contract as evaluation; offline heuristic collection has zero model cost and records latency separately from quality reward. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
 Pairwise training requires `--training-source traces`, where candidates share an explicit retention decision. The legacy `--training-source blocks` ablation is only valid with `--objective pointwise`.
 

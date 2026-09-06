@@ -44,6 +44,7 @@ PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", 
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
 OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
+    "artifacts.py",
     "inspection_replay.py",
     "learned_retention.py",
     "loom_trace.py",
@@ -711,8 +712,8 @@ def _underperforming_cases(report_path: Path, limit: int = 3) -> list[dict[str, 
                 "pairwise_only_provenance": _evidence_delta(pairwise, learned),
                 "learned_dropped_expected_provenance": _dropped_expected_provenance(learned),
                 "pairwise_dropped_expected_provenance": _dropped_expected_provenance(pairwise),
-                "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{name}.tree.txt"),
-                "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{name}.tree.txt"),
+                "learned_trace": str(report_path / "trace_examples" / "learned_retention" / f"{learned.get('artifact_stem', name)}.tree.txt"),
+                "pairwise_trace": str(report_path / "trace_examples" / "pairwise_tournament" / f"{pairwise.get('artifact_stem', name)}.tree.txt"),
             }
         )
         if len(failures) >= limit:

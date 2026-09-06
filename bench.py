@@ -14,6 +14,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 from inspection_replay import InspectionReplayBackend, REPLAY_MODES
 from loom_trace import build_loom_trace, write_loom_trace
+from artifacts import artifact_path
+
 from nanorlm import (
     ContextBlock,
     RLM,
@@ -62,6 +64,27 @@ class BenchmarkExample:
     expected_provenance: list[str] = field(default_factory=list)
     task_class: str = "general"
     metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
+
+
+def input_fingerprint(example: BenchmarkExample, dataset: str) -> str:
+    """Input identity excludes gold answers and binds the actual context."""
+    payload = {"dataset": dataset, "name": example.name, "query": example.query,
+               "task_class": example.task_class,
+               "source_index": example.metadata.get("source_index"),
+               "context": [{"name": block.name, "text": block.text} for block in example.context]}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return digest
+
+
+def task_identity(example: BenchmarkExample, dataset: str) -> str:
+    return example.task_id or f"task_{input_fingerprint(example, dataset)[:24]}"
+
+
+def case_artifact_stem(example: BenchmarkExample, dataset: str, index: int) -> str:
+    # Never interpret display names or caller task IDs as path components.
+    digest = hashlib.sha256((task_identity(example, dataset) + input_fingerprint(example, dataset)).encode()).hexdigest()[:16]
+    return f"{slugify(example.name)[:64]}-{digest}-{index:04d}"
 
 
 class DatasetCompatibilityError(ValueError):
@@ -1039,7 +1062,7 @@ def run_policy_case(
             inspection_replay_path,
             mode=inspection_replay_mode,
             namespace={
-                "engine": "nanorlm-inspect-v1",
+                "engine": "nanorlm-inspect-v2",
                 "provider": provider,
                 "model": model,
                 "base_url_sha256": hashlib.sha256((base_url or "").encode("utf-8")).hexdigest(),
@@ -1078,6 +1101,8 @@ def run_dataset(
     inspection_replay_dir: str | Path | None = None,
     inspection_replay_mode: str = "capture_or_replay",
 ) -> dict[str, Any]:
+    if policy not in DEFAULT_POLICIES:
+        raise ValueError(f"unknown retention policy: {policy}")
     provider = resolve_provider_arg(provider, use_openai_backend)
     validate_benchmark_cost_support(provider, model, base_url)
     results: list[dict[str, Any]] = []
@@ -1086,13 +1111,24 @@ def run_dataset(
     trace_root: Path | None = None
     loom_trace_root: Path | None = None
     if output_dir is not None:
-        trace_root = Path(output_dir) / "trace_examples" / policy
+        trace_root = artifact_path(output_dir, "trace_examples", policy)
         trace_root.mkdir(parents=True, exist_ok=True)
-        loom_trace_root = Path(output_dir) / "loom_traces" / policy
+        loom_trace_root = artifact_path(output_dir, "loom_traces", policy)
         loom_trace_root.mkdir(parents=True, exist_ok=True)
     if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost and examples:
         stop_reason = "cost_cap"
-    for example in examples:
+    artifact_stems = [case_artifact_stem(example, dataset_name, index) for index, example in enumerate(examples)]
+    # Validate all destinations before the first model call.
+    for stem in artifact_stems:
+        for root, suffixes in ((trace_root, (".jsonl", ".tree.txt")), (loom_trace_root, (".jsonl",))):
+            if root is not None:
+                for suffix in suffixes:
+                    destination = artifact_path(root, stem + suffix)
+                    if destination.exists():
+                        raise ValueError(f"trace artifact already exists: {destination}; use a fresh output directory")
+    for case_index, example in enumerate(examples):
+        artifact_stem = artifact_stems[case_index]
+        task_id = task_identity(example, dataset_name)
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             stop_reason = "cost_cap"
             break
@@ -1100,14 +1136,12 @@ def run_dataset(
         started = time.perf_counter()
         inspection_replay_path: str | None = None
         if inspection_replay_dir is not None and policy != "direct_full_context":
-            case_digest = hashlib.sha256(
-                f"{dataset_name}\0{example.name}\0{example.query}".encode("utf-8")
-            ).hexdigest()[:12]
-            inspection_replay_path = str(
-                Path(inspection_replay_dir)
-                / slugify(dataset_name)
-                / f"{slugify(example.name)}-{case_digest}.json"
-            )
+            capture_config = {"task_id": task_id, "provider": provider, "model": model,
+                              "base_url": base_url, "budget": budget, "depth": max_depth,
+                              "max_output_tokens": max_output_tokens, "seed": seed, "version": 2}
+            case_digest = hashlib.sha256(json.dumps(capture_config, sort_keys=True).encode()).hexdigest()[:16]
+            inspection_replay_path = str(artifact_path(
+                inspection_replay_dir, slugify(dataset_name), f"{artifact_stem}-{case_digest}.json"))
         result = run_policy_case(
             example,
             policy,
@@ -1135,13 +1169,18 @@ def run_dataset(
             answer_accuracy=answer_accuracy,
             provenance_score=provenance_score,
             compactness=compactness,
-            latency_ms=elapsed_ms,
+            latency_ms=0.0,
             cost_estimate=result.cost_estimate,
         )
         row = {
             "dataset": dataset_name,
             "seed": seed,
             "name": example.name,
+            "task_id": task_id,
+            "artifact_stem": artifact_stem,
+            "completed": result.completed,
+            "stop_reasons": result.stop_reasons,
+            "reward_contract": "quality_cost_v2_no_wall_time",
             "task_class": example.task_class,
             "policy": policy,
             "retention_judge": retention_judge,
@@ -1174,8 +1213,8 @@ def run_dataset(
             "stage_budgets": result.stage_budgets,
         }
         if trace_root is not None:
-            write_trace(result, trace_root / f"{example.name}.jsonl")
-            result.trace.write_tree(trace_root / f"{example.name}.tree.txt")
+            write_trace(result, artifact_path(trace_root, artifact_stem + ".jsonl"))
+            result.trace.write_tree(artifact_path(trace_root, artifact_stem + ".tree.txt"))
         if loom_trace_root is not None:
             loom_events = build_loom_trace(
                 result,
@@ -1192,8 +1231,9 @@ def run_dataset(
                 expected_answer=example.answer,
                 expected_provenance=example.expected_provenance,
                 started_at=case_started_at,
+                task_id=task_id,
             )
-            write_loom_trace(loom_trace_root / f"{example.name}.jsonl", loom_events)
+            write_loom_trace(artifact_path(loom_trace_root, artifact_stem + ".jsonl"), loom_events)
         results.append(row)
 
     def mean(key: str) -> float:
@@ -1236,9 +1276,9 @@ def run_dataset(
         "initial_cost_estimate": round(initial_cost_estimate, 6),
         "final_cumulative_cost_estimate": cumulative_cost,
         "max_estimated_cost": max_estimated_cost,
-        "completed": stop_reason is None,
-        "stop_reason": stop_reason,
-        "last_completed_case": results[-1]["name"] if results else None,
+        "completed": stop_reason is None and all(row["completed"] for row in results),
+        "stop_reason": stop_reason or ("incomplete_context" if any(not row["completed"] for row in results) else None),
+        "last_completed_case": next((row["name"] for row in reversed(results) if row["completed"]), None),
         "results": results,
     }
     return summary
@@ -1465,13 +1505,13 @@ def write_report_bundle(
     }
     if metadata is not None:
         summary_payload["metadata"] = metadata
-    (output_path / "summary.json").write_text(json.dumps(summary_payload, indent=2))
-    with (output_path / "per_case.jsonl").open("w") as handle:
+    artifact_path(output_path, "summary.json").write_text(json.dumps(summary_payload, indent=2))
+    with artifact_path(output_path, "per_case.jsonl").open("w") as handle:
         for summary in summaries:
             for row in summary["results"]:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
-    (output_path / "curves.json").write_text(json.dumps(curves, indent=2))
-    (output_path / "experiment_report.md").write_text(
+    artifact_path(output_path, "curves.json").write_text(json.dumps(curves, indent=2))
+    artifact_path(output_path, "experiment_report.md").write_text(
         format_experiment_report(
             dataset_name=dataset_name,
             summaries=summaries,

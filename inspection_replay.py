@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from artifacts import write_text_atomic
 from nanorlm import AnswerResult, Backend, ContextBlock, InspectionResult, MemoryItem, Usage
 
 
@@ -94,7 +95,9 @@ class InspectionReplayBackend:
         self.backend = backend
         self.store_path = Path(store_path)
         self.mode = mode
-        self.namespace = dict(namespace or {"backend_type": type(backend).__name__})
+        self.namespace = dict({"backend_type": type(backend).__name__} if namespace is None else namespace)
+        self._cached_store_hash: str | None = None
+        self._cached_store_signature: tuple[int, int, int, int] | None = None
         self._records = self._load_records()
         self._captured = 0
         self._replayed = 0
@@ -188,7 +191,13 @@ class InspectionReplayBackend:
     def _load_records(self) -> dict[str, dict[str, Any]]:
         if not self.store_path.exists():
             return {}
-        payload = json.loads(self.store_path.read_text(encoding="utf-8"))
+        if self.store_path.is_symlink():
+            raise ValueError("inspection replay store must not be a symlink")
+        raw = self.store_path.read_bytes()
+        stat = self.store_path.stat()
+        self._cached_store_hash = hashlib.sha256(raw).hexdigest()
+        self._cached_store_signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        payload = json.loads(raw)
         if not isinstance(payload, Mapping):
             raise ValueError(f"inspection replay store must be a JSON object: {self.store_path}")
         if payload.get("format") != STORE_FORMAT or payload.get("version") != STORE_VERSION:
@@ -210,11 +219,18 @@ class InspectionReplayBackend:
             "version": STORE_VERSION,
             "records": self._records,
         }
-        temporary_path = self.store_path.with_suffix(f"{self.store_path.suffix}.tmp")
-        temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temporary_path.replace(self.store_path)
+        serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        write_text_atomic(self.store_path, serialized)
+        stat = self.store_path.stat()
+        self._cached_store_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+        self._cached_store_signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
     def _store_sha256(self) -> str | None:
         if not self.store_path.exists():
             return None
-        return hashlib.sha256(self.store_path.read_bytes()).hexdigest()
+        stat = self.store_path.stat()
+        signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        if signature != self._cached_store_signature:
+            self._cached_store_hash = hashlib.sha256(self.store_path.read_bytes()).hexdigest()
+            self._cached_store_signature = signature
+        return self._cached_store_hash
