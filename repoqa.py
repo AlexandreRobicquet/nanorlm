@@ -384,6 +384,9 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
         if preview or backend is None:
             run['status'] = 'evidence-only'
             answer['uncertainties'] = ['No model answer requested. Selected source spans are available for local review.']
+        elif evidence.get('stage') != 'answer-context':
+            raise ValueError('evidence is not answer-ready: candidate-stage bundles are for preview only; '
+                             'run --repo with --strategy retention to produce retained answer-context evidence')
         elif not evidence['spans']:
             run['status'] = 'insufficient-evidence'
             answer['uncertainties'] = ['No source spans matched the question within the evidence budget.']

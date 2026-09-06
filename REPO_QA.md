@@ -30,7 +30,7 @@ uv run python ask.py 'Where is the retry limit set?' \
   --model gpt-4.1-mini-2025-04-14 --output outputs/retry-answer
 ```
 
-Evidence reuse verifies its checksum, source identifiers and span hashes. It uses the captured snapshot; it does not assume that the live checkout remains unchanged. Retrieval depends only on the repository and question, never expected answers.
+Paid evidence reuse accepts completed `answer-context` bundles and verifies their checksum, source identifiers and span hashes. Retention previews contain the larger `candidates` pool for local inspection; they are rejected as model-answer inputs rather than bypassing retention or exceeding the final-context budget. Run `--repo` with `--strategy retention --model ...` to produce retained answer-context evidence first. It uses the captured snapshot; it does not assume that the live checkout remains unchanged. Retrieval depends only on the repository and question, never expected answers.
 
 ## Strategies and budgets
 

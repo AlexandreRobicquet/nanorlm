@@ -146,6 +146,31 @@ class RepoQuestionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'empty'):
                 run_question(repository=repo,question='retry',output=root/'out')
 
+    def test_candidate_evidence_cannot_bypass_retention_on_paid_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=self.source(root)
+            run_question(repository=repo,question='retry limit',output=root/'candidate',
+                         strategy='retention',preview=True)
+            backend=FakeAnswerBackend();backend.spent=0;backend.ledger=[]
+            with (patch('repoqa.MeteredBackend',return_value=backend),
+                  patch('repoqa.resolved_api_key',return_value='test'),
+                  patch.object(backend,'_chat_text',side_effect=AssertionError('must not send candidates')) as chat):
+                with self.assertRaisesRegex(ValueError,'not answer-ready'):
+                    run_question(repository=None,question='retry limit',output=root/'blocked',
+                                 evidence_in=root/'candidate/evidence.json',model='gpt-4.1-mini')
+                chat.assert_not_called()
+            receipt=json.loads((root/'blocked/run.json').read_text())
+            self.assertEqual(receipt['status'],'failed')
+            self.assertEqual(receipt['estimated_usd'],0)
+            self.assertEqual(load_evidence(root/'blocked/evidence.json')['stage'],'candidates')
+            # Final answer contexts retain the documented paid reuse behavior.
+            run_question(repository=repo,question='retry limit',output=root/'ready')
+            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('repoqa.resolved_api_key',return_value='test')):
+                reused=run_question(repository=None,question='retry limit',output=root/'reused',
+                                   evidence_in=root/'ready/evidence.json',model='gpt-4.1-mini')
+            self.assertEqual(reused['status'],'answered')
+
     def test_full_context_refuses_truncation_and_saves_failure_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);repo=self.source(root)
