@@ -140,6 +140,8 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         checksum = receipt.pop('sha256')
         if digest(receipt) != checksum or receipt['answer_sha256'] != file_hash(directory / 'answer.json'):
             raise ValueError('grader receipt/answer binding mismatch')
+        if receipt.get('failed_request_billing_unknown'):
+            raise ValueError('grading billing must be reconciled before reporting total cost')
         if receipt['packet_sha256'] != digest(grading_packet(task, answer, evidence)):
             raise ValueError('graded source excerpts or reference facts changed')
         grade = adjudicate_grade(receipt['grade'], audits.get('cases', {}).get(row['directory'], {}),

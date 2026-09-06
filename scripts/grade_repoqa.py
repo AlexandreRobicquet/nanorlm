@@ -135,29 +135,50 @@ def grade_experiment(dataset_path: Path, experiment: Path, output: Path) -> None
             seal = prior.pop('sha256')
             if digest(prior) != seal or prior['packet_sha256'] != packet_hash:
                 raise ValueError('grading receipt changed')
+            if prior.get('request_failed') or prior.get('failed_request_billing_unknown'):
+                raise ValueError('failed grading request requires billing reconciliation before continuing')
             backend.spent += prior['estimated_usd']
             continue
+        pending = destination.with_suffix('.pending.json')
+        if pending.exists():
+            raise ValueError('interrupted grading request requires reconciliation before continuing')
         start_cost = backend.spent
         start_call = len(backend.ledger)
         started = time.perf_counter()
         raw = ''
+        request_error = None
         if run['status'] != 'answered':
             grade = {'facts': [{'index': index, 'correct': False, 'reason': 'No usable answer.'}
                                for index in range(1, len(task['expected_facts']) + 1)],
                      'claims': [], 'reference_concern': ''}
         else:
-            response = backend._chat_text(GRADER_PROMPT, json.dumps(packet, ensure_ascii=True))
-            raw = response['content']
+            # Persist intent before the provider can accept a request. Even a
+            # process interruption must not permit a possibly billed retry.
+            write_json(pending, {'case': row['directory'], 'packet_sha256': packet_hash,
+                                 'model': GRADER_MODEL, 'remaining_cost_cap_usd': GRADING_CAP-backend.spent})
             try:
-                grade = normalize_grade(extract_json_object(raw), len(task['expected_facts']), len(answer['claims']))
-            except ValueError as exc:
-                grade = {'error': str(exc), 'requires_adjudication': True}
+                response = backend._chat_text(GRADER_PROMPT, json.dumps(packet, ensure_ascii=True))
+                raw = response['content']
+            except Exception as exc:
+                request_error = exc
+                grade = {'error': f'{type(exc).__name__}: grading request did not complete',
+                         'requires_adjudication': True}
+            else:
+                try:
+                    grade = normalize_grade(extract_json_object(raw), len(task['expected_facts']), len(answer['claims']))
+                except ValueError as exc:
+                    grade = {'error': str(exc), 'requires_adjudication': True}
         receipt = {'case': row['directory'], 'task_id': task['id'], 'strategy': row['strategy'],
                    'packet_sha256': packet_hash, 'answer_sha256': file_hash(directory / 'answer.json'),
                    'grade': grade, 'raw_response': raw, 'estimated_usd': backend.spent - start_cost,
                    'usage_ledger': backend.ledger[start_call:], 'response_models': backend.response_model_identifiers(),
+                   'request_failed': request_error is not None,
+                   'failed_request_billing_unknown': backend.failed_request,
                    'latency_ms': (time.perf_counter() - started) * 1000}
         write_json(destination, {**receipt, 'sha256': digest(receipt)})
+        pending.unlink(missing_ok=True)
+        if request_error is not None:
+            raise ValueError('failed grading request recorded; billing reconciliation required') from request_error
         print(f"{len(seen):02d}/{len(results['rows'])} graded {row['directory']}; grading total ${backend.spent:.4f}", flush=True)
 
 
