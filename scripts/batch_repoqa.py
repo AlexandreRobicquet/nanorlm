@@ -121,6 +121,22 @@ def collect_responses(output: Path) -> tuple[dict, bool]:
 
 
 def submit(output: Path, requests: dict, responses: dict, model: str, cap: float) -> None:
+    # This account has a 200k queued-input-token limit. Submit at most 140k
+    # tokenizer-counted tokens at once, leaving room for framing differences.
+    # Unsubmitted requests remain pending and are planned again after completion.
+    import importlib.metadata
+    import tiktoken
+    encoding = tiktoken.encoding_for_model(model)
+    selected, queued_tokens = {}, 0
+    for cid, row in requests.items():
+        tokens = 16 + sum(len(encoding.encode(message['content'], disallowed_special=()))
+                          for message in row['body']['messages'])
+        if tokens > 140_000:
+            raise ValueError('one request exceeds the configured batch queue allowance')
+        if queued_tokens + tokens <= 140_000:
+            selected[cid] = row
+            queued_tokens += tokens
+    requests = selected
     # Reservation uses a byte upper bound and the full output limit at normal
     # list prices. Actual Batch API prices are lower; discounts are separate.
     from nanorlm import REMOTE_MODEL_PRICES
@@ -139,6 +155,8 @@ def submit(output: Path, requests: dict, responses: dict, model: str, cap: float
     (directory / 'input.jsonl').write_bytes(raw)
     write_json(directory / 'submission.json', {'input_sha256': hashlib.sha256(raw).hexdigest(),
         'requests': len(requests), 'prior_list_price_usd': spent, 'reserved_list_price_usd': reservation,
+        'queued_input_tokens': queued_tokens, 'queue_allowance': 140_000,
+        'tokenizer': f'tiktoken {importlib.metadata.version("tiktoken")} / {encoding.name}',
         'status': 'submitting', 'created_at': time.time()})
     boundary = 'nanorlm' + uuid.uuid4().hex
     multipart = (f'--{boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\nbatch\r\n'
@@ -149,7 +167,7 @@ def submit(output: Path, requests: dict, responses: dict, model: str, cap: float
     batch = api('/batches', {'input_file_id': uploaded['id'], 'endpoint': '/v1/chat/completions',
         'completion_window': '24h', 'metadata': {'experiment': 'nanorlm-repoqa-v1-batch', 'round': directory.name}})
     write_json(directory / 'batch.json', batch)
-    print(f"Submitted {len(requests)} requests as {batch['id']}; list-price reservation ${reservation:.4f}", flush=True)
+    print(f"Submitted {len(requests)} requests / {queued_tokens} input tokens as {batch['id']}; list-price reservation ${reservation:.4f}", flush=True)
 
 
 def advance(dataset: Path, repositories: Path, output: Path, send: bool) -> None:

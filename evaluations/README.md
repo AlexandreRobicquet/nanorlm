@@ -85,7 +85,7 @@ validates all prompts. Local planning placeholders are discarded; only complete
 responses bound to their exact request bodies can become experiment artifacts.
 
 ```bash
-uv run python scripts/batch_repoqa.py --repositories /path/to/pinned-checkouts \
+uv run --with tiktoken python scripts/batch_repoqa.py --repositories /path/to/pinned-checkouts \
   --output outputs/repoqa-v1-batch --submit
 ```
 
@@ -93,6 +93,13 @@ Run the same command to collect a completed round and submit dependent requests.
 Omit `--submit` to prepare or inspect without submitting another round. Batches
 can take up to 24 hours per round. Each submission records its conservative cost
 reservation. No failed/expired batch is silently retried.
+
+The initial all-request submission was rejected before executing any requests
+because this account also has a 200,000 queued-input-token limit. A fresh batch
+experiment therefore sends at most 140,000 tokenizer-counted input tokens at a
+time. The rejected submission is retained separately. Each submission records the
+tokenizer version; unsubmitted requests wait until earlier batches complete.
+This scheduling change does not modify prompts or select results by quality.
 
 **Batch results cannot establish interactive latency.** Receipts set interactive
 latency to null and distinguish local replay assembly time from provider batch
