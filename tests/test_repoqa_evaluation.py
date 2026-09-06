@@ -23,6 +23,10 @@ class EvaluationIntegrityTests(unittest.TestCase):
         normalized = normalize_grade(grade, 3, 2)
         self.assertEqual([row['correct'] for row in normalized['facts']], [True,False,False])
         self.assertEqual([row['supported'] for row in normalized['claims']], [True,False])
+        grade['claims'][1]['materially_incorrect'] = False
+        normalized = normalize_grade(grade, 3, 2)
+        self.assertTrue(normalized['claims'][1]['materially_incorrect'])
+        self.assertTrue(normalized['claims'][1]['incorrect_from_reference_contradiction'])
         grade['facts'][0]['claim_indices'] = []
         with self.assertRaisesRegex(ValueError, 'identify candidate claims'):
             normalize_grade(grade, 3, 2)

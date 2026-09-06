@@ -83,7 +83,7 @@ errors, including treating supplied citations as missing and accepting explicitl
 contradicted facts. It too is entirely excluded from scoring (normal-price
 estimate USD 0.3072683; batch estimate USD 0.15363413).
 
-The final protocol uses GPT-5.4 with each claim's exact cited text attached to that
+The third protocol uses GPT-5.4 with each claim's exact cited text attached to that
 claim, avoiding an opaque-ID lookup by the grader. It passed a harder synthetic
 calibration with conditional and behavioral contradictions plus an omitted fact.
 Its USD 6 conservative reservation is separate from the discarded grading passes;
@@ -158,3 +158,37 @@ within five percentage points of its citation-support precision. Retention needs
 at least three additional fully correct questions over lexical retrieval to
 justify its overhead. Publish raw counts and limitations, even if no strategy
 meets the rule. Learned retention remains experimental and is not evaluated here.
+
+## Synchronous grouped grading amendment
+
+The GPT-5.4 batch produced no responses during an extended provider wait. The
+final grading route uses `scripts/grade_grouped_repoqa.py`: the same source-bound
+packets, GPT-5.4 mini with medium reasoning, and a strict JSON schema for every
+fact and claim. Seed-0 grouping places at most two different questions in a call;
+competing answers to one question are never visible together. The 81 usable
+answers require 41 calls, fitting the verified remaining request quota. The nine
+failed answers receive zero completeness without grading calls.
+
+The packet, schema, grouping, price reservation and script hashes are frozen
+before execution. The complete conservative reservation is checked against a
+separate USD 6 grading cap. Group receipts preserve original requests, responses,
+usage, model identifiers and rate-limit headers. Per-case grading expense is an
+explicit equal allocation of the actual group expense, not separately measured
+case token usage. Token pacing respects the reported synchronous allowance.
+
+A synthetic paired calibration correctly classified fact coverage and citation
+support, but missed one conditional factual-error label. Its raw failure is
+preserved; it is not claimed as a clean pass. Before scoring, the assistant must
+review every fact judgment, every unsupported or materially incorrect claim,
+every claim in a provisionally fully-correct answer, and the predefined source
+audit cases. Model output alone cannot pass the release gate. Normalization derives
+factual incorrectness for claims explicitly identified as contradicting accepted
+reference facts; inconsistent raw model flags remain preserved in the receipt.
+The assistant source audit is still required. This changes grading only: all 90
+answer runs and their cost and latency observations remain unchanged.
+
+```bash
+uv run --with tiktoken python scripts/grade_grouped_repoqa.py \
+  --experiment outputs/repoqa-v1-batch --output outputs/repoqa-v1-grouped-grades
+# Inspect the plan and reservation, then run the identical command with --execute.
+```

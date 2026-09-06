@@ -62,6 +62,16 @@ def normalize_grade(grade: dict, fact_count: int, claim_count: int) -> dict:
             raise ValueError('invalid citation verdict')
         claim['supported'] = claim['citation_verdict'] == 'supports'
     validate_grade(grade,fact_count,claim_count)
+    # Accepted reference facts define truth for this checklist. A claim named
+    # as contradicting one cannot simultaneously be factually correct merely
+    # because its own citation is incomplete or misleading documentation.
+    for fact in grade['facts']:
+        if fact['contradicted_by_answer']:
+            for index in fact['claim_indices']:
+                claim = grade['claims'][index-1]
+                if not claim['materially_incorrect']:
+                    claim['materially_incorrect'] = True
+                    claim['incorrect_from_reference_contradiction'] = True
     return grade
 
 
