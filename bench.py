@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import statistics
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
+
+from inspection_replay import InspectionReplayBackend, REPLAY_MODES
+from loom_trace import build_loom_trace, write_loom_trace
+from artifacts import artifact_path
 
 from nanorlm import (
     ContextBlock,
     RLM,
     RLMConfig,
     RLMResult,
+    build_backend,
     item_source_paths,
     load_text_blocks,
     normalize_text,
+    slugify,
     supports_cost_estimate,
     write_trace,
 )
@@ -56,6 +64,27 @@ class BenchmarkExample:
     expected_provenance: list[str] = field(default_factory=list)
     task_class: str = "general"
     metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
+
+
+def input_fingerprint(example: BenchmarkExample, dataset: str) -> str:
+    """Input identity excludes gold answers and binds the actual context."""
+    payload = {"dataset": dataset, "name": example.name, "query": example.query,
+               "task_class": example.task_class,
+               "source_index": example.metadata.get("source_index"),
+               "context": [{"name": block.name, "text": block.text} for block in example.context]}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+    return digest
+
+
+def task_identity(example: BenchmarkExample, dataset: str) -> str:
+    return example.task_id or f"task_{input_fingerprint(example, dataset)[:24]}"
+
+
+def case_artifact_stem(example: BenchmarkExample, dataset: str, index: int) -> str:
+    # Never interpret display names or caller task IDs as path components.
+    digest = hashlib.sha256((task_identity(example, dataset) + input_fingerprint(example, dataset)).encode()).hexdigest()[:16]
+    return f"{slugify(example.name)[:64]}-{digest}-{index:04d}"
 
 
 class DatasetCompatibilityError(ValueError):
@@ -1008,6 +1037,9 @@ def run_policy_case(
     max_output_tokens: int,
     learned_retention_model: str | None,
     seed: int,
+    retention_judge: str = "backend",
+    inspection_replay_path: str | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> RLMResult:
     config = RLMConfig(
         model=model,
@@ -1020,10 +1052,27 @@ def run_policy_case(
         max_steps=256,
         memory_budget_tokens=budget,
         retention_policy="keep_recent" if policy == "direct_full_context" else policy,
+        retention_judge=retention_judge,
         retention_model_path=learned_retention_model if policy == "learned_retention" else None,
         seed=seed,
     )
-    engine = RLM(config=config)
+    if inspection_replay_path:
+        backend = InspectionReplayBackend(
+            build_backend(config),
+            inspection_replay_path,
+            mode=inspection_replay_mode,
+            namespace={
+                "engine": "nanorlm-inspect-v2",
+                "provider": provider,
+                "model": model,
+                "base_url_sha256": hashlib.sha256((base_url or "").encode("utf-8")).hexdigest(),
+                "max_output_tokens": max_output_tokens,
+                "seed": seed,
+            },
+        )
+        engine = RLM(config=config, backend=backend)
+    else:
+        engine = RLM(config=config)
     if policy == "direct_full_context":
         return engine.direct_completion(example.query, example.context)
     return engine.completion(example.query, example.context)
@@ -1048,23 +1097,51 @@ def run_dataset(
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> dict[str, Any]:
+    if policy not in DEFAULT_POLICIES:
+        raise ValueError(f"unknown retention policy: {policy}")
     provider = resolve_provider_arg(provider, use_openai_backend)
     validate_benchmark_cost_support(provider, model, base_url)
     results: list[dict[str, Any]] = []
     stop_reason: str | None = None
     cumulative_cost = round(initial_cost_estimate, 6)
     trace_root: Path | None = None
+    loom_trace_root: Path | None = None
     if output_dir is not None:
-        trace_root = Path(output_dir) / "trace_examples" / policy
+        trace_root = artifact_path(output_dir, "trace_examples", policy)
         trace_root.mkdir(parents=True, exist_ok=True)
+        loom_trace_root = artifact_path(output_dir, "loom_traces", policy)
+        loom_trace_root.mkdir(parents=True, exist_ok=True)
     if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost and examples:
         stop_reason = "cost_cap"
-    for example in examples:
+    artifact_stems = [case_artifact_stem(example, dataset_name, index) for index, example in enumerate(examples)]
+    # Validate all destinations before the first model call.
+    for stem in artifact_stems:
+        for root, suffixes in ((trace_root, (".jsonl", ".tree.txt")), (loom_trace_root, (".jsonl",))):
+            if root is not None:
+                for suffix in suffixes:
+                    destination = artifact_path(root, stem + suffix)
+                    if destination.exists():
+                        raise ValueError(f"trace artifact already exists: {destination}; use a fresh output directory")
+    for case_index, example in enumerate(examples):
+        artifact_stem = artifact_stems[case_index]
+        task_id = task_identity(example, dataset_name)
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             stop_reason = "cost_cap"
             break
+        case_started_at = datetime.now(timezone.utc)
         started = time.perf_counter()
+        inspection_replay_path: str | None = None
+        if inspection_replay_dir is not None and policy != "direct_full_context":
+            capture_config = {"task_id": task_id, "provider": provider, "model": model,
+                              "base_url": base_url, "budget": budget, "depth": max_depth,
+                              "max_output_tokens": max_output_tokens, "seed": seed, "version": 2}
+            case_digest = hashlib.sha256(json.dumps(capture_config, sort_keys=True).encode()).hexdigest()[:16]
+            inspection_replay_path = str(artifact_path(
+                inspection_replay_dir, slugify(dataset_name), f"{artifact_stem}-{case_digest}.json"))
         result = run_policy_case(
             example,
             policy,
@@ -1078,6 +1155,9 @@ def run_dataset(
             max_output_tokens=max_output_tokens,
             learned_retention_model=str(learned_retention_model) if learned_retention_model else None,
             seed=seed,
+            retention_judge=retention_judge,
+            inspection_replay_path=inspection_replay_path,
+            inspection_replay_mode=inspection_replay_mode,
         )
         elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
         cumulative_cost = round(cumulative_cost + result.cost_estimate, 6)
@@ -1089,15 +1169,21 @@ def run_dataset(
             answer_accuracy=answer_accuracy,
             provenance_score=provenance_score,
             compactness=compactness,
-            latency_ms=elapsed_ms,
+            latency_ms=0.0,
             cost_estimate=result.cost_estimate,
         )
         row = {
             "dataset": dataset_name,
             "seed": seed,
             "name": example.name,
+            "task_id": task_id,
+            "artifact_stem": artifact_stem,
+            "completed": result.completed,
+            "stop_reasons": result.stop_reasons,
+            "reward_contract": "quality_cost_v2_no_wall_time",
             "task_class": example.task_class,
             "policy": policy,
+            "retention_judge": retention_judge,
             "query": example.query,
             "answer": result.answer,
             "expected": example.answer,
@@ -1124,18 +1210,58 @@ def run_dataset(
             "retained_summaries": [item.summary for item in result.kept_items],
             "retained_provenance": [item.provenance for item in result.kept_items],
             "retention_decisions": result.retention_decisions,
+            "stage_budgets": result.stage_budgets,
         }
         if trace_root is not None:
-            write_trace(result, trace_root / f"{example.name}.jsonl")
-            result.trace.write_tree(trace_root / f"{example.name}.tree.txt")
+            write_trace(result, artifact_path(trace_root, artifact_stem + ".jsonl"))
+            result.trace.write_tree(artifact_path(trace_root, artifact_stem + ".tree.txt"))
+        if loom_trace_root is not None:
+            loom_events = build_loom_trace(
+                result,
+                dataset=dataset_name,
+                case_name=example.name,
+                query=example.query,
+                policy=policy,
+                provider=provider,
+                model=model,
+                seed=seed,
+                budget_tokens=budget,
+                answer_score=answer_accuracy,
+                provenance_score=provenance_score,
+                expected_answer=example.answer,
+                expected_provenance=example.expected_provenance,
+                started_at=case_started_at,
+                task_id=task_id,
+            )
+            write_loom_trace(artifact_path(loom_trace_root, artifact_stem + ".jsonl"), loom_events)
         results.append(row)
 
     def mean(key: str) -> float:
         return round(statistics.fmean(float(row[key]) for row in results), 3) if results else 0.0
 
+    replay_rows = [
+        row["retention_stats"]["inspection_replay"]
+        for row in results
+        if isinstance(row.get("retention_stats", {}).get("inspection_replay"), dict)
+    ]
+
     summary = {
         "dataset": dataset_name,
         "policy": policy,
+        "retention_judge": retention_judge,
+        "inspection_replay": {
+            "mode": inspection_replay_mode,
+            "captured": sum(int(row.get("captured", 0)) for row in replay_rows),
+            "replayed": sum(int(row.get("replayed", 0)) for row in replay_rows),
+            "stores": len(replay_rows),
+            "store_sha256": sorted(
+                str(row["store_sha256"])
+                for row in replay_rows
+                if row.get("store_sha256")
+            ),
+        }
+        if inspection_replay_dir is not None
+        else None,
         "examples": len(results),
         "requested_examples": len(examples),
         "accuracy": mean("answer_accuracy"),
@@ -1150,9 +1276,9 @@ def run_dataset(
         "initial_cost_estimate": round(initial_cost_estimate, 6),
         "final_cumulative_cost_estimate": cumulative_cost,
         "max_estimated_cost": max_estimated_cost,
-        "completed": stop_reason is None,
-        "stop_reason": stop_reason,
-        "last_completed_case": results[-1]["name"] if results else None,
+        "completed": stop_reason is None and all(row["completed"] for row in results),
+        "stop_reason": stop_reason or ("incomplete_context" if any(not row["completed"] for row in results) else None),
+        "last_completed_case": next((row["name"] for row in reversed(results) if row["completed"]), None),
         "results": results,
     }
     return summary
@@ -1176,6 +1302,9 @@ def policy_sweep(
     use_openai_backend: bool | None = None,
     seed: int = 0,
     dataset_name: str = "dataset",
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     cumulative_cost = 0.0
@@ -1198,6 +1327,9 @@ def policy_sweep(
             use_openai_backend=use_openai_backend,
             seed=seed,
             dataset_name=dataset_name,
+            retention_judge=retention_judge,
+            inspection_replay_dir=inspection_replay_dir,
+            inspection_replay_mode=inspection_replay_mode,
         )
         summaries.append(summary)
         cumulative_cost = float(summary["final_cumulative_cost_estimate"])
@@ -1219,6 +1351,9 @@ def generate_curves(
     cache_dir: str | Path | None = None,
     max_output_tokens: int = 1024,
     learned_retention_model: str | Path | None = None,
+    retention_judge: str = "backend",
+    inspection_replay_dir: str | Path | None = None,
+    inspection_replay_mode: str = "capture_or_replay",
 ) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
     for seed in seeds:
@@ -1240,6 +1375,9 @@ def generate_curves(
                     learned_retention_model=learned_retention_model,
                     seed=seed,
                     dataset_name=dataset_name,
+                    retention_judge=retention_judge,
+                    inspection_replay_dir=inspection_replay_dir,
+                    inspection_replay_mode=inspection_replay_mode,
                 )
                 for summary in summaries:
                     points.append(
@@ -1367,13 +1505,13 @@ def write_report_bundle(
     }
     if metadata is not None:
         summary_payload["metadata"] = metadata
-    (output_path / "summary.json").write_text(json.dumps(summary_payload, indent=2))
-    with (output_path / "per_case.jsonl").open("w") as handle:
+    artifact_path(output_path, "summary.json").write_text(json.dumps(summary_payload, indent=2))
+    with artifact_path(output_path, "per_case.jsonl").open("w") as handle:
         for summary in summaries:
             for row in summary["results"]:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
-    (output_path / "curves.json").write_text(json.dumps(curves, indent=2))
-    (output_path / "experiment_report.md").write_text(
+    artifact_path(output_path, "curves.json").write_text(json.dumps(curves, indent=2))
+    artifact_path(output_path, "experiment_report.md").write_text(
         format_experiment_report(
             dataset_name=dataset_name,
             summaries=summaries,
@@ -1644,6 +1782,7 @@ def format_experiment_report(
             "- `per_case.jsonl`: one scored row per policy and case",
             "- `curves.json`: sweep points and aggregates",
             "- `trace_examples/`: retained recursive traces when `--output-dir` is set",
+            "- `loom_traces/`: the same runs exported as LOOM trace-contract v0.1 JSONL",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -1698,6 +1837,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", type=str, default="")
     parser.add_argument("--cache-dir", type=str, default="")
     parser.add_argument("--learned-retention-model", type=str, default="")
+    parser.add_argument(
+        "--retention-judge",
+        choices=["backend", "heuristic"],
+        default="backend",
+        help="Use the generation backend or a local deterministic judge for retention scoring.",
+    )
+    parser.add_argument(
+        "--inspection-replay-dir",
+        type=str,
+        default="",
+        help="Capture leaf inspections once per case and replay them across policies.",
+    )
+    parser.add_argument(
+        "--inspection-replay-mode",
+        choices=list(REPLAY_MODES),
+        default="capture_or_replay",
+    )
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--max-output-tokens", type=int, default=1024)
     parser.add_argument(
@@ -1708,6 +1864,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--openai", action="store_true", help=argparse.SUPPRESS)
     return parser
+
+
+def curve_replay_directory(main_replay_directory: str | Path | None) -> Path | None:
+    if main_replay_directory is None or not str(main_replay_directory):
+        return None
+    path = Path(main_replay_directory)
+    if not path.name:
+        return path / ".nanorlm-curves"
+    return path.with_name(f"{path.name}-curves")
 
 
 def main() -> None:
@@ -1749,6 +1914,9 @@ def main() -> None:
         max_estimated_cost=args.max_estimated_cost,
         seed=args.seed,
         dataset_name=args.dataset,
+        retention_judge=args.retention_judge,
+        inspection_replay_dir=args.inspection_replay_dir or None,
+        inspection_replay_mode=args.inspection_replay_mode,
     )
     print(format_table(summaries))
 
@@ -1756,6 +1924,7 @@ def main() -> None:
         curve_budgets = parse_csv_ints(args.curve_budgets) if args.curve_budgets else [args.budget]
         curve_depths = parse_csv_ints(args.curve_depths) if args.curve_depths else [args.depth]
         curve_seeds = parse_csv_ints(args.curve_seeds) if args.curve_seeds else [0]
+        curve_replay_dir = curve_replay_directory(args.inspection_replay_dir)
         curves = generate_curves(
             args.dataset,
             lambda seed: build_dataset(
@@ -1777,6 +1946,11 @@ def main() -> None:
             cache_dir=cache_dir,
             max_output_tokens=args.max_output_tokens,
             learned_retention_model=args.learned_retention_model or None,
+            retention_judge=args.retention_judge,
+            inspection_replay_dir=curve_replay_dir,
+            inspection_replay_mode=(
+                "capture_or_replay" if curve_replay_dir is not None else args.inspection_replay_mode
+            ),
         )
     else:
         curves = curves_from_summaries(args.dataset, summaries, budget=args.budget, depth=args.depth)
@@ -1798,6 +1972,9 @@ def main() -> None:
                 f"--base-url {args.base_url}" if args.base_url else "",
                 f"--cache-dir {args.cache_dir}" if cache_dir else "",
                 f"--learned-retention-model {args.learned_retention_model}" if args.learned_retention_model else "",
+                f"--retention-judge {args.retention_judge}",
+                f"--inspection-replay-dir {args.inspection_replay_dir}" if args.inspection_replay_dir else "",
+                f"--inspection-replay-mode {args.inspection_replay_mode}" if args.inspection_replay_dir else "",
                 f"--max-output-tokens {args.max_output_tokens}",
                 f"--max-estimated-cost {args.max_estimated_cost}" if args.max_estimated_cost is not None else "",
             ])]),

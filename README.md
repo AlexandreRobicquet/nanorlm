@@ -100,7 +100,7 @@ config = RLMConfig(
     model="demo/heuristic",
     provider="heuristic",
     max_depth=4,
-    memory_budget_tokens=80,
+    memory_budget_tokens=120,
     retention_policy="pairwise_tournament",
     seed=0,
 )
@@ -133,7 +133,7 @@ dropped: ['incident-c.txt', 'incident-d.txt']
 max memory depth: 2
 ```
 
-The root context and both of its halves exceed the engine's 64-token leaf floor, so the run creates four depth-2 leaf memories; the 80-token budget then keeps the complementary blocker and fix while dropping both distractors.
+The root context and both of its halves exceed the engine's 64-token leaf floor, so the run creates four depth-2 leaf memories; the 120-token budget then keeps the complementary blocker and fix while dropping both distractors.
 
 `provider` selects `heuristic`, `openai_compatible`, `anthropic`, or `auto`. `base_url` is optional and defaults to the right endpoint for the chosen network provider.
 
@@ -148,6 +148,20 @@ The root context and both of its halves exceed the engine's 64-token leaf floor,
 - `drop_reasons`
 - `per_step_budget`
 - `retention_decisions`, with the complete candidate set, selected ranks, and budget for each retention step
+- `completed` and `stop_reasons`, plus omitted source spans when traversal limits prevent full inspection
+
+Memory budgets apply to estimated summary tokens at every leaf and parent exit. The v2 estimate
+uses the larger of the word estimate and UTF-8 bytes / 4; it is not a provider tokenizer. Oversized
+individual inputs are split losslessly with source coordinates (`max_leaf_tokens`, default 2048).
+If the depth or step limit prevents inspection, the result explicitly reports incomplete coverage.
+Remote requests also enforce `max_input_tokens` (default 32768) using a conservative UTF-8 byte
+bound with prompt headroom. `max_output_tokens` is a separate provider-enforced response cap.
+
+Report filenames are opaque content-bound IDs; use each row's `artifact_stem` to locate its trace.
+Use a fresh output directory for each saved run. Quality rewards exclude observed wall time;
+`latency_ms` reports actual execution including cache/replay speedups. These contract changes
+invalidate comparison with older receipts unless those runs are regenerated.
+- `stage_budgets`, with prompt tokens, completion tokens, calls, and wall time for inspection and final-answer stages
 
 Benchmark rows add scoring fields such as `answer_accuracy`, `provenance_score`, and `provenance_hits`. Those are harness-level checks against expected answers and expected provenance, not engine output.
 
@@ -160,6 +174,7 @@ The repo already emits a stable report bundle:
 - `curves.json`
 - `experiment_report.md`
 - `trace_examples/`
+- `loom_traces/`, exported as standalone LOOM trace-contract v0.1 JSONL
 
 A direct `bench.py` run writes this bundle only when `--output-dir` is supplied. Omitting the flag
 selects intentional stdout-only smoke mode. For a saved run, open
@@ -183,6 +198,35 @@ What it does **not** claim yet:
 - leaderboard evidence that `learned_retention` wins on real RULER or BABILong exports
 
 `examples/benchmark_snapshot.md` is intentionally a deterministic smoke snapshot, not a public benchmark leaderboard.
+
+### Matched Retention Experiments
+
+For policy comparisons, keep retention scoring local and capture each leaf inspection once. Later policies replay the same inspection outputs while preserving the captured token/call ledger:
+
+```bash
+uv run python bench.py \
+  --dataset external_jsonl \
+  --dataset-path /tmp/nanorlm-ruler.jsonl \
+  --limit 8 \
+  --budget 128 \
+  --depth 3 \
+  --policies keep_recent,summary_only,single_critic_topk,pairwise_tournament \
+  --retention-judge heuristic \
+  --inspection-replay-dir outputs/matched-retention/inspection-replay \
+  --output-dir outputs/matched-retention/ruler
+```
+
+`--retention-judge heuristic` prevents the generation model from receiving extra score/compare calls for critic policies. `--inspection-replay-dir` stores integrity-checked inspection outputs keyed by model configuration, query, branch, and context hashes; it does not store raw input context. Replay preserves logical prompt/completion/call usage for matched accounting, while `wall_ms` records the actual faster replay path. Use `--inspection-replay-mode replay_only` to fail closed if any expected capture is missing.
+
+Because replay preserves the captured usage ledger, `--max-estimated-cost` remains a conservative counterfactual allocation across policies; it is an upper bound on the API work actually issued by a replayed sweep, not a billing receipt.
+
+`direct_full_context` remains an unmatched descriptive reference because it skips recursive inspection and retention. Do not include it in a matched-policy significance claim.
+
+The exporter has no runtime dependency on LOOM. When both repos are available, validate generated traces with LOOM itself:
+
+```bash
+uv run loom-validate-trace /path/to/output/loom_traces/pairwise_tournament/example.jsonl
+```
 
 ![Retained trace](showcases/assets/dossierbench/trace_card.svg)
 
@@ -288,7 +332,7 @@ Treat dossier results as an internal synthetic regression surface, not as headli
 
 ### 3. Learned Retention
 
-`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, latency, and cost contract as evaluation; offline heuristic collection has zero model cost and uses zero collection-latency penalty for deterministic training. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
+`learned_retention` treats memory retention as a small offline contextual-bandit-style scorer. The trainer runs a collection policy, records every candidate set seen at real retention steps, labels candidates from answer and provenance evidence, and optimizes a trajectory-reward-weighted pairwise ranking objective within each decision. The saved trajectory reward uses the same answer, provenance, compactness, and cost contract as evaluation; offline heuristic collection has zero model cost and records latency separately from quality reward. The trainer writes both raw trajectory records and derived candidate rows as JSONL before saving the model.
 
 Pairwise training requires `--training-source traces`, where candidates share an explicit retention decision. The legacy `--training-source blocks` ablation is only valid with `--objective pointwise`.
 
