@@ -109,6 +109,31 @@ class RepoQuestionTests(unittest.TestCase):
             self.assertEqual(scan['chunks'][0]['text'],'MAX_RETRIES = 9\n')
             self.assertFalse(scan['repository']['working_tree_clean'])
 
+    def test_retention_preview_exposes_every_source_sent_to_inspection(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=self.source(root)
+            for index in range(8):
+                (repo/f'context_{index}.py').write_text('# retry limit '+('configuration '*30)+'\n')
+            args={'repository':repo,'question':'retry limit','strategy':'retention',
+                  'model':'gpt-4.1-mini','context_budget':250,'candidate_budget':2000}
+            with patch('urllib.request.urlopen',side_effect=AssertionError('network')):
+                run_question(**args,output=root/'preview',preview=True)
+            preview=load_evidence(root/'preview/evidence.json')
+            inspected=[]
+            def completion(_question, context):
+                inspected.extend(block.name for block in context)
+                return SimpleNamespace(kept_items=[],completed=True,stop_reasons=[],
+                                       retention_stats={},trace=SimpleNamespace(jsonl=''))
+            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('repoqa.resolved_api_key',return_value='test'),
+                  patch('repoqa.RLM') as engine):
+                engine.return_value.completion.side_effect=completion
+                run_question(**args,output=root/'actual')
+            self.assertEqual(preview['stage'],'candidates')
+            self.assertEqual([span['id'] for span in preview['spans']],inspected)
+            self.assertGreater(sum(span['estimated_tokens'] for span in preview['spans']),250)
+
     def test_citations_and_evidence_fail_closed(self):
         with self.assertRaisesRegex(ValueError,'citations'):
             validate_answer({'claims':[{'text':'unsupported','citations':['invented']}],'uncertainties':[]},[])
@@ -120,6 +145,31 @@ class RepoQuestionTests(unittest.TestCase):
                 load_evidence(path)
             with self.assertRaisesRegex(ValueError,'empty'):
                 run_question(repository=repo,question='retry',output=root/'out')
+
+    def test_candidate_evidence_cannot_bypass_retention_on_paid_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);repo=self.source(root)
+            run_question(repository=repo,question='retry limit',output=root/'candidate',
+                         strategy='retention',preview=True)
+            backend=FakeAnswerBackend();backend.spent=0;backend.ledger=[]
+            with (patch('repoqa.MeteredBackend',return_value=backend),
+                  patch('repoqa.resolved_api_key',return_value='test'),
+                  patch.object(backend,'_chat_text',side_effect=AssertionError('must not send candidates')) as chat):
+                with self.assertRaisesRegex(ValueError,'not answer-ready'):
+                    run_question(repository=None,question='retry limit',output=root/'blocked',
+                                 evidence_in=root/'candidate/evidence.json',model='gpt-4.1-mini')
+                chat.assert_not_called()
+            receipt=json.loads((root/'blocked/run.json').read_text())
+            self.assertEqual(receipt['status'],'failed')
+            self.assertEqual(receipt['estimated_usd'],0)
+            self.assertEqual(load_evidence(root/'blocked/evidence.json')['stage'],'candidates')
+            # Final answer contexts retain the documented paid reuse behavior.
+            run_question(repository=repo,question='retry limit',output=root/'ready')
+            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('repoqa.resolved_api_key',return_value='test')):
+                reused=run_question(repository=None,question='retry limit',output=root/'reused',
+                                   evidence_in=root/'ready/evidence.json',model='gpt-4.1-mini')
+            self.assertEqual(reused['status'],'answered')
 
     def test_full_context_refuses_truncation_and_saves_failure_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:

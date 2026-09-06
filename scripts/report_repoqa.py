@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -83,6 +84,11 @@ def select_strategy(summaries: dict) -> tuple[list[str], str | None]:
                 and (strategy != 'retention' or summary['fully_correct'] >= summaries['lexical']['fully_correct']+3)]
     selected = min(eligible, key=lambda key: summaries[key]['estimated_usd']) if eligible else None
     return eligible, selected
+
+
+def p95_latency(values: list[float]) -> float | None:
+    """Nearest-rank p95; no observations remain unavailable rather than zero."""
+    return sorted(values)[math.ceil(len(values)*.95)-1] if values else None
 
 
 def require_source_audit(original: dict, final: dict, audit: dict, claim_count: int) -> None:
@@ -177,7 +183,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
             'batch_estimated_usd': sum(row.get('batch_estimated_usd',0) for row in rows) if not times else None,
             'median_latency_ms': statistics.median(times) if times else None,
             'median_batch_availability_ms': statistics.median(batch_times) if batch_times else None,
-            'p95_latency_ms': times[min(len(times)-1, int(len(times)*.95))] if times else None,
+            'p95_latency_ms': p95_latency(times),
             'calls': sum(row['calls'] for row in rows),
             'by_repository': {repo: {'fully_correct': sum(row['fully_correct'] for row in rows if row['repository']==repo),
                                    'questions': sum(row['repository']==repo for row in rows)} for repo in data['repositories']}}

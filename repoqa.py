@@ -354,7 +354,9 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
                 spans = scan['chunks']
                 if sum(estimate_tokens(render_chunk(chunk)) for chunk in spans) > context_budget:
                     raise ValueError('full context exceeds --context-budget; refusing to truncate the baseline')
-            elif strategy == 'retention' and not preview:
+            elif strategy == 'retention' and preview:
+                spans = candidates
+            elif strategy == 'retention':
                 if backend is None:
                     raise ValueError('retention needs --model; use --preview to inspect candidate evidence offline')
                 backend.stage = 'inspect'
@@ -369,8 +371,8 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
                 write_text_atomic(artifact_path(root,'retention-trace.jsonl'),result.trace.jsonl)
             else:
                 spans = fit_chunks(candidates,context_budget)
-            selected = {span['id'] for span in spans}
-            evidence = build_evidence(scan,spans,question,strategy,context_budget,candidate_budget,retention_budget)
+            stage = 'candidates' if strategy == 'retention' and preview else 'answer-context'
+            evidence = build_evidence(scan,spans,question,strategy,context_budget,candidate_budget,retention_budget,stage)
         write_text_atomic(artifact_path(root,'evidence.json'),json.dumps(evidence,indent=2)+'\n')
         source_lines = ['# Source evidence', '']
         for span in evidence['spans']:
@@ -382,6 +384,9 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
         if preview or backend is None:
             run['status'] = 'evidence-only'
             answer['uncertainties'] = ['No model answer requested. Selected source spans are available for local review.']
+        elif evidence.get('stage') != 'answer-context':
+            raise ValueError('evidence is not answer-ready: candidate-stage bundles are for preview only; '
+                             'run --repo with --strategy retention to produce retained answer-context evidence')
         elif not evidence['spans']:
             run['status'] = 'insufficient-evidence'
             answer['uncertainties'] = ['No source spans matched the question within the evidence budget.']
