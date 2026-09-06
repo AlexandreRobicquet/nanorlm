@@ -24,7 +24,7 @@ scanned source snapshot; they do not establish live deployment behavior.
 
 ![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
 
-The whole repo is this loop: start with a root query over too much context, recurse until each shard is small enough to inspect, turn leaf inspections into explicit `MemoryItem`s, keep only what survives the token budget, then answer from retained evidence instead of the full context.
+The research engine starts with a query over too much context, recurses until each shard is small enough to inspect, turns leaf inspections into explicit `MemoryItem`s, and keeps only what survives the token budget. The practical repository command also supports lexical retrieval and full context for direct comparison.
 
 If the retention policy drops a needed fact, the final answer loses it too. That is the central research surface in `nanoRLM`.
 
@@ -674,15 +674,20 @@ Hosted OpenAI-compatible runs fail fast when the model has no cost table entry o
 
 To understand the core without reading every workflow and receipt:
 
-1. Read [`nanorlm.py`](nanorlm.py) for the recursive engine and result/trace contract.
-2. Read [`policies.py`](policies.py) for side-by-side retention behavior.
-3. Read `build_pairbench` in [`bench.py`](bench.py) as one concrete dataset builder.
-4. Inspect the saved tree in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
-5. Run the quickstart dossier command and open
-   `outputs/quickstart/dossierbench/experiment_report.md`.
+1. Use [the repository-question guide](REPO_QA.md) and inspect one `answer.md` alongside its `sources.md`.
+2. Read [`ask.py`](ask.py) and [`repoqa.py`](repoqa.py) for retrieval, answer validation and receipts.
+3. Read [`nanorlm.py`](nanorlm.py) for the optional recursive engine and result/trace contract.
+4. Read [`policies.py`](policies.py) for side-by-side retention behavior.
+5. Inspect the saved research trace in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
+
+For a small research fixture, inspect `build_pairbench` in [`bench.py`](bench.py).
+Run the quickstart dossier command and open
+`outputs/quickstart/dossierbench/experiment_report.md` to compare the emitted bundle.
 
 ## Repo Layout
 
+- `ask.py`, `repoqa.py`: repository questions, source retrieval, cited answers and cost receipts
+- `evaluations/`, `scripts/*repoqa.py`: frozen usefulness questions, batch transport, grading and audited reporting
 - `nanorlm.py`: recursion loop, trace recorder, OpenAI-compatible backend, Anthropic backend, deterministic backend
 - `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, `pairwise_tournament`
 - `learned_retention.py`: feature extraction, pairwise/pointwise offline training, and the learned policy
@@ -710,6 +715,7 @@ CI intentionally does not run real-model jobs, networked benchmark jobs, or full
 
 Implemented now:
 
+- repository questions with cited original source spans, reusable evidence, omissions and cost accounting
 - small recursive inference engine with a stable source-checkout interface
 - five retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends

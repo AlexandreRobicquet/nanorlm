@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nanorlm"
-version = "0.1.0"
-description = "Minimal recursive language model reference implementation with pluggable retention policies."
+version = "0.2.0"
+description = "Cited repository answers and a compact recursive retention research engine."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 authors = [

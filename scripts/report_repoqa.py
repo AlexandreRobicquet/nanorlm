@@ -176,7 +176,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
             + (f"${summary['batch_estimated_usd']:.4f} |" if summary['batch_estimated_usd'] is not None else 'N/A |'))
     lines += ['', f'Frozen selection rule: **{selected or "no eligible strategy"}**.', '',
               'Citation precision counts produced claims; failures still score zero factual completeness. '
-              'All source citation identities and span hashes passed integrity checks.', '',
+              'Captured evidence and accepted answer citations passed identity/hash checks; invalid final citations remain failed cases.', '',
               'Interactive latency is unavailable for batch runs. Local replay times are not API latency.', '',
               'Batch availability measures first submission to the completion of the last required batch. '
               'It includes shared batch waiting and is not an interactive response-time estimate. '
