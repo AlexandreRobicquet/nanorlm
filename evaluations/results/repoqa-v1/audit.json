@@ -1,0 +1,1810 @@
+{
+  "method": "Assistant source adjudication after constrained, strategy-blind paired model grading. All fact judgments, every flagged claim and every claim in provisionally fully-correct answers require review. The 16 pre-grading source-audit cases are retained. This is not human or independent adjudication.",
+  "source_seed_sha256": "e8325ef8e2ebd95c5d14a94d81de407cfa4ff041a9272f7563d83c2a9bff5069",
+  "cases": {
+    "backoff-03--retention": {
+      "receipt_sha256": "0454fd2023effe7bd28611e1825eae761c831b480e22f63f519a1dbc24150c15",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "changes": [],
+      "note": "Own decorator signatures/docs set full_jitter and permit None; _jitter.py 1-28 directly returns random.uniform(0,value).",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-06--full": {
+      "receipt_sha256": "0f77ddb7b9e1de9f8abe37aa799a797b3b4568fd74fd253df31dbff581bc65b5",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-08--full": {
+      "receipt_sha256": "fa561ce5681d9d2f9fd811ed9b5dde62c24b5db3d962113939c6c4e0e5944a66",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-03--full": {
+      "receipt_sha256": "5e4a3e57e7fe25ac1f6bca65365d06a5edb436f5d4f611b05a415c944f64e9e8",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-04--full": {
+      "receipt_sha256": "9183f3c6ba58d0f75648aa39ce6dfd4fc8b192258fb6166618d674e71c09815d",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-08--full": {
+      "receipt_sha256": "a0d1ee340e45b69fb1a065a5a79c8b368cf4748e3d6e2181d42152c1f9202740",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-10--lexical": {
+      "receipt_sha256": "89702b6896f432e704ac4769c5b407b536f6933aeca32cb667acbfa4328e5cef",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-01--full": {
+      "receipt_sha256": "a427edac00a79401b0e0ae8430e9da81a9630f01a8638aa4083dcf3f9d687bf4",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-01--retention": {
+      "receipt_sha256": "3b5e0c634cd7fe6f95c4a2bff9b58ce863856cba782ec2266062dbbe8ea4be5a",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "changes": [],
+      "note": "Own test_main.py 577-624 contains all named tests. The redefinition test invokes load_dotenv without override and retains the existing environment value, establishing the default as well as explicit overrides.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-06--full": {
+      "receipt_sha256": "40b273c127678f816be8cb0af1a63cb5d7213d418ab645f7b4e328fc01d3eaeb",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-06--lexical": {
+      "receipt_sha256": "659d533aa3b95197e553d1a81d12baa4ce7fa63a381c85596126cdb108431bb6",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": false
+          },
+          "reason": "README 193-240 explicitly supports precedence and None/empty parsing but does not show the literal :- syntax. Cited variables.py 49-86 uses env.get(name, default) then maps existing None to empty string, contradicting claim 6 fallback for None."
+        },
+        {
+          "kind": "claims",
+          "index": 6,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "README 193-240 explicitly supports precedence and None/empty parsing but does not show the literal :- syntax. Cited variables.py 49-86 uses env.get(name, default) then maps existing None to empty string, contradicting claim 6 fallback for None."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate contradicts or omits existing None becoming empty string rather than fallback."
+        }
+      ],
+      "note": "README 193-240 explicitly supports precedence and None/empty parsing but does not show the literal :- syntax. Cited variables.py 49-86 uses env.get(name, default) then maps existing None to empty string, contradicting claim 6 fallback for None.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-07--retention": {
+      "receipt_sha256": "0da3fd4d543f501cfedea29449729a0630ad92102378bfaa5c8043d5a388b4c7",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [],
+      "changes": [],
+      "note": "No usable answer after frozen validation failure; all completeness judgments remain zero. Raw failure is preserved.",
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-03--lexical": {
+      "receipt_sha256": "3fa88754f23afbe0224106a417a53bbc4dee66014311890d78d6bf9e25c0dbd0",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "changes": [],
+      "note": "Own decorator signatures/docs set full_jitter and permit None, _jitter.py returns random.uniform(0,value), and cited test_jitter.py 1-10 asserts the output bounds for range(100).",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-07--full": {
+      "receipt_sha256": "133d60134bee3ab426b52fea5b653dbfd75ce5c448569d404c585d4454edf408",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "note": "Own _common.py 1-48 supports initialization and send(None). Claims 2-3 are factually correct by the pinned runtime reference, but their only citation _wait_gen.py 1-48 shows expo/decay, not runtime or value(ret_or_exc).",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-09--lexical": {
+      "receipt_sha256": "77f14e321667209eb6b870a68de126b80995a73cb0370e3e7ee1bb0c39b044dc",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false
+          },
+          "reason": "_sync.py 104-128 and _async.py 151-176 raise e unconditionally on StopIteration. Claim 1 cites that code yet invents suppression. Claim 2 cites general README giveup guidance which does not establish the stated finite-generator exception."
+        }
+      ],
+      "note": "_sync.py 104-128 and _async.py 151-176 raise e unconditionally on StopIteration. Claim 1 cites that code yet invents suppression. Claim 2 cites general README giveup guidance which does not establish the stated finite-generator exception.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-01--full": {
+      "receipt_sha256": "0500f6175bf98206648a1c01cc7ee65bf7890af564e0f87b8c393c3efaa75994",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "changes": [],
+      "note": "Own docs 49-96 establish item-count sizing and custom getsizeof; the cited repository review note and assignment implementation establish insertion-only size accounting and mutation drift.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-01--retention": {
+      "receipt_sha256": "82187070c93fd7a73a57a3dee3f114e7074c29d86ae0a2d029686ca13543c25f",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": false
+          },
+          "reason": "Claim 1 cites _DefaultSize and the constructor/assignment but not Cache.getsizeof, whose default return value determines insertion size; that method is outside its own snippets. Other claims follow the cited constructor, diffsize assignment and explicit mutation note."
+        }
+      ],
+      "note": "Claim 1 cites _DefaultSize and the constructor/assignment but not Cache.getsizeof, whose default return value determines insertion size; that method is outside its own snippets. Other claims follow the cited constructor, diffsize assignment and explicit mutation note.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-02--full": {
+      "receipt_sha256": "d8644c3a310b282a399f538abb52774e9d6216e80b42c4ca67673a701722aa5e",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 4,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Cited Cache.__setitem__ rejects size<0 and size>maxsize. With maxsize=0 and custom getsizeof returning zero, assignment is allowed; claim 4 that any item fails is false. Constructor and value-size claims are directly supported by __init__.py 49-96."
+        }
+      ],
+      "note": "Cited Cache.__setitem__ rejects size<0 and size>maxsize. With maxsize=0 and custom getsizeof returning zero, assignment is allowed; claim 4 that any item fails is false. Constructor and value-size claims are directly supported by __init__.py 49-96.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-02--lexical": {
+      "receipt_sha256": "6df052f9e2716d201c243ed2276a44d4cd525fdbf2a01528bea8c8d34fc237c0",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "note": "Own __init__.py 49-96 directly establishes the three rejection behaviors. Claim 4 cites the negative-getsizeof test but omits the negative-maxsize test at tests/__init__.py 45-48; CHANGELOG does not establish test coverage for that half.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-03--lexical": {
+      "receipt_sha256": "2a3a90b71582e5a3b83a96a31bb5845e9a812429da92c8cac9149cd26a4afa61",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": false
+          },
+          "reason": "Reference _TimedCache.__len__ calls expire at __init__.py 413-416. Claims 2,4,5 exclude this removal path. Own cited implementation spans 577-720 and test_tlru.py are TLRUCache, not the claimed TTLCache; docs 193-240 do not establish TTL-specific membership or len behavior."
+        },
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "Reference _TimedCache.__len__ calls expire at __init__.py 413-416. Claims 2,4,5 exclude this removal path. Own cited implementation spans 577-720 and test_tlru.py are TLRUCache, not the claimed TTLCache; docs 193-240 do not establish TTL-specific membership or len behavior."
+        },
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "supported": false
+          },
+          "reason": "Reference _TimedCache.__len__ calls expire at __init__.py 413-416. Claims 2,4,5 exclude this removal path. Own cited implementation spans 577-720 and test_tlru.py are TLRUCache, not the claimed TTLCache; docs 193-240 do not establish TTL-specific membership or len behavior."
+        }
+      ],
+      "note": "Reference _TimedCache.__len__ calls expire at __init__.py 413-416. Claims 2,4,5 exclude this removal path. Own cited implementation spans 577-720 and test_tlru.py are TLRUCache, not the claimed TTLCache; docs 193-240 do not establish TTL-specific membership or len behavior.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-06--retention": {
+      "receipt_sha256": "bda8806f3e152311b1c8dd7332cc06af3206928ebd2ee7368bf2e0ddad15911c",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1
+      ],
+      "changes": [],
+      "note": "The cited test_fifo_update_existing inserts 1,2, updates 1, inserts 3, and asserts 2 was evicted while 1 survives. This directly contradicts retaining the original FIFO position.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-10--retention": {
+      "receipt_sha256": "b523d95351a2489dde6ddfba446a1ca77fef71b789d94c14764f78641bcea934",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "note": "Own docs 577-624 explicitly support methodkey ignoring self and using hashkey to include self. Other cited examples concern shared functions and positional versus keyword calls, not keyword ordering. Pinned keys.py sorts keyword items, contradicting claims 5 and 6; typedkey is omitted.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-01--lexical": {
+      "receipt_sha256": "aeef7bdd96b000b7992c10a077db6bc702fc767ce042c585a7c838c03e1caf83",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "changes": [],
+      "note": "Own README 49-96, load_dotenv signature at main.py 385-432, and all four named tests at test_main.py 577-624 explicitly establish default preservation, override and the tested behaviors.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-02--full": {
+      "receipt_sha256": "78737892eba0e2f17825e02d755cb963d1972a4cf615ca7bfbbce8cc259d5f6c",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "changes": [],
+      "note": "All five claims are factually correct against the pinned reference, but their sole citation CHANGELOG.md 289-336 discusses old parser fixes and encodings, not environment mutation, override or interpolation precedence.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-04--lexical": {
+      "receipt_sha256": "7ff78895f8704423a8b2213cf4c2485e052b5698e496b22e279c827ae8978833",
+      "facts_reviewed": true,
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not cover all four frozen cwd modes, including a frozen application."
+        }
+      ],
+      "note": "Cited main.py 337-384 walks caller frames to choose the start directory; __main__.__file__ only detects interactivity. The same excerpt directly establishes cwd handling, missing-file return documentation and IOError. Cited test_is_interactive.py 193-232 verifies usecwd overrides normal execution.",
+      "pregraded_source_audit": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-01--full": {
+      "receipt_sha256": "72f5e244ae0628922a0292f837860f91b72c461a3e087f0cbe4cb74cd73377fd",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 6,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Own excerpt tests callable max_time. A full source search finds no synchronous test named test_on_predicate_max_tries_callable; that name exists only in the async tests."
+        },
+        {
+          "kind": "claims",
+          "index": 9,
+          "values": {
+            "materially_incorrect": false
+          },
+          "reason": "The named test does exist at test_backoff_async.py:123, but own cited lines49-96 show the predicate callable test, so support is insufficient while the factual claim is correct."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "Both fixed-limit and per-invocation callable tests must be accurately described; the candidate omits or misdescribes callable timing coverage."
+        }
+      ],
+      "source_reviewed_claims": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "Own citations contain handler assertions, not callable evaluation. retry_exception evaluates _maybe_call(max_tries) before the loop, once per invocation, so every attempt is wrong.",
+        "3": "The fixed max_tries test exists elsewhere, but own excerpts show max_time and handler tests, not the named max_tries test.",
+        "4": "The named synchronous callable max_tries test exists elsewhere. Own cited excerpts instead cover callable max_time and handlers.",
+        "5": "Own test_backoff.py:49-96 excerpt covers max_time; it does not show the named max_tries test.",
+        "6": "Own excerpt tests callable max_time. A full source search finds no synchronous test named test_on_predicate_max_tries_callable; that name exists only in the async tests.",
+        "7": "The full reads_every_time test invokes exceptor twice and expects two lookups. It proves per-invocation evaluation, not every retry. Its cited trailing assertion alone does not support the claim.",
+        "9": "The named test does exist at test_backoff_async.py:123, but own cited lines49-96 show the predicate callable test, so support is insufficient while the factual claim is correct."
+      }
+    },
+    "backoff-01--lexical": {
+      "receipt_sha256": "26cd4a53cc86878306d66870aa7589e93d344f48964caa718a6a6d63edb6fc31",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        },
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "Runtime alone does not establish once-per-invocation timing; the full answer incorrectly says every attempt."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-01--retention": {
+      "receipt_sha256": "4358bc0b3f184f4b20d5b897395b6d6409f51dfed5145c67eb4beca301123797",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": true
+          },
+          "reason": "Own decorator docstring says maximum number of attempts, which includes the initial call; this is a reasonable direct paraphrase."
+        },
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own decorator docstring says maximum number of attempts, which includes the initial call; this is a reasonable direct paraphrase.",
+        "3": "Own excerpt shows a helper configuring max_tries for logging tests but no count assertions. It cannot establish the stated counting coverage."
+      }
+    },
+    "backoff-02--full": {
+      "receipt_sha256": "413af53d9a2d92b03a64125661ef6d27575ddcab4625d409accc91b7fbc87d7f",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-02--lexical": {
+      "receipt_sha256": "2b6c30e21dc868dee3ad4dbe60180ff10a1a38d034283aaf8b86676b8ed80dc9",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-02--retention": {
+      "receipt_sha256": "8dc313012a89b7e5eb55fd2141c810de30f456d04cd3cbc4f68db82da66d0c15",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-03--full": {
+      "receipt_sha256": "1c722796848216de4ffd834412b0fc25a4ccedf57b6b8e6499c8fb9f5d12bd96",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "README:193-240 explicitly identifies the default full_jitter and AWS Full Jitter algorithm.",
+        "2": "Own _jitter.py excerpt returns random.uniform(0,value).",
+        "3": "Own decorator docstring explicitly says passing jitter=None disables jitter."
+      }
+    },
+    "backoff-04--full": {
+      "receipt_sha256": "769d5bacf0b1e4517423c0951f42c59801cd064f4e3b3230e13cf2c2e13a01a2",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not locate elapsed calculation before the target invocation."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not explain that the time limit cannot interrupt a running target."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own _common.py excerpt explicitly caps seconds with min(seconds,max_time-elapsed).",
+        "2": "Own sync and async excerpts show start=datetime.now and timedelta.total_seconds(datetime.now()-start).",
+        "3": "Own sync excerpt computes elapsed in each loop and own async excerpt compares elapsed against max_time_value.",
+        "4": "Own _common.py wait body contains the stated minimum of seconds and remaining max_time."
+      }
+    },
+    "backoff-04--lexical": {
+      "receipt_sha256": "3e13852387c65561832b81ecf4f476fc7b9cd45072c947d6b99aa866865215a4",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not locate elapsed calculation before the target invocation."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not explain that the time limit cannot interrupt a running target."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own sync and async excerpts contain the exact max_time_value and elapsed comparison.",
+        "2": "Own excerpts contain the elapsed timedelta expression.",
+        "3": "Own _common.py excerpt contains the exact wait cap."
+      }
+    },
+    "backoff-04--retention": {
+      "receipt_sha256": "6bf5b503caec998356ae22637eb0d58b3e92fe11cfd0c8732d5c4c1d7af0ea9f",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not locate elapsed calculation before the target invocation."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-05--full": {
+      "receipt_sha256": "55b236d90eaf77b4ea8ddca455a8a03458913f2ea0aa15fdb0da84be8462ab00",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Own excerpts show the max_time test, not the named max_tries test. The claim additionally says the max_time test confirms the max_tries limit; that test configures max_time rather than max_tries."
+        },
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not say the giveup handler receives value=ret at the limit."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own decorator signature and docstring state operator.not_ and falsey return values.",
+        "2": "Own decorator docstring and sync loop return ret after the limit branch.",
+        "3": "Own excerpts show the max_time test, not the named max_tries test. The claim additionally says the max_time test confirms the max_tries limit; that test configures max_time rather than max_tries.",
+        "4": "Own sync loop calls on_giveup then breaks and returns ret on either limit."
+      }
+    },
+    "backoff-05--lexical": {
+      "receipt_sha256": "e4af9a08a24d94ea18e4a5d7a6e8608c9189e96a8d38fac0d2b00c118c717051",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-05--retention": {
+      "receipt_sha256": "0a2619d115637e65f57a4e93ed0914ee3604113f15462645a564132b560f2bfd",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-06--lexical": {
+      "receipt_sha256": "2b7fdf87c98e03d7161aabb56b8b37b40c7702224e5ea9fa04c4f4f860418922",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own excerpts show the _ensure_coroutine definition and awaited giveup, but do not show the assignment wrapping giveup with that helper; this compound implementation claim is not fully supported by its own citations."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own decorator excerpt selects _async.retry_exception with asyncio.iscoroutinefunction.",
+        "2": "Own async exception excerpt awaits target and asyncio.sleep.",
+        "3": "Own excerpts show the _ensure_coroutine definition and awaited giveup, but do not show the assignment wrapping giveup with that helper; this compound implementation claim is not fully supported by its own citations.",
+        "4": "Own test_on_exception_giveup_coro excerpt defines async on_baz and passes it as giveup."
+      }
+    },
+    "backoff-06--retention": {
+      "receipt_sha256": "99cac9f2b07a8574f3264ae3122ba8194e0c5b3a5d21d5922a81ea1f47bc0d7a",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The answer omits awaited asyncio.sleep even when it mentions an async giveup test."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own decorator excerpt contains the full sync/async selection branch.",
+        "2": "Own async exception code awaits giveup, and the named test defines async on_baz."
+      }
+    },
+    "backoff-07--lexical": {
+      "receipt_sha256": "7dcb4bbf4dab825671729fc7819b670b032b6d17527974d5416e4df52db64808",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own _init_wait_gen implementation evaluates kwargs, constructs the generator and sends None.",
+        "2": "Own runtime implementation and docstring show value(ret_or_exc) determining the delay.",
+        "3": "Own runtime code has the initial yield and repeated yield value(ret_or_exc)."
+      }
+    },
+    "backoff-07--retention": {
+      "receipt_sha256": "5a6244270532901bfd2f87d160d77f44c3d0d679c17b9e389963ea5145bd348f",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not describe the configurable value callable that maps the result or exception to a delay."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-08--lexical": {
+      "receipt_sha256": "e2592d91c31fb52b6b0fad4679f26298f6d9c9258720f63fd64784117ea07a29",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own README enumerates the handler fields and exception context; sync code passes exception=e and wait=seconds.",
+        "2": "Own README explicitly accepts an iterable of handlers and says they are called in turn."
+      }
+    },
+    "backoff-08--retention": {
+      "receipt_sha256": "5ca265fe3c3d9d7940349417ccfd3152768fb5aaac6e92552b8c8243ef3588df",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-09--full": {
+      "receipt_sha256": "50fafde33c788ab463f5072780ac5f28c2d500ec45da144f9b0e5f7371b2713c",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The async wrapper generator-exhaustion behavior is not stated."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Both own sync and async StopIteration branches call handlers and unconditionally raise e.",
+        "2": "Own limit branches test raise_on_giveup and otherwise return None.",
+        "3": "Own decorator docstring explicitly states the boolean meaning and True default; finite-generator exception is already accurately distinguished in claim1.",
+        "4": "Own synchronous and async test excerpts assert raise/suppression and exactly three attempts for the configured giveup test."
+      }
+    },
+    "backoff-09--retention": {
+      "receipt_sha256": "a78cbca6a663789a636c6523b27f57b145addccc08b66e843cd61660dc989b62",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The separate tries/time/giveup branch versus generator exhaustion is not explained."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "backoff-10--full": {
+      "receipt_sha256": "4003ac760e26d6739824c362fa49d9ce742e8ff90ed6cd0789b909dc17128f14",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate describes configuration but does not identify or describe tests for both configurations."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own adjacent README spans and no-log test directly support logger=None.",
+        "2": "Own README explicitly says a string logger is looked up by name; the string test is also cited."
+      }
+    },
+    "backoff-10--lexical": {
+      "receipt_sha256": "26f7bdd4a9ffe3c731d00f16ddf405789c740d42a17db1257d2492291de2ae2a",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": false
+          },
+          "reason": "The sole cited README:385-386 fragment starts logger=None but omits the preceding sentence saying logging is disabled. Factual claim is correct; isolated own excerpt is insufficient."
+        },
+        {
+          "kind": "claims",
+          "index": 5,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own test excerpt includes object-logger assertions but ends before string-logger assertions. The other test checks event levels, and README describes behavior rather than testing it. Compound test-coverage claim lacks full own-citation support."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "The sole cited README:385-386 fragment starts logger=None but omits the preceding sentence saying logging is disabled. Factual claim is correct; isolated own excerpt is insufficient.",
+        "2": "Own README:337-384 explicitly states string logger lookup.",
+        "3": "Both own decorator docstrings state the backoff default.",
+        "4": "Own test configures logger=None and asserts not caplog.records.",
+        "5": "Own test excerpt includes object-logger assertions but ends before string-logger assertions. The other test checks event levels, and README describes behavior rather than testing it. Compound test-coverage claim lacks full own-citation support."
+      }
+    },
+    "backoff-10--retention": {
+      "receipt_sha256": "ccc52232aa190b696f00762c151e64a5751db33bcc4e93aae865d6da48418350",
+      "changes": [],
+      "source_reviewed_claims": [
+        1
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own two-line README fragment omits the preceding sentence that says logging is disabled; the intended behavior is true but support is incomplete."
+      }
+    },
+    "cachetools-01--lexical": {
+      "receipt_sha256": "c15e617a0e7b6670132ce1d68206e86485851a796cdcd251e127773f97f44c6d",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own docs define total value size and default getsizeof=1.",
+        "2": "Own constructor assigns the supplied getsizeof and setitem calls it on value.",
+        "3": "Own upstream review explicitly documents in-place mutation desynchronizing currsize by design."
+      }
+    },
+    "cachetools-02--retention": {
+      "receipt_sha256": "4556fb7b133e013ff542d4d5acf47c4af81717cbec6d30a4227207a0f71c4a06",
+      "changes": [],
+      "source_reviewed_claims": [
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "3": "Own changelog mentions replacing an item with a larger value, but does not establish the claimed implication about values larger than maxsize."
+      }
+    },
+    "cachetools-03--retention": {
+      "receipt_sha256": "c16b1f73d1a92e01d205254d4eea0b0176e4d2ecd2eb90a197d40ac287d63363",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own docs are the TLRU expire section and do not show TTL membership implementation. The membership behavior is correct; the informal removal description omits other expiry-triggering operations, which the later len claims get wrong.",
+        "3": "Own TLRU tests do not establish TTL physical retention, and _TimedCache.__len__ actually calls expire before returning length.",
+        "4": "Own docs support expire returning removed pairs but do not support the stated contrast with len. _TimedCache.__len__ also removes expired entries."
+      }
+    },
+    "cachetools-04--lexical": {
+      "receipt_sha256": "43de0eb72fce89705a8538c7315cac32bc770ff49b43eb64368243445eb0ef79",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own TTL docs explicitly state time.monotonic as default.",
+        "2": "Own changelog explicitly defines expiration at less than or equal to timer().",
+        "3": "Own docs show datetime.now with timedelta; own test_ttl_datetime exercises it."
+      }
+    },
+    "cachetools-04--retention": {
+      "receipt_sha256": "afc35de0f7d9da2bcb7ab83890971f94d6970382f08dc9fae904e2b3aba5609d",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-05--full": {
+      "receipt_sha256": "3997905c5fbd27a41371f45fdf09b905190baf4297f5f9645f9cba503118c64e",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own LRU excerpt has no __contains__ implementation and does not show the inherited base check. Claim is correct but the stated internal-data behavior is not established by its own excerpt."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own LRU methods call __touch on reads and writes; __touch moves to end or appends.",
+        "2": "Own LRU excerpt has no __contains__ implementation and does not show the inherited base check. Claim is correct but the stated internal-data behavior is not established by its own excerpt.",
+        "3": "Own __getitem__ implementation conditionally calls __touch after retrieval."
+      }
+    },
+    "cachetools-05--lexical": {
+      "receipt_sha256": "c80e6785d9e455c99a4e7e3cae07d3203c71e42440b73be3de68c519ae12974a",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own test_lru excerpt demonstrates reads and new insertions, but not updating an existing entry, which is part of the compound claim."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own test_lru excerpt demonstrates reads and new insertions, but not updating an existing entry, which is part of the compound claim.",
+        "2": "Own update/clear tests do not isolate a membership check followed by an eviction that establishes unchanged recency.",
+        "3": "Own test_lru accesses key2 then adds key4 and observes key3 evicted.",
+        "4": "Own update-existing test changes key1, adds key3 and verifies key2 evicted."
+      }
+    },
+    "cachetools-05--retention": {
+      "receipt_sha256": "c64aa63f8efc40871314ba20765f0cf2d16344948b28b5d90af67c6ee8eb52d6",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        },
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own generic pickle tests and architecture note do not demonstrate both LRU read and update recency.",
+        "2": "Own generic test excerpt does not isolate LRU membership effects."
+      }
+    },
+    "cachetools-06--full": {
+      "receipt_sha256": "08d1c488e677dc0c00595705e87b5d871b1c9bb98999baba427bb90751d4d66c",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-06--lexical": {
+      "receipt_sha256": "7914a400160f273b85ef22079204f803d0e0bd0c12ee99803bd8253e105ab72d",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own FIFOCache setitem calls move_to_end when a key already exists.",
+        "2": "Own update-existing test retains updated key1 and evicts key2 after inserting key3."
+      }
+    },
+    "cachetools-07--full": {
+      "receipt_sha256": "fa94a4dd994bca1718f6eb319dd5ce528524bce96acaa9fc1449df9073f3e1df",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-07--lexical": {
+      "receipt_sha256": "e08a5e92a72da941bfdf1ba7e59f667aa78b9511002df689f0b5bfeee72ecb8b",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-07--retention": {
+      "receipt_sha256": "d432829b93b085ea9ad890ef726d9ea581e9be5686a8338a406cff9cc1b8d019",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false
+          },
+          "reason": "The cited test indeed checks expired initial insertions; it does not cover the asked overwrite behavior. That is test_overwrite_existing_with_expired elsewhere."
+        },
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own test_ttu_expired exercises fresh insertions, not overwriting an existing key. The final absence behavior is correct but the cited test does not cover it.",
+        "2": "The cited test indeed checks expired initial insertions; it does not cover the asked overwrite behavior. That is test_overwrite_existing_with_expired elsewhere."
+      }
+    },
+    "cachetools-08--lexical": {
+      "receipt_sha256": "c16e754c52edf8d83739cc4bc09887f1b10280be32fdb24282abdd9702098b20",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": false
+          },
+          "reason": "Pending-key tracking and waiting are not described for cached."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-08--retention": {
+      "receipt_sha256": "e73652c88e0a7503ea803e6a375a814655a99e808a0d128a5897164b706f8eb4",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": true
+          },
+          "reason": "The candidate expresses the material behavior of this frozen fact."
+        }
+      ],
+      "source_reviewed_claims": [
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "Own docs establish condition as an instance callback but do not explain duplicate-computation prevention; that part of the compound claim lacks support."
+      }
+    },
+    "cachetools-09--full": {
+      "receipt_sha256": "3574af6507200dc271fe23c04d4f56954054d904ec155909add24a031d98a389",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own locked_info implementation releases the lock around func and permits competing misses.",
+        "2": "Own locked_info uses setdefault under the lock with an explicit race-resolution comment.",
+        "3": "Own docs and both condition wrappers describe and implement the pending-key gate.",
+        "4": "Own docs state waiting and notification; both wrappers implement wait_for and notify_all.",
+        "5": "Own condition wrappers add pending before func and remove/notify in finally.",
+        "6": "Own threading tests assert one condition call and describe concurrent lock-only calls returning the cached result. These tests support the stated contrast, though the lock-only count assertion is weak."
+      }
+    },
+    "cachetools-09--lexical": {
+      "receipt_sha256": "dbcef74465fa627b01593e449c4352e4f50a2f66f7b753d6a11f4dee4232039e",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own excerpts show _locked_info for function and method, but do not show the claimed _locked wrapper. Compound implementation citation is incomplete."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own fragment contains a trailing locked_func assertion and a full cachedmethod test, but omits the cached setup and the first line describing its concurrent computation. The method test alone does not establish the asked function wrapper behavior.",
+        "2": "Own _cached.py locked_info explicitly prefers cache.setdefault under lock in a race.",
+        "3": "Own excerpts show _locked_info for function and method, but do not show the claimed _locked wrapper. Compound implementation citation is incomplete.",
+        "4": "Own _cached.py condition_info and condition bodies both show pending and wait_for."
+      }
+    },
+    "cachetools-09--retention": {
+      "receipt_sha256": "a1f292564132af412bd042513182da42ad80aa4d9e8a325e77fa28495896299c",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "cachetools-10--full": {
+      "receipt_sha256": "ed8916f1fc3d9a2c5e4bac99823f7526d473393b31ab23537516acdf54cccd3d",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 5,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Own docs support ignoring self to avoid hashability requirements, not automatic cross-instance cache sharing. The cache is supplied by an instance callback and the shown example creates self.cache per instance; sharing entries across instances is not a default guarantee."
+        },
+        {
+          "kind": "claims",
+          "index": 7,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "The complete cited test_keys file checks type distinctions but never compares two keyword orders (calls contain at most one keyword). It does not test the sorting/order-invariance behavior claimed here."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own hashkey code concatenates positional args with sorted keyword items. In context, preserving order by sorting means deterministic normalization, as claim7 explicitly says input keyword order does not affect the key.",
+        "2": "Own methodkey signature drops self and forwards remaining arguments to hashkey.",
+        "3": "Own typedkey implementation sorts kwargs and appends argument types; claim7 clarifies order invariance.",
+        "4": "Own typedmethodkey drops self and forwards to typedkey.",
+        "5": "Own docs support ignoring self to avoid hashability requirements, not automatic cross-instance cache sharing. The cache is supplied by an instance callback and the shown example creates self.cache per instance; sharing entries across instances is not a default guarantee.",
+        "6": "Own docs explicitly suggest hashkey when self should enter the key.",
+        "7": "The complete cited test_keys file checks type distinctions but never compares two keyword orders (calls contain at most one keyword). It does not test the sorting/order-invariance behavior claimed here."
+      }
+    },
+    "dotenv-02--lexical": {
+      "receipt_sha256": "51e126a0ace79346afe6a06796f7451d3e5c75228ef283d9dfe90a4e856dfaeb",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own README distinguishes the dict-returning non-mutating helper from environment loading; main.py returns set_as_environment_variables for load.",
+        "2": "Own README states override=False default and own dotenv_values passes override=True.",
+        "3": "Own main.py excerpt shows interpolate=True for dotenv_values only; neither own source shows the load_dotenv interpolate parameter/default.",
+        "4": "Own README gives exactly the dotenv-first expansion precedence for override=True and dotenv_values.",
+        "5": "Own README gives environment-first expansion precedence for override=False.",
+        "6": "Own README distinguishes None for bare keys from load_dotenv ignoring them."
+      }
+    },
+    "dotenv-02--retention": {
+      "receipt_sha256": "c1cbbc648a7e0bc8e8c85b05bf16208e56e1f701bc418eb10843010d73ef1f6c",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-03--full": {
+      "receipt_sha256": "2810b0ec0f05b479bbab645c9641518dd4f274cd9dd75473ac8071fb914bb079",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own tests list the disabling values and case variants and assert disabled loading.",
+        "2": "Own main.py:433-480 contains dotenv_values, not _load_dotenv_disabled or casefold. The statement is correct but uncited there.",
+        "3": "Own disabled-load test asserts result False and unchanged environment."
+      }
+    },
+    "dotenv-03--lexical": {
+      "receipt_sha256": "e92d760bb250d7b3b85a2ee0f8fa074181a8fbc27268392861060b8ee00e4a02",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own _load_dotenv_disabled casefolds and compares the exact set.",
+        "2": "Own helper explicitly uses casefold before membership.",
+        "3": "Own helper supplies the value set and own disabled tests assert False and unchanged environment.",
+        "4": "Own disabled test parameter lists include the case variants and verify False/unchanged environment.",
+        "5": "Own enabled test parametrizes the listed falsy values and asserts True and a=b in the environment."
+      }
+    },
+    "dotenv-03--retention": {
+      "receipt_sha256": "005b5b357d2ae9dfe69a7ee26edd9edc23f47270a3757f8b870958fbb85b4a97",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "materially_incorrect": false
+          },
+          "reason": "The listed values are valid disabling examples in the own test excerpt. The separate case-sensitivity error in claim3 does not make this list materially incorrect."
+        }
+      ],
+      "source_reviewed_claims": [
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "The listed values are valid disabling examples in the own test excerpt. The separate case-sensitivity error in claim3 does not make this list materially incorrect.",
+        "3": "The Windows skip concerns environment-variable names, not flag values. Actual _load_dotenv_disabled uses casefold, so the asserted value sensitivity is wrong."
+      }
+    },
+    "dotenv-04--full": {
+      "receipt_sha256": "0538e58f75ea6491ae56f68057651626cfca64aa93e44906e06f509c7f27e757",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not cover all four frozen cwd modes, including a frozen application."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-04--retention": {
+      "receipt_sha256": "24318cd999f2c1844e5aa2a904a15aae561c16e77b28710ee7bc0aa195d05c89",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 2,
+          "values": {
+            "correct": false
+          },
+          "reason": "The candidate does not cover all four frozen cwd modes, including a frozen application."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-05--full": {
+      "receipt_sha256": "f10f4d694600f51464cec4ca051241348487a60ed81c8faee6b7bf840acbb35a",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own README explicitly describes bare-key None and load_dotenv ignoring it.",
+        "2": "Own README explicitly contrasts FOO= as empty string."
+      }
+    },
+    "dotenv-05--lexical": {
+      "receipt_sha256": "b80d59ed0363e575510b83fbd4b3a96b32f235598c1fd9784321e2a8c1eca2cb",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own README gives FOO and the None dictionary example.",
+        "2": "Own README says load_dotenv ignores bare keys.",
+        "3": "Own README explicitly states FOO= has an empty-string value."
+      }
+    },
+    "dotenv-05--retention": {
+      "receipt_sha256": "727d15c6040410a9743576d42b4e318114cc4ee6cc9eba0d5d63b25519957e50",
+      "changes": [],
+      "source_reviewed_claims": [
+        1
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own introductory README does not establish bare-key parsing. The actual parser and variable-without-value docs assign None, not empty string."
+      }
+    },
+    "dotenv-06--retention": {
+      "receipt_sha256": "3f81e2b806c2722101724618b5e78adf3c72e033e98d892e93c20dfc5ce85636",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "materially_incorrect": false
+          },
+          "reason": "Own README only illustrates braced expansion and says Bash-like syntax. The candidate expressly acknowledges missing evidence rather than asserting a wrong fallback behavior; it receives no factual coverage or citation support for fallback semantics."
+        },
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "materially_incorrect": false
+          },
+          "reason": "This is an evidence-limitation statement about the selected excerpt, which indeed lacks unset/empty/None semantics. Do not turn acknowledged uncertainty into a positive false behavior claim; it receives no coverage or citation credit."
+        }
+      ],
+      "source_reviewed_claims": [
+        2,
+        3
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "Own README only illustrates braced expansion and says Bash-like syntax. The candidate expressly acknowledges missing evidence rather than asserting a wrong fallback behavior; it receives no factual coverage or citation support for fallback semantics.",
+        "3": "This is an evidence-limitation statement about the selected excerpt, which indeed lacks unset/empty/None semantics. Do not turn acknowledged uncertainty into a positive false behavior claim; it receives no coverage or citation credit."
+      }
+    },
+    "dotenv-07--full": {
+      "receipt_sha256": "7c222c0e9f596505762f135dececa605fbf58f8d2ec5f00324933695f2f424f7",
+      "changes": [],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own parser tests show a=#b retained, a=# #comment truncated to #, and whitespace-before-# yielding empty value.",
+        "2": "Own cited tests:1-48 and main.py:433-480 do not show # within quoted values; the fact is true but own support is missing."
+      }
+    },
+    "dotenv-07--lexical": {
+      "receipt_sha256": "395d43ce7eb65b0ec90df599083fd6ea2d0db711961895588e40e6e9a1a20e70",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false
+          },
+          "reason": "The stated regex is in parse_unquoted_value earlier in parser.py, outside the sole own cited parse_binding excerpt."
+        },
+        {
+          "kind": "claims",
+          "index": 3,
+          "values": {
+            "supported": false
+          },
+          "reason": "Own test excerpt demonstrates double quotes only; the compound assertion also includes single quotes, for which no own evidence is supplied."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own parse_binding code and comments explicitly distinguish KEY= #comment from KEY=#novalue.",
+        "2": "The stated regex is in parse_unquoted_value earlier in parser.py, outside the sole own cited parse_binding excerpt.",
+        "3": "Own test excerpt demonstrates double quotes only; the compound assertion also includes single quotes, for which no own evidence is supplied.",
+        "4": "Own test_main parameter cases directly cover KEY= #comment and KEY=a#b."
+      }
+    },
+    "dotenv-08--full": {
+      "receipt_sha256": "a379015250f65ffb1dd24e20039e5ae88fea104a0bd2cf0f129af4f0aff4dbe2",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 1,
+          "values": {
+            "correct": false
+          },
+          "reason": "The complete automatic-quote rule, single quotes and escaping behavior are not stated."
+        }
+      ],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-08--lexical": {
+      "receipt_sha256": "fe782a4f47882049787184ca7f5d0643ff62b85baed1b7d5121e3b382868a197",
+      "changes": [],
+      "source_reviewed_claims": [],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+    },
+    "dotenv-08--retention": {
+      "receipt_sha256": "885d2570c6fac2845723c322bb4a6282df10436d016eb7f6c19f3728d81565f6",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 1,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Own CLI excerpt exercises quote=always, not auto. Actual auto uses not value.isalnum(), which also quotes the empty string; the asserted spaces/special-characters-only criterion is incomplete and wrong for that input."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own CLI excerpt exercises quote=always, not auto. Actual auto uses not value.isalnum(), which also quotes the empty string; the asserted spaces/special-characters-only criterion is incomplete and wrong for that input.",
+        "2": "Own rewrite helper does atomic replacement but does not show the missing-newline insertion performed in set_key below this excerpt."
+      }
+    },
+    "dotenv-09--full": {
+      "receipt_sha256": "b39b633e6680b404374c92a9b29dab077b18a92a3882bcb5dcae52236ae8b6bb",
+      "changes": [
+        {
+          "kind": "facts",
+          "index": 3,
+          "values": {
+            "correct": false
+          },
+          "reason": "The existing-target test and its unchanged target, regular output and mode 0600 assertions are not covered."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own set_key docstring and default parameter explicitly describe not following symlinks.",
+        "2": "Own signature and docstring explicitly provide follow_symlinks opt-in.",
+        "3": "Own existing-target and missing-target tests assert the symlink path becomes a regular file; target remains unchanged or absent.",
+        "4": "Own follow_symlinks test changes target contents and asserts the link remains."
+      }
+    },
+    "dotenv-09--lexical": {
+      "receipt_sha256": "01b2edb3c6b48e2bca008d2d3657a0b55b2569b0646b973bcc62969d494fea19",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": true
+          },
+          "reason": "Own docstring plus test_set_key_follow_symlinks explicitly demonstrate writing the target while retaining the link."
+        }
+      ],
+      "source_reviewed_claims": [
+        2,
+        6
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "Own docstring plus test_set_key_follow_symlinks explicitly demonstrate writing the target while retaining the link.",
+        "6": "Own unset_key_symlink_to_missing_file test asserts the link remains and returns (None,a). The claim incorrectly says it removes the link and creates a new file."
+      }
+    },
+    "dotenv-09--retention": {
+      "receipt_sha256": "d4a3f2e41f091c926a61223c37b4b88db77c6f7aa53b1020a83ba9eb9a8b4134",
+      "changes": [],
+      "source_reviewed_claims": [
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "2": "Own changelog describes the changed behavior, but the cited tests:193-240 cover get_key and permission cleanup, not symlink tests. Correct general behavior is asserted without the claimed test evidence."
+      }
+    },
+    "dotenv-10--full": {
+      "receipt_sha256": "00ba7ad33e435655fa13d121938cd1521dcc3830266cfaac4b5cec9a7fa235bf",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 5,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "Own test covers CLI list only. This is not a general CLI rule: CLI set delegates to set_key and creates a missing file successfully, while unset returns a different failure code."
+        },
+        {
+          "kind": "claims",
+          "index": 6,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "Own tests cover CLI list/get directory errors only. The unqualified claim about all CLI operations is too broad: set uses rewrite directly and does not route directory failures through stream_file's exit2 handler."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own _get_stream opens an eligible path first, otherwise yields the supplied stream.",
+        "2": "Own _get_stream else branch logs when verbose and yields empty StringIO.",
+        "3": "Own load_dotenv explicitly calls find_dotenv only when both inputs are None.",
+        "4": "Own test_load_dotenv_no_file_verbose asserts False for an explicit missing path.",
+        "5": "Own test covers CLI list only. This is not a general CLI rule: CLI set delegates to set_key and creates a missing file successfully, while unset returns a different failure code.",
+        "6": "Own tests cover CLI list/get directory errors only. The unqualified claim about all CLI operations is too broad: set uses rewrite directly and does not route directory failures through stream_file's exit2 handler.",
+        "7": "The actual run BadParameter guard is immediately before its own cited cli.py:193-240 range. The claim is correct but the supplied excerpt omits the guard.",
+        "8": "Own test_run_with_env_missing_and_invalid_cmd explicitly verifies missing-env precedence with exit2."
+      }
+    },
+    "dotenv-10--lexical": {
+      "receipt_sha256": "912726b33f59ca82e57cff2510228d8865bb78796a85324933f1c0eb5ee19625",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 5,
+          "values": {
+            "materially_incorrect": true
+          },
+          "reason": "Own public docstrings only describe the normal path/stream interface. Actual _get_stream falls back to an available stream when a provided path is not a file/FIFO, so the unqualified assertion that a provided path is used is incorrect for the asked missing-path case."
+        },
+        {
+          "kind": "claims",
+          "index": 6,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "Own dotenv_values code calls find_dotenv only when path and stream are None, not when a supplied path points to a missing file. The claimed missing-file search is wrong."
+        },
+        {
+          "kind": "claims",
+          "index": 7,
+          "values": {
+            "supported": false
+          },
+          "reason": "The empty StringIO behavior is correct for reading a missing dotenv path, but its own cited code is rewrite for file mutation, not _get_stream."
+        }
+      ],
+      "source_reviewed_claims": [
+        5,
+        6,
+        7
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "5": "Own public docstrings only describe the normal path/stream interface. Actual _get_stream falls back to an available stream when a provided path is not a file/FIFO, so the unqualified assertion that a provided path is used is incorrect for the asked missing-path case.",
+        "6": "Own dotenv_values code calls find_dotenv only when path and stream are None, not when a supplied path points to a missing file. The claimed missing-file search is wrong.",
+        "7": "The empty StringIO behavior is correct for reading a missing dotenv path, but its own cited code is rewrite for file mutation, not _get_stream."
+      }
+    },
+    "dotenv-10--retention": {
+      "receipt_sha256": "517aa87b2e4c0f69ed49eafb66e6d2159d73d9eaf98772cd222aa9792001873e",
+      "changes": [
+        {
+          "kind": "claims",
+          "index": 2,
+          "values": {
+            "supported": false,
+            "materially_incorrect": true
+          },
+          "reason": "Own find_dotenv can raise when explicitly requested, but supplied missing paths are handled by _get_stream with empty StringIO rather than find_dotenv. The claim answers the missing-input case with the wrong execution path."
+        }
+      ],
+      "source_reviewed_claims": [
+        1,
+        2
+      ],
+      "facts_reviewed": true,
+      "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e",
+      "source_review_notes": {
+        "1": "Own README merely permits stream input. Actual _get_stream gives an existing file/FIFO path priority, so unconditional stream priority is wrong.",
+        "2": "Own find_dotenv can raise when explicitly requested, but supplied missing paths are handled by _get_stream with empty StringIO rather than find_dotenv. The claim answers the missing-input case with the wrong execution path."
+      }
+    }
+  },
+  "fact_audit_sha256": "f1fca81188c5301913dbf70f23c81271bf9ee41b25caa793fb522c7621a1aa7e"
+}

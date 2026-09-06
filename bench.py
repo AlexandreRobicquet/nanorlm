@@ -1066,7 +1066,7 @@ def run_policy_case(
             inspection_replay_path,
             mode=inspection_replay_mode,
             namespace={
-                "engine": "nanorlm-inspect-v2",
+                "engine": "nanorlm-inspect-v3",
                 "provider": provider,
                 "model": model,
                 "base_url_sha256": hashlib.sha256((base_url or "").encode("utf-8")).hexdigest(),
@@ -1144,7 +1144,7 @@ def run_dataset(
         if inspection_replay_dir is not None and policy != "direct_full_context":
             capture_config = {"task_id": task_id, "provider": provider, "model": model,
                               "base_url": base_url, "budget": budget, "depth": max_depth,
-                              "max_output_tokens": max_output_tokens, "seed": seed, "version": 2}
+                              "max_output_tokens": max_output_tokens, "seed": seed, "version": 3}
             case_digest = hashlib.sha256(json.dumps(capture_config, sort_keys=True).encode()).hexdigest()[:16]
             inspection_replay_path = str(artifact_path(
                 inspection_replay_dir, slugify(dataset_name), f"{artifact_stem}-{case_digest}.json"))

@@ -1,0 +1,975 @@
+{
+  "schema": "nanorlm-repoqa-eval-v1",
+  "implementation_commit": "2a4c1b74fabcc36b4ead7cff57c64d0ccf654b8b",
+  "repositories": {
+    "backoff": {
+      "url": "https://github.com/litl/backoff.git",
+      "commit": "d82b23c42d7a7e2402903e71e7a7f03014a00076"
+    },
+    "dotenv": {
+      "url": "https://github.com/theskumar/python-dotenv.git",
+      "commit": "a00cb2eed0704cd6d2071b2004c37e95ccc86ee5"
+    },
+    "cachetools": {
+      "url": "https://github.com/tkem/cachetools.git",
+      "commit": "4500e3d04288738d25acbb4973eb3c3e1bf41db9"
+    }
+  },
+  "protocol": {
+    "held_out_from": "Implementation and prompt tuning: questions authored after dba31ad; review-driven lineage/rendering fixes landed at 2a4c1b7 before any evaluation execution. Public repositories may be in model pretraining.",
+    "model": "gpt-4.1-mini-2025-04-14",
+    "strategies": [
+      "lexical",
+      "full",
+      "retention"
+    ],
+    "candidate_budget": 6000,
+    "context_budget": 6000,
+    "full_context_budget": 200000,
+    "retention_budget": 512,
+    "retention_policy": "pairwise_tournament",
+    "max_output_tokens": 1600,
+    "max_cost_per_question_usd": 0.25,
+    "max_total_estimated_usd": 5,
+    "ordering": "rotate strategy order by task index; sequential execution; no response cache",
+    "metrics": [
+      "fact-completeness",
+      "fully-correct-question-rate",
+      "semantic-citation-support",
+      "source-citation-integrity",
+      "latency-ms",
+      "total-estimated-usd"
+    ],
+    "scoring": "Reference-fact checklist and explicit incorrect-claim review; failure/abstention is zero completeness; source-ID integrity and semantic citation support are separate. No substring accuracy and no combined cost/latency reward.",
+    "decision_rule": "Prefer the lowest-cost strategy within one fully correct question of the best and within five percentage points of its citation-support precision. Retention needs at least three additional fully correct questions over lexical to justify its overhead. Report raw counts; this small, assistant-authored set does not establish general superiority."
+  },
+  "tasks": [
+    {
+      "id": "backoff-01",
+      "repository": "backoff",
+      "question": "Does max_tries count the initial call, and when is a callable max_tries evaluated? Identify tests for both behaviors.",
+      "expected_facts": [
+        "max_tries counts total attempts including the initial call; tries starts at zero and increments before target invocation.",
+        "A callable max_tries is evaluated inside the wrapper at the start of each invocation, not once at decoration time.",
+        "Tests test_on_exception_max_tries and test_on_exception_callable_max_tries_reads_every_time exercise fixed limits and changing callable limits."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_sync.py",
+          "start": 79,
+          "end": 117,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "def retry_exception(target, wait_gen, exception,\n                    *,\n                    max_tries, max_time, jitter, giveup,\n                    on_success, on_backoff, on_giveup, raise_on_giveup,\n                    wait_gen_kwargs):\n\n    @functools.wraps(target)\n    def retry(*args, **kwargs):\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            try:\n                ret = target(*args, **kwargs)\n            except exception as e:\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup(e) or max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n"
+        },
+        {
+          "path": "tests/test_backoff.py",
+          "start": 153,
+          "end": 189,
+          "file_sha256": "b4840abb9d81fc81ff6ec5c91ece442047c41514ba8f746ec8fa024ab62fa84e",
+          "text": "def test_on_exception_max_tries(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    @backoff.on_exception(backoff.expo, KeyError, jitter=None, max_tries=3)\n    def keyerror_then_true(log, n, foo=None):\n        if len(log) == n:\n            return True\n        e = KeyError()\n        log.append(e)\n        raise e\n\n    log = []\n    with pytest.raises(KeyError):\n        keyerror_then_true(log, 10, foo=\"bar\")\n\n    assert 3 == len(log)\n\n\ndef test_on_exception_max_tries_callable(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    @backoff.on_exception(backoff.expo, KeyError, jitter=None,\n                          max_tries=lambda: 3)\n    def keyerror_then_true(log, n, foo=None):\n        if len(log) == n:\n            return True\n        e = KeyError()\n        log.append(e)\n        raise e\n\n    log = []\n    with pytest.raises(KeyError):\n        keyerror_then_true(log, 10, foo=\"bar\")\n\n    assert 3 == len(log)\n\n\n"
+        },
+        {
+          "path": "tests/test_backoff.py",
+          "start": 591,
+          "end": 630,
+          "file_sha256": "b4840abb9d81fc81ff6ec5c91ece442047c41514ba8f746ec8fa024ab62fa84e",
+          "text": "def test_on_exception_callable_max_tries(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    log = []\n\n    @backoff.on_exception(backoff.constant, ValueError, max_tries=lambda: 3)\n    def exceptor():\n        log.append(True)\n        raise ValueError()\n\n    with pytest.raises(ValueError):\n        exceptor()\n\n    assert len(log) == 3\n\n\ndef test_on_exception_callable_max_tries_reads_every_time(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    lookups = []\n\n    def lookup_max_tries():\n        lookups.append(True)\n        return 3\n\n    @backoff.on_exception(backoff.constant,\n                          ValueError,\n                          max_tries=lookup_max_tries)\n    def exceptor():\n        raise ValueError()\n\n    with pytest.raises(ValueError):\n        exceptor()\n\n    with pytest.raises(ValueError):\n        exceptor()\n\n    assert len(lookups) == 2\n\n\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-02",
+      "repository": "backoff",
+      "question": "When on_exception gives up at its configured limit with raise_on_giveup=False, what is returned and what does the giveup handler receive?",
+      "expected_facts": [
+        "The wrapper returns None instead of re-raising when a giveup predicate or tries/time limit causes giveup and raise_on_giveup is false.",
+        "on_giveup is called before returning and receives the exception plus target, args, kwargs, tries and elapsed.",
+        "raise_on_giveup defaults to True."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_decorator.py",
+          "start": 123,
+          "end": 178,
+          "file_sha256": "baebc5f940745fd7bce2073f8f09fedc6c24990d5cd189a1439c0c16c03883d9",
+          "text": "def on_exception(wait_gen: _WaitGenerator,\n                 exception: _MaybeSequence[Type[Exception]],\n                 *,\n                 max_tries: Optional[_MaybeCallable[int]] = None,\n                 max_time: Optional[_MaybeCallable[float]] = None,\n                 jitter: Union[_Jitterer, None] = full_jitter,\n                 giveup: _Predicate[Exception] = lambda e: False,\n                 on_success: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_backoff: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_giveup: Union[_Handler, Iterable[_Handler], None] = None,\n                 raise_on_giveup: bool = True,\n                 logger: _MaybeLogger = 'backoff',\n                 backoff_log_level: int = logging.INFO,\n                 giveup_log_level: int = logging.ERROR,\n                 **wait_gen_kwargs: Any) -> Callable[[_CallableT], _CallableT]:\n    \"\"\"Returns decorator for backoff and retry triggered by exception.\n\n    Args:\n        wait_gen: A generator yielding successive wait times in\n            seconds.\n        exception: An exception type (or tuple of types) which triggers\n            backoff.\n        max_tries: The maximum number of attempts to make before giving\n            up. Once exhausted, the exception will be allowed to escape.\n            The default value of None means there is no limit to the\n            number of tries. If a callable is passed, it will be\n            evaluated at runtime and its return value used.\n        max_time: The maximum total amount of time to try for before\n            giving up. Once expired, the exception will be allowed to\n            escape. If a callable is passed, it will be\n            evaluated at runtime and its return value used.\n        jitter: A function of the value yielded by wait_gen returning\n            the actual time to wait. This distributes wait times\n            stochastically in order to avoid timing collisions across\n            concurrent clients. Wait times are jittered by default\n            using the full_jitter function. Jittering may be disabled\n            altogether by passing jitter=None.\n        giveup: Function accepting an exception instance and\n            returning whether or not to give up. Optional. The default\n            is to always continue.\n        on_success: Callable (or iterable of callables) with a unary\n            signature to be called in the event of success. The\n            parameter is a dict containing details about the invocation.\n        on_backoff: Callable (or iterable of callables) with a unary\n            signature to be called in the event of a backoff. The\n            parameter is a dict containing details about the invocation.\n        on_giveup: Callable (or iterable of callables) with a unary\n            signature to be called in the event that max_tries\n            is exceeded.  The parameter is a dict containing details\n            about the invocation.\n        raise_on_giveup: Boolean indicating whether the registered exceptions\n            should be raised on giveup. Defaults to `True`\n        logger: Name or Logger object to log to. Defaults to 'backoff'.\n        backoff_log_level: log level for the backoff event. Defaults to \"INFO\"\n        giveup_log_level: log level for the give up event. Defaults to \"ERROR\"\n        **wait_gen_kwargs: Any additional keyword args specified will be\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 79,
+          "end": 132,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "def retry_exception(target, wait_gen, exception,\n                    *,\n                    max_tries, max_time, jitter, giveup,\n                    on_success, on_backoff, on_giveup, raise_on_giveup,\n                    wait_gen_kwargs):\n\n    @functools.wraps(target)\n    def retry(*args, **kwargs):\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            try:\n                ret = target(*args, **kwargs)\n            except exception as e:\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup(e) or max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                _call_handlers(on_backoff, **details, wait=seconds,\n                               exception=e)\n\n                time.sleep(seconds)\n            else:\n                _call_handlers(on_success, **details)\n\n                return ret\n    return retry\n"
+        },
+        {
+          "path": "tests/test_backoff.py",
+          "start": 321,
+          "end": 358,
+          "file_sha256": "b4840abb9d81fc81ff6ec5c91ece442047c41514ba8f746ec8fa024ab62fa84e",
+          "text": "def test_on_exception_giveup(raise_on_giveup):\n    backoffs, giveups, successes = [], [], []\n\n    @backoff.on_exception(backoff.constant,\n                          ValueError,\n                          on_success=successes.append,\n                          on_backoff=backoffs.append,\n                          on_giveup=giveups.append,\n                          max_tries=3,\n                          jitter=None,\n                          raise_on_giveup=raise_on_giveup,\n                          interval=0)\n    @_save_target\n    def exceptor(*args, **kwargs):\n        raise ValueError(\"catch me\")\n\n    if raise_on_giveup:\n        with pytest.raises(ValueError):\n            exceptor(1, 2, 3, foo=1, bar=2)\n    else:\n        exceptor(1, 2, 3, foo=1, bar=2)\n\n    # we try 3 times, backing off twice and giving up once\n    assert len(successes) == 0\n    assert len(backoffs) == 2\n    assert len(giveups) == 1\n\n    details = giveups[0]\n    elapsed = details.pop('elapsed')\n    exception = details.pop('exception')\n    assert isinstance(elapsed, float)\n    assert isinstance(exception, ValueError)\n    assert details == {'args': (1, 2, 3),\n                       'kwargs': {'foo': 1, 'bar': 2},\n                       'target': exceptor._target,\n                       'tries': 3}\n\n\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-03",
+      "repository": "backoff",
+      "question": "What jitter is used by default, what range does it produce, and how can jitter be disabled?",
+      "expected_facts": [
+        "on_exception and on_predicate default to full_jitter.",
+        "full_jitter returns random.uniform(0, value), between zero and the generated wait value.",
+        "Passing jitter=None uses the wait generator value unchanged."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_decorator.py",
+          "start": 27,
+          "end": 64,
+          "file_sha256": "baebc5f940745fd7bce2073f8f09fedc6c24990d5cd189a1439c0c16c03883d9",
+          "text": "def on_predicate(wait_gen: _WaitGenerator,\n                 predicate: _Predicate[Any] = operator.not_,\n                 *,\n                 max_tries: Optional[_MaybeCallable[int]] = None,\n                 max_time: Optional[_MaybeCallable[float]] = None,\n                 jitter: Union[_Jitterer, None] = full_jitter,\n                 on_success: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_backoff: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_giveup: Union[_Handler, Iterable[_Handler], None] = None,\n                 logger: _MaybeLogger = 'backoff',\n                 backoff_log_level: int = logging.INFO,\n                 giveup_log_level: int = logging.ERROR,\n                 **wait_gen_kwargs: Any) -> Callable[[_CallableT], _CallableT]:\n    \"\"\"Returns decorator for backoff and retry triggered by predicate.\n\n    Args:\n        wait_gen: A generator yielding successive wait times in\n            seconds.\n        predicate: A function which when called on the return value of\n            the target function will trigger backoff when considered\n            truthily. If not specified, the default behavior is to\n            backoff on falsey return values.\n        max_tries: The maximum number of attempts to make before giving\n            up. In the case of failure, the result of the last attempt\n            will be returned. The default value of None means there\n            is no limit to the number of tries. If a callable is passed,\n            it will be evaluated at runtime and its return value used.\n        max_time: The maximum total amount of time in seconds to try for before\n            giving up. If this time expires, the result of the last\n            attempt will be returned. If a callable is passed, it will\n            be evaluated at runtime and its return value used.\n        jitter: A function of the value yielded by wait_gen returning\n            the actual time to wait. This distributes wait times\n            stochastically in order to avoid timing collisions across\n            concurrent clients. Wait times are jittered by default\n            using the full_jitter function. Jittering may be disabled\n            altogether by passing jitter=None.\n        on_success: Callable (or iterable of callables) with a unary\n"
+        },
+        {
+          "path": "backoff/_decorator.py",
+          "start": 123,
+          "end": 159,
+          "file_sha256": "baebc5f940745fd7bce2073f8f09fedc6c24990d5cd189a1439c0c16c03883d9",
+          "text": "def on_exception(wait_gen: _WaitGenerator,\n                 exception: _MaybeSequence[Type[Exception]],\n                 *,\n                 max_tries: Optional[_MaybeCallable[int]] = None,\n                 max_time: Optional[_MaybeCallable[float]] = None,\n                 jitter: Union[_Jitterer, None] = full_jitter,\n                 giveup: _Predicate[Exception] = lambda e: False,\n                 on_success: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_backoff: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_giveup: Union[_Handler, Iterable[_Handler], None] = None,\n                 raise_on_giveup: bool = True,\n                 logger: _MaybeLogger = 'backoff',\n                 backoff_log_level: int = logging.INFO,\n                 giveup_log_level: int = logging.ERROR,\n                 **wait_gen_kwargs: Any) -> Callable[[_CallableT], _CallableT]:\n    \"\"\"Returns decorator for backoff and retry triggered by exception.\n\n    Args:\n        wait_gen: A generator yielding successive wait times in\n            seconds.\n        exception: An exception type (or tuple of types) which triggers\n            backoff.\n        max_tries: The maximum number of attempts to make before giving\n            up. Once exhausted, the exception will be allowed to escape.\n            The default value of None means there is no limit to the\n            number of tries. If a callable is passed, it will be\n            evaluated at runtime and its return value used.\n        max_time: The maximum total amount of time to try for before\n            giving up. Once expired, the exception will be allowed to\n            escape. If a callable is passed, it will be\n            evaluated at runtime and its return value used.\n        jitter: A function of the value yielded by wait_gen returning\n            the actual time to wait. This distributes wait times\n            stochastically in order to avoid timing collisions across\n            concurrent clients. Wait times are jittered by default\n            using the full_jitter function. Jittering may be disabled\n            altogether by passing jitter=None.\n"
+        },
+        {
+          "path": "backoff/_jitter.py",
+          "start": 17,
+          "end": 28,
+          "file_sha256": "2e32528698ebca4f6c5810968b3fb7517d43242c7aade6cd27905fde73cc9584",
+          "text": "\ndef full_jitter(value: float) -> float:\n    \"\"\"Jitter the value across the full range (0 to value).\n\n    This corresponds to the \"Full Jitter\" algorithm specified in the\n    AWS blog's post on the performance of various jitter algorithms.\n    (http://www.awsarchitectureblog.com/2015/03/backoff.html)\n\n    Args:\n        value: The unadulterated backoff value.\n    \"\"\"\n    return random.uniform(0, value)\n"
+        },
+        {
+          "path": "backoff/_common.py",
+          "start": 34,
+          "end": 55,
+          "file_sha256": "f2cdffe40247f2188777d191d8f74aaa269e136b1d114a327fa716f4e0a8d45f",
+          "text": "def _next_wait(wait, send_value, jitter, elapsed, max_time):\n    value = wait.send(send_value)\n    try:\n        if jitter is not None:\n            seconds = jitter(value)\n        else:\n            seconds = value\n    except TypeError:\n        warnings.warn(\n            \"Nullary jitter function signature is deprecated. Use \"\n            \"unary signature accepting a wait value in seconds and \"\n            \"returning a jittered version of it.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n\n        seconds = value + jitter()\n\n    # don't sleep longer than remaining allotted max_time\n    if max_time is not None:\n        seconds = min(seconds, max_time - elapsed)\n\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-04",
+      "repository": "backoff",
+      "question": "How does max_time affect a proposed sleep that exceeds the remaining time, and where is elapsed time checked?",
+      "expected_facts": [
+        "_next_wait clips seconds to min(seconds, max_time - elapsed).",
+        "Wrappers compute elapsed at the beginning of each iteration before calling the target.",
+        "After a retryable result/exception they stop when elapsed >= max_time; this does not interrupt a running target."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_common.py",
+          "start": 34,
+          "end": 57,
+          "file_sha256": "f2cdffe40247f2188777d191d8f74aaa269e136b1d114a327fa716f4e0a8d45f",
+          "text": "def _next_wait(wait, send_value, jitter, elapsed, max_time):\n    value = wait.send(send_value)\n    try:\n        if jitter is not None:\n            seconds = jitter(value)\n        else:\n            seconds = value\n    except TypeError:\n        warnings.warn(\n            \"Nullary jitter function signature is deprecated. Use \"\n            \"unary signature accepting a wait value in seconds and \"\n            \"returning a jittered version of it.\",\n            DeprecationWarning,\n            stacklevel=2,\n        )\n\n        seconds = value + jitter()\n\n    # don't sleep longer than remaining allotted max_time\n    if max_time is not None:\n        seconds = min(seconds, max_time - elapsed)\n\n    return seconds\n\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 30,
+          "end": 69,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "    def retry(*args, **kwargs):\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            ret = target(*args, **kwargs)\n            if predicate(ret):\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, value=ret)\n                    break\n\n                try:\n                    seconds = _next_wait(wait, ret, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details)\n                    break\n\n                _call_handlers(on_backoff, **details,\n                               value=ret, wait=seconds)\n\n                time.sleep(seconds)\n                continue\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 86,
+          "end": 129,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "    def retry(*args, **kwargs):\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            try:\n                ret = target(*args, **kwargs)\n            except exception as e:\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup(e) or max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                _call_handlers(on_backoff, **details, wait=seconds,\n                               exception=e)\n\n                time.sleep(seconds)\n            else:\n                _call_handlers(on_success, **details)\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-05",
+      "repository": "backoff",
+      "question": "For on_predicate without a custom predicate, which results trigger retry and what is returned when max_tries is reached?",
+      "expected_facts": [
+        "The default predicate is operator.not_, so falsey return values trigger retry.",
+        "At max_tries the giveup handler is called with value=ret and the loop stops.",
+        "The last target return value is returned, rather than raising a retry-exhaustion exception."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_decorator.py",
+          "start": 27,
+          "end": 57,
+          "file_sha256": "baebc5f940745fd7bce2073f8f09fedc6c24990d5cd189a1439c0c16c03883d9",
+          "text": "def on_predicate(wait_gen: _WaitGenerator,\n                 predicate: _Predicate[Any] = operator.not_,\n                 *,\n                 max_tries: Optional[_MaybeCallable[int]] = None,\n                 max_time: Optional[_MaybeCallable[float]] = None,\n                 jitter: Union[_Jitterer, None] = full_jitter,\n                 on_success: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_backoff: Union[_Handler, Iterable[_Handler], None] = None,\n                 on_giveup: Union[_Handler, Iterable[_Handler], None] = None,\n                 logger: _MaybeLogger = 'backoff',\n                 backoff_log_level: int = logging.INFO,\n                 giveup_log_level: int = logging.ERROR,\n                 **wait_gen_kwargs: Any) -> Callable[[_CallableT], _CallableT]:\n    \"\"\"Returns decorator for backoff and retry triggered by predicate.\n\n    Args:\n        wait_gen: A generator yielding successive wait times in\n            seconds.\n        predicate: A function which when called on the return value of\n            the target function will trigger backoff when considered\n            truthily. If not specified, the default behavior is to\n            backoff on falsey return values.\n        max_tries: The maximum number of attempts to make before giving\n            up. In the case of failure, the result of the last attempt\n            will be returned. The default value of None means there\n            is no limit to the number of tries. If a callable is passed,\n            it will be evaluated at runtime and its return value used.\n        max_time: The maximum total amount of time in seconds to try for before\n            giving up. If this time expires, the result of the last\n            attempt will be returned. If a callable is passed, it will\n            be evaluated at runtime and its return value used.\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 23,
+          "end": 77,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "def retry_predicate(target, wait_gen, predicate,\n                    *,\n                    max_tries, max_time, jitter,\n                    on_success, on_backoff, on_giveup,\n                    wait_gen_kwargs):\n\n    @functools.wraps(target)\n    def retry(*args, **kwargs):\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            ret = target(*args, **kwargs)\n            if predicate(ret):\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, value=ret)\n                    break\n\n                try:\n                    seconds = _next_wait(wait, ret, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details)\n                    break\n\n                _call_handlers(on_backoff, **details,\n                               value=ret, wait=seconds)\n\n                time.sleep(seconds)\n                continue\n            else:\n                _call_handlers(on_success, **details, value=ret)\n                break\n\n        return ret\n\n    return retry\n\n"
+        },
+        {
+          "path": "tests/test_backoff.py",
+          "start": 17,
+          "end": 46,
+          "file_sha256": "b4840abb9d81fc81ff6ec5c91ece442047c41514ba8f746ec8fa024ab62fa84e",
+          "text": "def test_on_predicate(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    @backoff.on_predicate(backoff.expo)\n    def return_true(log, n):\n        val = (len(log) == n - 1)\n        log.append(val)\n        return val\n\n    log = []\n    ret = return_true(log, 3)\n    assert ret is True\n    assert 3 == len(log)\n\n\ndef test_on_predicate_max_tries(monkeypatch):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    @backoff.on_predicate(backoff.expo, jitter=None, max_tries=3)\n    def return_true(log, n):\n        val = (len(log) == n)\n        log.append(val)\n        return val\n\n    log = []\n    ret = return_true(log, 10)\n    assert ret is False\n    assert 3 == len(log)\n\n\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-06",
+      "repository": "backoff",
+      "question": "How does on_exception select async execution, and can its async giveup predicate itself be a coroutine?",
+      "expected_facts": [
+        "The decorator tests asyncio.iscoroutinefunction(target) and dispatches to _async.retry_exception.",
+        "Async retry_exception converts giveup with _ensure_coroutine and awaits giveup(e).",
+        "The async loop uses await asyncio.sleep for delays; an async giveup predicate is supported and tested."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_decorator.py",
+          "start": 184,
+          "end": 222,
+          "file_sha256": "baebc5f940745fd7bce2073f8f09fedc6c24990d5cd189a1439c0c16c03883d9",
+          "text": "        nonlocal logger, on_success, on_backoff, on_giveup\n\n        logger = _prepare_logger(logger)\n        on_success = _config_handlers(on_success)\n        on_backoff = _config_handlers(\n            on_backoff,\n            default_handler=_log_backoff,\n            logger=logger,\n            log_level=backoff_log_level,\n        )\n        on_giveup = _config_handlers(\n            on_giveup,\n            default_handler=_log_giveup,\n            logger=logger,\n            log_level=giveup_log_level,\n        )\n\n        if asyncio.iscoroutinefunction(target):\n            retry = _async.retry_exception\n        else:\n            retry = _sync.retry_exception\n\n        return retry(\n            target,\n            wait_gen,\n            exception,\n            max_tries=max_tries,\n            max_time=max_time,\n            jitter=jitter,\n            giveup=giveup,\n            on_success=on_success,\n            on_backoff=on_backoff,\n            on_giveup=on_giveup,\n            raise_on_giveup=raise_on_giveup,\n            wait_gen_kwargs=wait_gen_kwargs\n        )\n\n    # Return a function which decorates a target with a retry loop.\n    return decorate\n"
+        },
+        {
+          "path": "backoff/_async.py",
+          "start": 10,
+          "end": 22,
+          "file_sha256": "66faa67f1c50da8f948d05108a7d763a37387973976f8dd159241a3daa9b00b2",
+          "text": "def _ensure_coroutine(coro_or_func):\n    if asyncio.iscoroutinefunction(coro_or_func):\n        return coro_or_func\n    else:\n        @functools.wraps(coro_or_func)\n        async def f(*args, **kwargs):\n            return coro_or_func(*args, **kwargs)\n        return f\n\n\ndef _ensure_coroutines(coros_or_funcs):\n    return [_ensure_coroutine(f) for f in coros_or_funcs]\n\n"
+        },
+        {
+          "path": "backoff/_async.py",
+          "start": 116,
+          "end": 182,
+          "file_sha256": "66faa67f1c50da8f948d05108a7d763a37387973976f8dd159241a3daa9b00b2",
+          "text": "def retry_exception(target, wait_gen, exception,\n                    *,\n                    max_tries, max_time, jitter, giveup,\n                    on_success, on_backoff, on_giveup, raise_on_giveup,\n                    wait_gen_kwargs):\n    on_success = _ensure_coroutines(on_success)\n    on_backoff = _ensure_coroutines(on_backoff)\n    on_giveup = _ensure_coroutines(on_giveup)\n    giveup = _ensure_coroutine(giveup)\n\n    # Easy to implement, please report if you need this.\n    assert not asyncio.iscoroutinefunction(max_tries)\n    assert not asyncio.iscoroutinefunction(jitter)\n\n    @functools.wraps(target)\n    async def retry(*args, **kwargs):\n\n        max_tries_value = _maybe_call(max_tries)\n        max_time_value = _maybe_call(max_time)\n\n        tries = 0\n        start = datetime.datetime.now()\n        wait = _init_wait_gen(wait_gen, wait_gen_kwargs)\n        while True:\n            tries += 1\n            elapsed = timedelta.total_seconds(datetime.datetime.now() - start)\n            details = {\n                \"target\": target,\n                \"args\": args,\n                \"kwargs\": kwargs,\n                \"tries\": tries,\n                \"elapsed\": elapsed,\n            }\n\n            try:\n                ret = await target(*args, **kwargs)\n            except exception as e:\n                giveup_result = await giveup(e)\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup_result or max_tries_exceeded or max_time_exceeded:\n                    await _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    await _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                await _call_handlers(on_backoff, **details, wait=seconds,\n                                     exception=e)\n\n                # Note: there is no convenient way to pass explicit event\n                # loop to decorator, so here we assume that either default\n                # thread event loop is set and correct (it mostly is\n                # by default), or Python >= 3.5.3 or Python >= 3.6 is used\n                # where loop.get_event_loop() in coroutine guaranteed to\n                # return correct value.\n                # See for details:\n                #   <https://groups.google.com/forum/#!topic/python-tulip/yF9C-rFpiKk>\n                #   <https://bugs.python.org/issue28613>\n"
+        },
+        {
+          "path": "tests/test_backoff_async.py",
+          "start": 338,
+          "end": 358,
+          "file_sha256": "4e834fa1f8bac00a8cc8a0c957b7e8edcc4bb6fc766ae5221d1a00178006bf70",
+          "text": "async def test_on_exception_giveup_coro(monkeypatch):\n    monkeypatch.setattr('asyncio.sleep', _await_none)\n\n    async def on_baz(e):\n        return str(e) == \"baz\"\n\n    vals = [\"baz\", \"bar\", \"foo\"]\n\n    @backoff.on_exception(backoff.constant,\n                          ValueError,\n                          giveup=on_baz)\n    async def foo_bar_baz():\n        raise ValueError(vals.pop())\n\n    with pytest.raises(ValueError):\n        await foo_bar_baz()\n\n    assert not vals\n\n\n@pytest.mark.asyncio\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-07",
+      "repository": "backoff",
+      "question": "How does the runtime wait generator derive a delay from a returned value or exception, and how is it initialized?",
+      "expected_facts": [
+        "runtime accepts a value callable and yields value(ret_or_exc).",
+        "_init_wait_gen primes the generator with send(None).",
+        "_next_wait sends the target return value for predicate retries or the caught exception for exception retries to the generator."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_wait_gen.py",
+          "start": 114,
+          "end": 119,
+          "file_sha256": "84e6c53de5c35ddcdcbcc864927c9ade7952298a0200c4f92c5a2da36e5e9ae2",
+          "text": "            function's return value or thrown exception and\n            determines how long to wait\n    \"\"\"\n    ret_or_exc = yield  # type: ignore[misc]\n    while True:\n        ret_or_exc = yield value(ret_or_exc)\n"
+        },
+        {
+          "path": "backoff/_common.py",
+          "start": 27,
+          "end": 41,
+          "file_sha256": "f2cdffe40247f2188777d191d8f74aaa269e136b1d114a327fa716f4e0a8d45f",
+          "text": "def _init_wait_gen(wait_gen, wait_gen_kwargs):\n    kwargs = {k: _maybe_call(v) for k, v in wait_gen_kwargs.items()}\n    initialized = wait_gen(**kwargs)\n    initialized.send(None)  # Initialize with an empty send\n    return initialized\n\n\ndef _next_wait(wait, send_value, jitter, elapsed, max_time):\n    value = wait.send(send_value)\n    try:\n        if jitter is not None:\n            seconds = jitter(value)\n        else:\n            seconds = value\n    except TypeError:\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 50,
+          "end": 63,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, value=ret)\n                    break\n\n                try:\n                    seconds = _next_wait(wait, ret, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details)\n                    break\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 117,
+          "end": 129,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                _call_handlers(on_backoff, **details, wait=seconds,\n                               exception=e)\n\n                time.sleep(seconds)\n            else:\n                _call_handlers(on_success, **details)\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-08",
+      "repository": "backoff",
+      "question": "Which fields are available to a synchronous on_backoff handler for exception retries, and can multiple handlers be configured?",
+      "expected_facts": [
+        "The details dictionary includes target, args, kwargs, tries and elapsed.",
+        "Exception on_backoff additionally receives wait and exception.",
+        "_config_handlers accepts a single callable or an iterable of handlers, and the handler dispatcher invokes each."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_sync.py",
+          "start": 10,
+          "end": 21,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "def _call_handlers(hdlrs, target, args, kwargs, tries, elapsed, **extra):\n    details = {\n        'target': target,\n        'args': args,\n        'kwargs': kwargs,\n        'tries': tries,\n        'elapsed': elapsed,\n    }\n    details.update(extra)\n    for hdlr in hdlrs:\n        hdlr(details)\n\n"
+        },
+        {
+          "path": "backoff/_sync.py",
+          "start": 123,
+          "end": 129,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "\n                _call_handlers(on_backoff, **details, wait=seconds,\n                               exception=e)\n\n                time.sleep(seconds)\n            else:\n                _call_handlers(on_success, **details)\n"
+        },
+        {
+          "path": "backoff/_common.py",
+          "start": 67,
+          "end": 92,
+          "file_sha256": "f2cdffe40247f2188777d191d8f74aaa269e136b1d114a327fa716f4e0a8d45f",
+          "text": "def _config_handlers(\n    user_handlers, *, default_handler=None, logger=None, log_level=None\n):\n    handlers = []\n    if logger is not None:\n        assert log_level is not None, \"Log level is not specified\"\n        # bind the specified logger to the default log handler\n        log_handler = functools.partial(\n            default_handler, logger=logger, log_level=log_level\n        )\n        handlers.append(log_handler)\n\n    if user_handlers is None:\n        return handlers\n\n    # user specified handlers can either be an iterable of handlers\n    # or a single handler. either way append them to the list.\n    if hasattr(user_handlers, '__iter__'):\n        # add all handlers in the iterable\n        handlers += list(user_handlers)\n    else:\n        # append a single handler\n        handlers.append(user_handlers)\n\n    return handlers\n\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-09",
+      "repository": "backoff",
+      "question": "If a finite wait generator is exhausted during exception retries, does raise_on_giveup=False suppress the original exception?",
+      "expected_facts": [
+        "No: the StopIteration branch in retry_exception calls on_giveup and raises the caught exception e.",
+        "The raise_on_giveup check is in the separate predicate/tries/time-limit branch, not the generator-exhaustion branch.",
+        "The async exception wrapper also raises e on StopIteration."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_sync.py",
+          "start": 104,
+          "end": 128,
+          "file_sha256": "0d3fe4b6e7cf3dbd27badf5608029ee5413bb1361197d7fddcf44f5fa8cff2ba",
+          "text": "            try:\n                ret = target(*args, **kwargs)\n            except exception as e:\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup(e) or max_tries_exceeded or max_time_exceeded:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                _call_handlers(on_backoff, **details, wait=seconds,\n                               exception=e)\n\n                time.sleep(seconds)\n            else:\n"
+        },
+        {
+          "path": "backoff/_async.py",
+          "start": 151,
+          "end": 176,
+          "file_sha256": "66faa67f1c50da8f948d05108a7d763a37387973976f8dd159241a3daa9b00b2",
+          "text": "                ret = await target(*args, **kwargs)\n            except exception as e:\n                giveup_result = await giveup(e)\n                max_tries_exceeded = (tries == max_tries_value)\n                max_time_exceeded = (max_time_value is not None and\n                                     elapsed >= max_time_value)\n\n                if giveup_result or max_tries_exceeded or max_time_exceeded:\n                    await _call_handlers(on_giveup, **details, exception=e)\n                    if raise_on_giveup:\n                        raise\n                    return None\n\n                try:\n                    seconds = _next_wait(wait, e, jitter, elapsed,\n                                         max_time_value)\n                except StopIteration:\n                    await _call_handlers(on_giveup, **details, exception=e)\n                    raise e\n\n                await _call_handlers(on_backoff, **details, wait=seconds,\n                                     exception=e)\n\n                # Note: there is no convenient way to pass explicit event\n                # loop to decorator, so here we assume that either default\n                # thread event loop is set and correct (it mostly is\n"
+        }
+      ]
+    },
+    {
+      "id": "backoff-10",
+      "repository": "backoff",
+      "question": "How can the default backoff logging be disabled, and can a logger name string be supplied?",
+      "expected_facts": [
+        "Passing logger=None prevents default logging handlers from being added.",
+        "A logger string is converted with logging.getLogger by _prepare_logger.",
+        "Tests test_on_exception_logger_none and test_on_exception_logger_user_str cover these configurations."
+      ],
+      "reference_spans": [
+        {
+          "path": "backoff/_common.py",
+          "start": 59,
+          "end": 92,
+          "file_sha256": "f2cdffe40247f2188777d191d8f74aaa269e136b1d114a327fa716f4e0a8d45f",
+          "text": "def _prepare_logger(logger):\n    if isinstance(logger, str):\n        logger = logging.getLogger(logger)\n    return logger\n\n\n# Configure handler list with user specified handler and optionally\n# with a default handler bound to the specified logger.\ndef _config_handlers(\n    user_handlers, *, default_handler=None, logger=None, log_level=None\n):\n    handlers = []\n    if logger is not None:\n        assert log_level is not None, \"Log level is not specified\"\n        # bind the specified logger to the default log handler\n        log_handler = functools.partial(\n            default_handler, logger=logger, log_level=log_level\n        )\n        handlers.append(log_handler)\n\n    if user_handlers is None:\n        return handlers\n\n    # user specified handlers can either be an iterable of handlers\n    # or a single handler. either way append them to the list.\n    if hasattr(user_handlers, '__iter__'):\n        # add all handlers in the iterable\n        handlers += list(user_handlers)\n    else:\n        # append a single handler\n        handlers.append(user_handlers)\n\n    return handlers\n\n"
+        },
+        {
+          "path": "tests/test_backoff.py",
+          "start": 747,
+          "end": 828,
+          "file_sha256": "b4840abb9d81fc81ff6ec5c91ece442047c41514ba8f746ec8fa024ab62fa84e",
+          "text": "def test_on_exception_logger_default(monkeypatch, caplog):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    logger = logging.getLogger('backoff')\n    handler = logging.StreamHandler(sys.stdout)\n    logger.addHandler(handler)\n\n    @backoff.on_exception(backoff.expo, KeyError, max_tries=3)\n    def key_error():\n        raise KeyError()\n\n    with caplog.at_level(logging.INFO):\n        with pytest.raises(KeyError):\n            key_error()\n\n    assert len(caplog.records) == 3  # 2 backoffs and 1 giveup\n    for record in caplog.records:\n        assert record.name == 'backoff'\n\n\ndef test_on_exception_logger_none(monkeypatch, caplog):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    logger = logging.getLogger('backoff')\n    handler = logging.StreamHandler(sys.stdout)\n    logger.addHandler(handler)\n\n    @backoff.on_exception(backoff.expo, KeyError, max_tries=3, logger=None)\n    def key_error():\n        raise KeyError()\n\n    with caplog.at_level(logging.INFO):\n        with pytest.raises(KeyError):\n            key_error()\n\n    assert not caplog.records\n\n\ndef test_on_exception_logger_user(monkeypatch, caplog):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    logger = logging.getLogger('my-logger')\n    handler = logging.StreamHandler(sys.stdout)\n    logger.addHandler(handler)\n\n    @backoff.on_exception(backoff.expo, KeyError, max_tries=3, logger=logger)\n    def key_error():\n        raise KeyError()\n\n    with caplog.at_level(logging.INFO):\n        with pytest.raises(KeyError):\n            key_error()\n\n    assert len(caplog.records) == 3  # 2 backoffs and 1 giveup\n    for record in caplog.records:\n        assert record.name == 'my-logger'\n\n\ndef test_on_exception_logger_user_str(monkeypatch, caplog):\n    monkeypatch.setattr('time.sleep', lambda x: None)\n\n    logger = logging.getLogger('my-logger')\n    handler = logging.StreamHandler(sys.stdout)\n    logger.addHandler(handler)\n\n    @backoff.on_exception(backoff.expo, KeyError, max_tries=3,\n                          logger='my-logger')\n    def key_error():\n        raise KeyError()\n\n    with caplog.at_level(logging.INFO):\n        with pytest.raises(KeyError):\n            key_error()\n\n    assert len(caplog.records) == 3  # 2 backoffs and 1 giveup\n    for record in caplog.records:\n        assert record.name == 'my-logger'\n\n\ndef _on_exception_factory(\n    backoff_log_level, giveup_log_level, max_tries\n):\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-01",
+      "repository": "dotenv",
+      "question": "Does load_dotenv overwrite an existing environment variable by default, how is this changed, and which tests verify it?",
+      "expected_facts": [
+        "load_dotenv defaults override=False.",
+        "DotEnv.set_as_environment_variables skips keys already in os.environ unless override is true.",
+        "test_load_dotenv_existing_variable_no_override preserves a=c while override test changes it to a=b."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 98,
+          "end": 111,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "        \"\"\"\n        Load the current dotenv as system environment variable.\n        \"\"\"\n        if not self.dict():\n            return False\n\n        for k, v in self.dict().items():\n            if k in os.environ and not self.override:\n                continue\n            if v is not None:\n                os.environ[k] = v\n\n        return True\n\n"
+        },
+        {
+          "path": "src/dotenv/main.py",
+          "start": 388,
+          "end": 435,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def load_dotenv(\n    dotenv_path: Optional[StrPath] = None,\n    stream: Optional[IO[str]] = None,\n    verbose: bool = False,\n    override: bool = False,\n    interpolate: bool = True,\n    encoding: Optional[str] = \"utf-8\",\n) -> bool:\n    \"\"\"Parse a .env file and then load all the variables found as environment variables.\n\n    Parameters:\n        dotenv_path: Absolute or relative path to .env file.\n        stream: Text stream (such as `io.StringIO`) with .env content, used if\n            `dotenv_path` is `None`.\n        verbose: Whether to output a warning the .env file is missing.\n        override: Whether to override the system environment variables with the variables\n            from the `.env` file.\n        interpolate: Whether to interpolate variables using POSIX variable expansion.\n        encoding: Encoding to be used to read the file.\n    Returns:\n        Bool: True if at least one environment variable is set else False\n\n    If both `dotenv_path` and `stream` are `None`, `find_dotenv()` is used to find the\n    .env file with its default parameters. If you need to change the default parameters\n    of `find_dotenv()`, you can explicitly call `find_dotenv()` and pass the result\n    to this function as `dotenv_path`.\n\n    If the environment variable `PYTHON_DOTENV_DISABLED` is set to a truthy value,\n    .env loading is disabled.\n    \"\"\"\n    if _load_dotenv_disabled():\n        logger.debug(\n            \"python-dotenv: .env loading disabled by PYTHON_DOTENV_DISABLED environment variable\"\n        )\n        return False\n\n    if dotenv_path is None and stream is None:\n        dotenv_path = find_dotenv()\n\n    dotenv = DotEnv(\n        dotenv_path=dotenv_path,\n        stream=stream,\n        verbose=verbose,\n        interpolate=interpolate,\n        override=override,\n        encoding=encoding,\n    )\n    return dotenv.set_as_environment_variables()\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 574,
+          "end": 604,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"This test assumes case-sensitive variable names\"\n)\n@mock.patch.dict(os.environ, {\"a\": \"c\"}, clear=True)\ndef test_load_dotenv_existing_variable_no_override(dotenv_path):\n    dotenv_path.write_text(\"a=b\")\n\n    result = dotenv.load_dotenv(dotenv_path, override=False)\n\n    assert result is True\n    assert os.environ == {\"a\": \"c\"}\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"This test assumes case-sensitive variable names\"\n)\n@mock.patch.dict(os.environ, {\"a\": \"c\"}, clear=True)\ndef test_load_dotenv_existing_variable_override(dotenv_path):\n    dotenv_path.write_text(\"a=b\")\n\n    result = dotenv.load_dotenv(dotenv_path, override=True)\n\n    assert result is True\n    assert os.environ == {\"a\": \"b\"}\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"This test assumes case-sensitive variable names\"\n)\n@mock.patch.dict(os.environ, {\"a\": \"c\"}, clear=True)\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-02",
+      "repository": "dotenv",
+      "question": "How does dotenv_values differ from load_dotenv in environment mutation and interpolation precedence?",
+      "expected_facts": [
+        "dotenv_values returns a dictionary via DotEnv.dict instead of setting os.environ.",
+        "dotenv_values constructs DotEnv with override=True.",
+        "With override=True interpolation overlays earlier file values on os.environ, so earlier file definitions take precedence."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 294,
+          "end": 316,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def resolve_variables(\n    values: Iterable[Tuple[str, Optional[str]]],\n    override: bool,\n) -> Mapping[str, Optional[str]]:\n    new_values: Dict[str, Optional[str]] = {}\n\n    for name, value in values:\n        if value is None:\n            result = None\n        else:\n            atoms = parse_variables(value)\n            env: Dict[str, Optional[str]] = {}\n            if override:\n                env.update(os.environ)  # type: ignore\n                env.update(new_values)\n            else:\n                env.update(new_values)\n                env.update(os.environ)  # type: ignore\n            result = \"\".join(atom.resolve(env) for atom in atoms)\n\n        new_values[name] = result\n\n    return new_values\n"
+        },
+        {
+          "path": "src/dotenv/main.py",
+          "start": 438,
+          "end": 473,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def dotenv_values(\n    dotenv_path: Optional[StrPath] = None,\n    stream: Optional[IO[str]] = None,\n    verbose: bool = False,\n    interpolate: bool = True,\n    encoding: Optional[str] = \"utf-8\",\n) -> Dict[str, Optional[str]]:\n    \"\"\"\n    Parse a .env file and return its content as a dict.\n\n    The returned dict will have `None` values for keys without values in the .env file.\n    For example, `foo=bar` results in `{\"foo\": \"bar\"}` whereas `foo` alone results in\n    `{\"foo\": None}`\n\n    Parameters:\n        dotenv_path: Absolute or relative path to the .env file.\n        stream: `StringIO` object with .env content, used if `dotenv_path` is `None`.\n        verbose: Whether to output a warning if the .env file is missing.\n        interpolate: Whether to interpolate variables using POSIX variable expansion.\n        encoding: Encoding to be used to read the file.\n\n    If both `dotenv_path` and `stream` are `None`, `find_dotenv()` is used to find the\n    .env file.\n    \"\"\"\n    if dotenv_path is None and stream is None:\n        dotenv_path = find_dotenv()\n\n    return DotEnv(\n        dotenv_path=dotenv_path,\n        stream=stream,\n        verbose=verbose,\n        interpolate=interpolate,\n        override=True,\n        encoding=encoding,\n    ).dict()\n\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-03",
+      "repository": "dotenv",
+      "question": "Which PYTHON_DOTENV_DISABLED values disable loading, is matching case sensitive, and what does load_dotenv return then?",
+      "expected_facts": [
+        "The disabling values are 1, true, t, yes and y.",
+        "The value is casefolded, so matching is case insensitive.",
+        "load_dotenv returns False before reading/loading variables when disabled."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 22,
+          "end": 29,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def _load_dotenv_disabled() -> bool:\n    \"\"\"\n    Determine if dotenv loading has been disabled.\n    \"\"\"\n    if \"PYTHON_DOTENV_DISABLED\" not in os.environ:\n        return False\n    value = os.environ[\"PYTHON_DOTENV_DISABLED\"].casefold()\n    return value in {\"1\", \"true\", \"t\", \"yes\", \"y\"}\n"
+        },
+        {
+          "path": "src/dotenv/main.py",
+          "start": 388,
+          "end": 425,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def load_dotenv(\n    dotenv_path: Optional[StrPath] = None,\n    stream: Optional[IO[str]] = None,\n    verbose: bool = False,\n    override: bool = False,\n    interpolate: bool = True,\n    encoding: Optional[str] = \"utf-8\",\n) -> bool:\n    \"\"\"Parse a .env file and then load all the variables found as environment variables.\n\n    Parameters:\n        dotenv_path: Absolute or relative path to .env file.\n        stream: Text stream (such as `io.StringIO`) with .env content, used if\n            `dotenv_path` is `None`.\n        verbose: Whether to output a warning the .env file is missing.\n        override: Whether to override the system environment variables with the variables\n            from the `.env` file.\n        interpolate: Whether to interpolate variables using POSIX variable expansion.\n        encoding: Encoding to be used to read the file.\n    Returns:\n        Bool: True if at least one environment variable is set else False\n\n    If both `dotenv_path` and `stream` are `None`, `find_dotenv()` is used to find the\n    .env file with its default parameters. If you need to change the default parameters\n    of `find_dotenv()`, you can explicitly call `find_dotenv()` and pass the result\n    to this function as `dotenv_path`.\n\n    If the environment variable `PYTHON_DOTENV_DISABLED` is set to a truthy value,\n    .env loading is disabled.\n    \"\"\"\n    if _load_dotenv_disabled():\n        logger.debug(\n            \"python-dotenv: .env loading disabled by PYTHON_DOTENV_DISABLED environment variable\"\n        )\n        return False\n\n    if dotenv_path is None and stream is None:\n        dotenv_path = find_dotenv()\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 431,
+          "end": 459,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "        \"true\",\n        \"yes\",\n        \"1\",\n        \"t\",\n        \"y\",\n        \"True\",\n        \"Yes\",\n        \"TRUE\",\n        \"YES\",\n        \"T\",\n        \"Y\",\n    ],\n)\ndef test_load_dotenv_disabled(dotenv_path, flag_value):\n    expected_environ = {\"PYTHON_DOTENV_DISABLED\": flag_value}\n    with mock.patch.dict(\n        os.environ, {\"PYTHON_DOTENV_DISABLED\": flag_value}, clear=True\n    ):\n        dotenv_path.write_text(\"a=b\")\n\n        result = dotenv.load_dotenv(dotenv_path)\n\n        assert result is False\n        assert os.environ == expected_environ\n\n\n@pytest.mark.parametrize(\n    \"flag_value\",\n    [\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-04",
+      "repository": "dotenv",
+      "question": "Where does find_dotenv start its search in normal scripts versus interactive or debugger use, and what happens if nothing is found?",
+      "expected_facts": [
+        "Normal scripts start from the directory of the first relevant calling frame outside dotenv and nonexistent frame paths.",
+        "usecwd, interactive mode, debugger mode, or a frozen application start from os.getcwd().",
+        "It searches upward toward the filesystem root and returns an empty string if missing unless raise_error_if_not_found requests IOError."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 319,
+          "end": 386,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def _walk_to_root(path: str) -> Iterator[str]:\n    \"\"\"\n    Yield directories starting from the given directory up to the root\n    \"\"\"\n    if not os.path.exists(path):\n        raise IOError(\"Starting path not found\")\n\n    if os.path.isfile(path):\n        path = os.path.dirname(path)\n\n    last_dir = None\n    current_dir = os.path.abspath(path)\n    while last_dir != current_dir:\n        yield current_dir\n        parent_dir = os.path.abspath(os.path.join(current_dir, os.path.pardir))\n        last_dir, current_dir = current_dir, parent_dir\n\n\ndef find_dotenv(\n    filename: str = \".env\",\n    raise_error_if_not_found: bool = False,\n    usecwd: bool = False,\n) -> str:\n    \"\"\"\n    Search in increasingly higher folders for the given file\n\n    Returns path to the file if found, or an empty string otherwise\n    \"\"\"\n\n    def _is_interactive():\n        \"\"\"Decide whether this is running in a REPL or IPython notebook\"\"\"\n        if hasattr(sys, \"ps1\") or hasattr(sys, \"ps2\"):\n            return True\n        try:\n            main = __import__(\"__main__\", None, None, fromlist=[\"__file__\"])\n        except ModuleNotFoundError:\n            return False\n        return not hasattr(main, \"__file__\")\n\n    def _is_debugger():\n        return sys.gettrace() is not None\n\n    if usecwd or _is_interactive() or _is_debugger() or getattr(sys, \"frozen\", False):\n        # Should work without __file__, e.g. in REPL or IPython notebook.\n        path = os.getcwd()\n    else:\n        # will work for .py files\n        frame = sys._getframe()\n        current_file = __file__\n\n        while frame.f_code.co_filename == current_file or not os.path.exists(\n            frame.f_code.co_filename\n        ):\n            assert frame.f_back is not None\n            frame = frame.f_back\n        frame_filename = frame.f_code.co_filename\n        path = os.path.dirname(os.path.abspath(frame_filename))\n\n    for dirname in _walk_to_root(path):\n        check_path = os.path.join(dirname, filename)\n        if _is_file_or_fifo(check_path):\n            return check_path\n\n    if raise_error_if_not_found:\n        raise IOError(\"File not found\")\n\n    return \"\"\n\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 387,
+          "end": 417,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "def test_find_dotenv_no_file_raise(tmp_path):\n    leaf = prepare_file_hierarchy(tmp_path)\n    os.chdir(leaf)\n\n    with pytest.raises(IOError):\n        dotenv.find_dotenv(raise_error_if_not_found=True, usecwd=True)\n\n\ndef test_find_dotenv_no_file_no_raise(tmp_path):\n    leaf = prepare_file_hierarchy(tmp_path)\n    os.chdir(leaf)\n\n    result = dotenv.find_dotenv(usecwd=True)\n\n    assert result == \"\"\n\n\ndef test_find_dotenv_found(tmp_path):\n    leaf = prepare_file_hierarchy(tmp_path)\n    os.chdir(leaf)\n    dotenv_path = tmp_path / \".env\"\n    dotenv_path.write_bytes(b\"TEST=test\\n\")\n\n    result = dotenv.find_dotenv(usecwd=True)\n\n    assert result == str(dotenv_path)\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"This test assumes case-sensitive variable names\"\n)\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-05",
+      "repository": "dotenv",
+      "question": "What is the difference between a bare key such as FOO and FOO= when parsing and loading environment variables?",
+      "expected_facts": [
+        "A key without an equals sign is parsed with value None.",
+        "An explicit empty assignment has the empty string as its value.",
+        "The dictionary can contain None, but environment loading skips None values and can set an empty string."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/parser.py",
+          "start": 130,
+          "end": 188,
+          "file_sha256": "0bc1350444eeff987f2c22924400ad0b7727563798118c641cd4c0de55bd30d0",
+          "text": "def parse_value(reader: Reader) -> str:\n    char = reader.peek(1)\n    if char == \"'\":\n        (value,) = reader.read_regex(_single_quoted_value)\n        return decode_escapes(_single_quote_escapes, value)\n    elif char == '\"':\n        (value,) = reader.read_regex(_double_quoted_value)\n        return decode_escapes(_double_quote_escapes, value)\n    elif char in (\"\", \"\\n\", \"\\r\"):\n        return \"\"\n    else:\n        return parse_unquoted_value(reader)\n\n\ndef parse_binding(reader: Reader) -> Binding:\n    reader.set_mark()\n    try:\n        reader.read_regex(_multiline_whitespace)\n        if not reader.has_next():\n            return Binding(\n                key=None,\n                value=None,\n                original=reader.get_marked(),\n                error=False,\n            )\n        reader.read_regex(_export)\n        key = parse_key(reader)\n        reader.read_regex(_whitespace)\n        if reader.peek(1) == \"=\":\n            (equal_sign,) = reader.read_regex(_equal_sign)\n            # If there is whitespace after `=` and the value starts with `#`,\n            # the value is empty and the rest of the line is an inline comment\n            # (e.g. `KEY= # comment`). Without whitespace (`KEY=#novalue`) the\n            # `#` is part of the unquoted value.\n            if len(equal_sign) > 1 and reader.peek(1) == \"#\":\n                value: Optional[str] = \"\"\n            else:\n                value = parse_value(reader)\n        else:\n            value = None\n        reader.read_regex(_comment)\n        reader.read_regex(_end_of_line)\n        return Binding(\n            key=key,\n            value=value,\n            original=reader.get_marked(),\n            error=False,\n        )\n    except Error:\n        reader.read_regex(_rest_of_line)\n        return Binding(\n            key=None,\n            value=None,\n            original=reader.get_marked(),\n            error=True,\n        )\n\n\ndef parse_stream(stream: IO[str]) -> Iterator[Binding]:\n"
+        },
+        {
+          "path": "src/dotenv/main.py",
+          "start": 79,
+          "end": 110,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "\n        raw_values = self.parse()\n\n        if self.interpolate:\n            self._dict = OrderedDict(\n                resolve_variables(raw_values, override=self.override)\n            )\n        else:\n            self._dict = OrderedDict(raw_values)\n\n        return self._dict\n\n    def parse(self) -> Iterator[Tuple[str, Optional[str]]]:\n        with self._get_stream() as stream:\n            for mapping in with_warn_for_invalid_lines(parse_stream(stream)):\n                if mapping.key is not None:\n                    yield mapping.key, mapping.value\n\n    def set_as_environment_variables(self) -> bool:\n        \"\"\"\n        Load the current dotenv as system environment variable.\n        \"\"\"\n        if not self.dict():\n            return False\n\n        for k, v in self.dict().items():\n            if k in os.environ and not self.override:\n                continue\n            if v is not None:\n                os.environ[k] = v\n\n        return True\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-06",
+      "repository": "dotenv",
+      "question": "How are ${NAME:-fallback} and unset variables resolved, and do existing empty strings or None use the fallback?",
+      "expected_facts": [
+        "Variable.resolve uses the configured fallback, or an empty string when no fallback was supplied, if the name is absent.",
+        "An existing empty string is returned unchanged rather than replaced with fallback.",
+        "An existing None is converted to an empty string rather than the fallback."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/variables.py",
+          "start": 5,
+          "end": 15,
+          "file_sha256": "083d2a5cebefa41deae51a4140c0fda97eaf1d7ed2c96f92ba2c063054a5b74f",
+          "text": "_posix_variable: Pattern[str] = re.compile(\n    r\"\"\"\n    \\$\\{\n        (?P<name>[^\\}:]*)\n        (?::-\n            (?P<default>[^\\}]*)\n        )?\n    \\}\n    \"\"\",\n    re.VERBOSE,\n)\n"
+        },
+        {
+          "path": "src/dotenv/variables.py",
+          "start": 48,
+          "end": 68,
+          "file_sha256": "083d2a5cebefa41deae51a4140c0fda97eaf1d7ed2c96f92ba2c063054a5b74f",
+          "text": "class Variable(Atom):\n    def __init__(self, name: str, default: Optional[str]) -> None:\n        self.name = name\n        self.default = default\n\n    def __repr__(self) -> str:\n        return f\"Variable(name={self.name}, default={self.default})\"\n\n    def __eq__(self, other: object) -> bool:\n        if not isinstance(other, self.__class__):\n            return NotImplemented\n        return (self.name, self.default) == (other.name, other.default)\n\n    def __hash__(self) -> int:\n        return hash((self.__class__, self.name, self.default))\n\n    def resolve(self, env: Mapping[str, Optional[str]]) -> str:\n        default = self.default if self.default is not None else \"\"\n        result = env.get(self.name, default)\n        return result if result is not None else \"\"\n\n"
+        },
+        {
+          "path": "tests/test_variables.py",
+          "start": 1,
+          "end": 35,
+          "file_sha256": "facea37ceaca30b761c2128fa754ec32c1e50333f2ac1776f7f8063018aaa6fc",
+          "text": "import pytest\n\nfrom dotenv.variables import Literal, Variable, parse_variables\n\n\n@pytest.mark.parametrize(\n    \"value,expected\",\n    [\n        (\"\", []),\n        (\"a\", [Literal(value=\"a\")]),\n        (\"${a}\", [Variable(name=\"a\", default=None)]),\n        (\"${a:-b}\", [Variable(name=\"a\", default=\"b\")]),\n        (\n            \"${a}${b}\",\n            [\n                Variable(name=\"a\", default=None),\n                Variable(name=\"b\", default=None),\n            ],\n        ),\n        (\n            \"a${b}c${d}e\",\n            [\n                Literal(value=\"a\"),\n                Variable(name=\"b\", default=None),\n                Literal(value=\"c\"),\n                Variable(name=\"d\", default=None),\n                Literal(value=\"e\"),\n            ],\n        ),\n    ],\n)\ndef test_parse_variables(value, expected):\n    result = parse_variables(value)\n\n    assert list(result) == expected\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-07",
+      "repository": "dotenv",
+      "question": "When does a # start an inline comment in an unquoted dotenv value, and is # inside quoted values stripped?",
+      "expected_facts": [
+        "parse_unquoted_value removes a # comment only when the # is preceded by whitespace.",
+        "A # without preceding whitespace remains part of an unquoted value.",
+        "Quoted values use their own quote parsers and preserve # characters inside the quotes."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/parser.py",
+          "start": 18,
+          "end": 35,
+          "file_sha256": "0bc1350444eeff987f2c22924400ad0b7727563798118c641cd4c0de55bd30d0",
+          "text": "_newline = make_regex(r\"(\\r\\n|\\n|\\r)\")\n_multiline_whitespace = make_regex(r\"\\s*\", extra_flags=re.MULTILINE)\n_whitespace = make_regex(r\"[^\\S\\r\\n]*\")\n_export = make_regex(r\"(?:export[^\\S\\r\\n]+)?\")\n_single_quoted_key = make_regex(r\"'([^']+)'\")\n_unquoted_key = make_regex(r\"([^=\\#\\s]+)\")\n_equal_sign = make_regex(r\"(=[^\\S\\r\\n]*)\")\n# A backslash always escapes the character after it, so that an escaped\n# backslash (`\\\\`) is not mistaken for the start of an escaped quote.\n_single_quoted_value = make_regex(r\"'((?:\\\\.|[^'\\\\])*)'\", extra_flags=re.DOTALL)\n_double_quoted_value = make_regex(r'\"((?:\\\\.|[^\"\\\\])*)\"', extra_flags=re.DOTALL)\n_unquoted_value = make_regex(r\"([^\\r\\n]*)\")\n_comment = make_regex(r\"(?:[^\\S\\r\\n]*#[^\\r\\n]*)?\")\n_end_of_line = make_regex(r\"[^\\S\\r\\n]*(?:\\r\\n|\\n|\\r|$)\")\n_rest_of_line = make_regex(r\"[^\\r\\n]*(?:\\r|\\n|\\r\\n)?\")\n_double_quote_escapes = make_regex(r\"\\\\[\\\\'\\\"abfnrtv]\")\n_single_quote_escapes = make_regex(r\"\\\\[\\\\']\")\n\n"
+        },
+        {
+          "path": "src/dotenv/parser.py",
+          "start": 114,
+          "end": 142,
+          "file_sha256": "0bc1350444eeff987f2c22924400ad0b7727563798118c641cd4c0de55bd30d0",
+          "text": "def parse_key(reader: Reader) -> Optional[str]:\n    char = reader.peek(1)\n    if char == \"#\":\n        return None\n    elif char == \"'\":\n        (key,) = reader.read_regex(_single_quoted_key)\n    else:\n        (key,) = reader.read_regex(_unquoted_key)\n    return key\n\n\ndef parse_unquoted_value(reader: Reader) -> str:\n    (part,) = reader.read_regex(_unquoted_value)\n    return re.sub(r\"\\s+#.*\", \"\", part).rstrip()\n\n\ndef parse_value(reader: Reader) -> str:\n    char = reader.peek(1)\n    if char == \"'\":\n        (value,) = reader.read_regex(_single_quoted_value)\n        return decode_escapes(_single_quote_escapes, value)\n    elif char == '\"':\n        (value,) = reader.read_regex(_double_quoted_value)\n        return decode_escapes(_double_quote_escapes, value)\n    elif char in (\"\", \"\\n\", \"\\r\"):\n        return \"\"\n    else:\n        return parse_unquoted_value(reader)\n\n"
+        },
+        {
+          "path": "tests/test_parser.py",
+          "start": 1,
+          "end": 140,
+          "file_sha256": "aa9bc882bba648147ec0cf02322360ed9cacffb435828008404a0563321191dd",
+          "text": "import io\n\nimport pytest\n\nfrom dotenv.parser import Binding, Original, parse_stream\n\n\n@pytest.mark.parametrize(\n    \"test_input,expected\",\n    [\n        (\"\", []),\n        (\n            \"a=b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\"a=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"'a'=b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\"'a'=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"[=b\",\n            [\n                Binding(\n                    key=\"[\",\n                    value=\"b\",\n                    original=Original(string=\"[=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \" a = b \",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\" a = b \", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"export a=b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\"export a=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \" export 'a'=b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\" export 'a'=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"# a=b\",\n            [\n                Binding(\n                    key=None,\n                    value=None,\n                    original=Original(string=\"# a=b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"a=b#c\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b#c\",\n                    original=Original(string=\"a=b#c\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"a=b #c\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\"a=b #c\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"a=b\\t#c\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"b\",\n                    original=Original(string=\"a=b\\t#c\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"a= #b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"\",\n                    original=Original(string=\"a= #b\", line=1),\n                    error=False,\n                )\n            ],\n        ),\n        (\n            \"a=  # b\",\n            [\n                Binding(\n                    key=\"a\",\n                    value=\"\",\n                    original=Original(string=\"a=  # b\", line=1),\n                    error=False,\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-08",
+      "repository": "dotenv",
+      "question": "What does set_key quote_mode=auto do, and how does adding a key handle a file without a final newline?",
+      "expected_facts": [
+        "auto quotes when value_to_set.isalnum() is false, using single quotes and escaping backslashes and single quotes.",
+        "When appending a new key, set_key inserts a newline first if the preceding preserved content lacks a trailing newline.",
+        "Unknown quote_mode values raise ValueError; supported modes are always, auto and never."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 193,
+          "end": 251,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def set_key(\n    dotenv_path: StrPath,\n    key_to_set: str,\n    value_to_set: str,\n    quote_mode: str = \"always\",\n    export: bool = False,\n    encoding: Optional[str] = \"utf-8\",\n    follow_symlinks: bool = False,\n) -> Tuple[Optional[bool], str, str]:\n    \"\"\"\n    Adds or Updates a key/value to the given .env\n\n    The target .env file is created if it doesn't exist.\n\n    This function doesn't follow symlinks by default, to avoid accidentally\n    modifying a file at a potentially untrusted path. If you don't need this\n    protection and need symlinks to be followed, use `follow_symlinks`.\n    \"\"\"\n    if quote_mode not in (\"always\", \"auto\", \"never\"):\n        raise ValueError(f\"Unknown quote_mode: {quote_mode}\")\n\n    quote = quote_mode == \"always\" or (\n        quote_mode == \"auto\" and not value_to_set.isalnum()\n    )\n\n    if quote:\n        # The single-quoted-value parser decodes `\\\\` and `\\'`, so both have to\n        # be escaped here for the value to survive a write/read round-trip.\n        # Backslashes first, otherwise the backslash added by the quote\n        # escaping would be escaped in turn.\n        escaped = value_to_set.replace(\"\\\\\", \"\\\\\\\\\").replace(\"'\", \"\\\\'\")\n        value_out = f\"'{escaped}'\"\n    else:\n        value_out = value_to_set\n    if export:\n        line_out = f\"export {key_to_set}={value_out}\\n\"\n    else:\n        line_out = f\"{key_to_set}={value_out}\\n\"\n\n    with rewrite(dotenv_path, encoding=encoding, follow_symlinks=follow_symlinks) as (\n        source,\n        dest,\n    ):\n        replaced = False\n        missing_newline = False\n        for mapping in with_warn_for_invalid_lines(parse_stream(source)):\n            if mapping.key == key_to_set:\n                dest.write(line_out)\n                replaced = True\n            else:\n                dest.write(mapping.original.string)\n                missing_newline = not mapping.original.string.endswith(\"\\n\")\n        if not replaced:\n            if missing_newline:\n                dest.write(\"\\n\")\n            dest.write(line_out)\n\n    return True, key_to_set, value_to_set\n\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 1,
+          "end": 97,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "import io\nimport logging\nimport os\nimport stat\nimport subprocess\nimport sys\nimport textwrap\nfrom unittest import mock\n\nimport pytest\n\nimport dotenv\nfrom dotenv.main import DotEnv\n\n\ndef test_set_key_no_file(tmp_path):\n    nx_path = tmp_path / \"nx\"\n    logger = logging.getLogger(\"dotenv.main\")\n\n    with mock.patch.object(logger, \"warning\"):\n        result = dotenv.set_key(nx_path, \"foo\", \"bar\")\n\n    assert result == (True, \"foo\", \"bar\")\n    assert nx_path.exists()\n\n\n@pytest.mark.parametrize(\n    \"before,key,value,expected,after\",\n    [\n        (\"\", \"a\", \"\", (True, \"a\", \"\"), \"a=''\\n\"),\n        (\"\", \"a\", \"b\", (True, \"a\", \"b\"), \"a='b'\\n\"),\n        (\"\", \"a\", \"'b'\", (True, \"a\", \"'b'\"), \"a='\\\\'b\\\\''\\n\"),\n        (\"\", \"a\", '\"b\"', (True, \"a\", '\"b\"'), \"a='\\\"b\\\"'\\n\"),\n        (\"\", \"a\", \"b'c\", (True, \"a\", \"b'c\"), \"a='b\\\\'c'\\n\"),\n        (\"\", \"a\", 'b\"c', (True, \"a\", 'b\"c'), \"a='b\\\"c'\\n\"),\n        (\"a=b\", \"a\", \"c\", (True, \"a\", \"c\"), \"a='c'\\n\"),\n        (\"a=b\\n\", \"a\", \"c\", (True, \"a\", \"c\"), \"a='c'\\n\"),\n        (\"a=b\\n\\n\", \"a\", \"c\", (True, \"a\", \"c\"), \"a='c'\\n\\n\"),\n        (\"a=b\\nc=d\", \"a\", \"e\", (True, \"a\", \"e\"), \"a='e'\\nc=d\"),\n        (\"a=b\\nc=d\\ne=f\", \"c\", \"g\", (True, \"c\", \"g\"), \"a=b\\nc='g'\\ne=f\"),\n        (\"a=b\\n\", \"c\", \"d\", (True, \"c\", \"d\"), \"a=b\\nc='d'\\n\"),\n        (\"a=b\", \"c\", \"d\", (True, \"c\", \"d\"), \"a=b\\nc='d'\\n\"),\n        (\"\", \"a\", \"b\\\\c\", (True, \"a\", \"b\\\\c\"), \"a='b\\\\\\\\c'\\n\"),\n        (\"\", \"a\", \"b\\\\\", (True, \"a\", \"b\\\\\"), \"a='b\\\\\\\\'\\n\"),\n        (\"\", \"a\", \"b\\\\'c\", (True, \"a\", \"b\\\\'c\"), \"a='b\\\\\\\\\\\\'c'\\n\"),\n    ],\n)\ndef test_set_key(dotenv_path, before, key, value, expected, after):\n    logger = logging.getLogger(\"dotenv.main\")\n    dotenv_path.write_text(before)\n\n    with mock.patch.object(logger, \"warning\") as mock_warning:\n        result = dotenv.set_key(dotenv_path, key, value)\n\n    assert result == expected\n    assert dotenv_path.read_text() == after\n    mock_warning.assert_not_called()\n\n\n@pytest.mark.parametrize(\n    \"value\",\n    [\n        \"C:\\\\Users\",\n        \"C:\\\\Users\\\\\",\n        \"\\\\d+\",\n        \"back\\\\\",\n        \"a\\\\'b\",\n        \"it's\",\n        'say \"hi\"',\n        \"a\\\\nb\",\n        \"plain\",\n        \"\",\n    ],\n)\ndef test_set_key_round_trips(dotenv_path, value):\n    dotenv_path.write_text(\"\")\n\n    dotenv.set_key(dotenv_path, \"a\", value)\n    dotenv.set_key(dotenv_path, \"b\", \"sentinel\")\n\n    assert dotenv.get_key(dotenv_path, \"a\") == value\n    # A value that is mis-tokenized can swallow the lines that follow it.\n    assert dotenv.get_key(dotenv_path, \"b\") == \"sentinel\"\n\n\ndef test_set_key_encoding(dotenv_path):\n    encoding = \"latin-1\"\n\n    result = dotenv.set_key(dotenv_path, \"a\", \"\u00e9\", encoding=encoding)\n\n    assert result == (True, \"a\", \"\u00e9\")\n    assert dotenv_path.read_text(encoding=encoding) == \"a='\u00e9'\\n\"\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"file mode bits behave differently on Windows\"\n)\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-09",
+      "repository": "dotenv",
+      "question": "Does set_key follow a symlink by default, what changes with follow_symlinks=True, and what do the symlink tests assert?",
+      "expected_facts": [
+        "follow_symlinks defaults False; the link is replaced with a regular file rather than modifying its target.",
+        "With follow_symlinks=True the target is modified and the symlink remains.",
+        "The default existing-target test verifies unchanged target content, a non-symlink output file and mode 0600."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 139,
+          "end": 191,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def rewrite(\n    path: StrPath,\n    encoding: Optional[str],\n    follow_symlinks: bool = False,\n) -> Iterator[Tuple[IO[str], IO[str]]]:\n    if follow_symlinks:\n        path = os.path.realpath(path)\n\n    try:\n        source: IO[str] = open(path, encoding=encoding)\n        try:\n            path_stat = os.lstat(path)\n            original_mode: Optional[int] = (\n                stat.S_IMODE(path_stat.st_mode)\n                if stat.S_ISREG(path_stat.st_mode)\n                else None\n            )\n        except BaseException:\n            source.close()\n            raise\n    except FileNotFoundError:\n        source = io.StringIO(\"\")\n        original_mode = None\n\n    with tempfile.NamedTemporaryFile(\n        mode=\"w\",\n        encoding=encoding,\n        delete=False,\n        prefix=\".tmp_\",\n        dir=os.path.dirname(os.path.abspath(path)),\n    ) as dest:\n        dest_path = pathlib.Path(dest.name)\n        error = None\n\n        try:\n            with source:\n                yield (source, dest)\n        except BaseException as err:\n            error = err\n\n    if error is None:\n        try:\n            if original_mode is not None:\n                os.chmod(dest_path, original_mode)\n\n            os.replace(dest_path, path)\n        except BaseException:\n            dest_path.unlink(missing_ok=True)\n            raise\n    else:\n        dest_path.unlink(missing_ok=True)\n        raise error from None\n\n"
+        },
+        {
+          "path": "src/dotenv/main.py",
+          "start": 193,
+          "end": 210,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "def set_key(\n    dotenv_path: StrPath,\n    key_to_set: str,\n    value_to_set: str,\n    quote_mode: str = \"always\",\n    export: bool = False,\n    encoding: Optional[str] = \"utf-8\",\n    follow_symlinks: bool = False,\n) -> Tuple[Optional[bool], str, str]:\n    \"\"\"\n    Adds or Updates a key/value to the given .env\n\n    The target .env file is created if it doesn't exist.\n\n    This function doesn't follow symlinks by default, to avoid accidentally\n    modifying a file at a potentially untrusted path. If you don't need this\n    protection and need symlinks to be followed, use `follow_symlinks`.\n    \"\"\"\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 131,
+          "end": 177,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "def test_set_key_symlink_to_existing_file(tmp_path):\n    target = tmp_path / \"target.env\"\n    target.write_text(\"a=x\\n\")\n    symlink = tmp_path / \".env\"\n    symlink.symlink_to(target)\n\n    dotenv.set_key(symlink, \"a\", \"y\")\n\n    assert target.read_text() == \"a=x\\n\"\n    assert not symlink.is_symlink()\n    assert \"a='y'\" in symlink.read_text()\n    assert stat.S_IMODE(symlink.stat().st_mode) == 0o600\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"symlinks require elevated privileges on Windows\"\n)\ndef test_set_key_symlink_to_missing_file(tmp_path):\n    target = tmp_path / \"nx\"\n    symlink = tmp_path / \".env\"\n    symlink.symlink_to(target)\n\n    dotenv.set_key(symlink, \"a\", \"x\")\n\n    assert not target.exists()\n    assert not symlink.is_symlink()\n    assert symlink.read_text() == \"a='x'\\n\"\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"symlinks require elevated privileges on Windows\"\n)\ndef test_set_key_follow_symlinks(tmp_path):\n    target = tmp_path / \"target.env\"\n    target.write_text(\"a=x\\n\")\n    symlink = tmp_path / \".env\"\n    symlink.symlink_to(target)\n\n    dotenv.set_key(symlink, \"a\", \"y\", follow_symlinks=True)\n\n    assert target.read_text() == \"a='y'\\n\"\n    assert symlink.is_symlink()\n\n\n@pytest.mark.skipif(\n    sys.platform != \"win32\" and os.geteuid() == 0,\n    reason=\"Root user can access files even with 000 permissions.\",\n"
+        }
+      ]
+    },
+    {
+      "id": "dotenv-10",
+      "repository": "dotenv",
+      "question": "If both a dotenv path and a stream are supplied, which is read, and what happens when the path is missing and no stream is available?",
+      "expected_facts": [
+        "An existing file or FIFO at dotenv_path takes precedence over the supplied stream.",
+        "If that path is unavailable, the provided stream is used when not None.",
+        "With neither, _get_stream yields an empty StringIO, logs only when verbose, and environment loading returns False for an empty dictionary."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/dotenv/main.py",
+          "start": 61,
+          "end": 110,
+          "file_sha256": "697eb33eee75d78b73db61eaf96bf9a6547548c1811c93501b67e056e5470dea",
+          "text": "    def _get_stream(self) -> Iterator[IO[str]]:\n        if self.dotenv_path and _is_file_or_fifo(self.dotenv_path):\n            with open(self.dotenv_path, encoding=self.encoding) as stream:\n                yield stream\n        elif self.stream is not None:\n            yield self.stream\n        else:\n            if self.verbose:\n                logger.info(\n                    \"python-dotenv could not find configuration file %s.\",\n                    self.dotenv_path or \".env\",\n                )\n            yield io.StringIO(\"\")\n\n    def dict(self) -> Dict[str, Optional[str]]:\n        \"\"\"Return dotenv as dict\"\"\"\n        if self._dict is not None:\n            return self._dict\n\n        raw_values = self.parse()\n\n        if self.interpolate:\n            self._dict = OrderedDict(\n                resolve_variables(raw_values, override=self.override)\n            )\n        else:\n            self._dict = OrderedDict(raw_values)\n\n        return self._dict\n\n    def parse(self) -> Iterator[Tuple[str, Optional[str]]]:\n        with self._get_stream() as stream:\n            for mapping in with_warn_for_invalid_lines(parse_stream(stream)):\n                if mapping.key is not None:\n                    yield mapping.key, mapping.value\n\n    def set_as_environment_variables(self) -> bool:\n        \"\"\"\n        Load the current dotenv as system environment variable.\n        \"\"\"\n        if not self.dict():\n            return False\n\n        for k, v in self.dict().items():\n            if k in os.environ and not self.override:\n                continue\n            if v is not None:\n                os.environ[k] = v\n\n        return True\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 563,
+          "end": 574,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "def test_load_dotenv_no_file_verbose():\n    logger = logging.getLogger(\"dotenv.main\")\n\n    with mock.patch.object(logger, \"info\") as mock_info:\n        result = dotenv.load_dotenv(\".does_not_exist\", verbose=True)\n\n    assert result is False\n    mock_info.assert_called_once_with(\n        \"python-dotenv could not find configuration file %s.\", \".does_not_exist\"\n    )\n\n\n"
+        },
+        {
+          "path": "tests/test_main.py",
+          "start": 631,
+          "end": 653,
+          "file_sha256": "cfc352b5137721d0346fc840479b97cb5378f1616d7b016b63cc125d00f25a2d",
+          "text": "def test_load_dotenv_string_io_utf_8():\n    stream = io.StringIO(\"a=\u00e0\")\n\n    result = dotenv.load_dotenv(stream=stream)\n\n    assert result is True\n    assert os.environ == {\"a\": \"\u00e0\"}\n\n\n@pytest.mark.skipif(\n    sys.platform == \"win32\", reason=\"This test assumes case-sensitive variable names\"\n)\n@mock.patch.dict(os.environ, {}, clear=True)\ndef test_load_dotenv_file_stream(dotenv_path):\n    dotenv_path.write_text(\"a=b\")\n\n    with dotenv_path.open() as f:\n        result = dotenv.load_dotenv(stream=f)\n\n    assert result is True\n    assert os.environ == {\"a\": \"b\"}\n\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-01",
+      "repository": "cachetools",
+      "question": "What does the default cache size measure, how can it be customized, and does mutating an already cached value update currsize?",
+      "expected_facts": [
+        "Default getsizeof returns 1, so default size counts items.",
+        "A custom getsizeof(value) can be supplied to the cache constructor.",
+        "Size is computed on insertion/assignment; mutating a cached value in place does not automatically update its recorded size."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 45,
+          "end": 100,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "class Cache(collections.abc.MutableMapping):\n    \"\"\"Mutable mapping to serve as a simple cache or cache base class.\"\"\"\n\n    __marker = object()\n\n    __size = _DefaultSize()\n\n    def __init__(self, maxsize, getsizeof=None):\n        if maxsize < 0:\n            raise ValueError(\"maxsize must be non-negative\")\n        if getsizeof:\n            self.getsizeof = getsizeof\n        if self.getsizeof is not Cache.getsizeof:\n            self.__size = {}\n        self.__data = {}\n        self.__currsize = 0\n        self.__maxsize = maxsize\n\n    def __repr__(self):\n        return \"%s(%s, maxsize=%r, currsize=%r)\" % (\n            type(self).__name__,\n            repr(self.__data),\n            self.__maxsize,\n            self.__currsize,\n        )\n\n    def __getitem__(self, key):\n        try:\n            return self.__data[key]\n        except KeyError:\n            return self.__missing__(key)\n\n    def __setitem__(self, key, value):\n        maxsize = self.__maxsize\n        size = self.getsizeof(value)\n        if size < 0:\n            raise ValueError(\"value size must be non-negative\")\n        if size > maxsize:\n            raise ValueError(\"value too large\")\n        if key not in self.__data:\n            diffsize = size\n            while self.__currsize + diffsize > maxsize:\n                self.popitem()\n        else:\n            diffsize = size - self.__size[key]\n            while self.__currsize + diffsize > maxsize:\n                self.popitem()\n                if key not in self.__data:\n                    diffsize = size\n        self.__data[key] = value\n        self.__size[key] = size\n        self.__currsize += diffsize\n\n    def __delitem__(self, key):\n        size = self.__size.pop(key)\n        del self.__data[key]\n"
+        },
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 154,
+          "end": 169,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "\n    @property\n    def maxsize(self):\n        \"\"\"The maximum size of the cache.\"\"\"\n        return self.__maxsize\n\n    @property\n    def currsize(self):\n        \"\"\"The current size of the cache.\"\"\"\n        return self.__currsize\n\n    @staticmethod\n    def getsizeof(value):\n        \"\"\"Return the size of a cache element's value.\"\"\"\n        return 1\n\n"
+        },
+        {
+          "path": "docs/index.rst",
+          "start": 45,
+          "end": 66,
+          "file_sha256": "8599f3c84209dbc2f7a2df062c1b68ce9f6b038199b715e33bc9df3714547850",
+          "text": "In general, a cache's size is the total size of its item's values.\nTherefore, :class:`Cache` provides a :meth:`getsizeof` method, which\nreturns the size of a given `value`.  The default implementation of\n:meth:`getsizeof` returns :const:`1` irrespective of its argument,\nmaking the cache's size equal to the number of its items, or\n`len(cache)`.  For convenience, all cache classes accept an optional\nnamed constructor parameter `getsizeof`, which may specify a callable\n``getsizeof(value) -> int`` used to retrieve the size of an item's\nvalue.\n\nThe values of a :class:`Cache` are mutable by default, as are e.g. the\nvalues of a :class:`dict`.  It is the user's responsibility to take\ncare that cached values are not accidentally modified.  This is\nespecially important when using a custom `getsizeof` function, since\nthe size of an item's value will only be computed when the item is\ninserted into the cache.\n\n.. note::\n\n   Please be aware that all these classes are *not* thread-safe.\n   Access to a shared cache from multiple threads must be properly\n   synchronized, e.g. by using one of the memoizing decorators with a\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-02",
+      "repository": "cachetools",
+      "question": "What happens when inserting a value larger than maxsize, and are negative maxsize or negative measured value sizes allowed?",
+      "expected_facts": [
+        "Inserting a value whose measured size exceeds maxsize raises ValueError(\"value too large\") before the eviction loop.",
+        "A negative maxsize raises ValueError in the constructor.",
+        "A negative getsizeof result raises ValueError(\"value size must be non-negative\")."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 45,
+          "end": 99,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "class Cache(collections.abc.MutableMapping):\n    \"\"\"Mutable mapping to serve as a simple cache or cache base class.\"\"\"\n\n    __marker = object()\n\n    __size = _DefaultSize()\n\n    def __init__(self, maxsize, getsizeof=None):\n        if maxsize < 0:\n            raise ValueError(\"maxsize must be non-negative\")\n        if getsizeof:\n            self.getsizeof = getsizeof\n        if self.getsizeof is not Cache.getsizeof:\n            self.__size = {}\n        self.__data = {}\n        self.__currsize = 0\n        self.__maxsize = maxsize\n\n    def __repr__(self):\n        return \"%s(%s, maxsize=%r, currsize=%r)\" % (\n            type(self).__name__,\n            repr(self.__data),\n            self.__maxsize,\n            self.__currsize,\n        )\n\n    def __getitem__(self, key):\n        try:\n            return self.__data[key]\n        except KeyError:\n            return self.__missing__(key)\n\n    def __setitem__(self, key, value):\n        maxsize = self.__maxsize\n        size = self.getsizeof(value)\n        if size < 0:\n            raise ValueError(\"value size must be non-negative\")\n        if size > maxsize:\n            raise ValueError(\"value too large\")\n        if key not in self.__data:\n            diffsize = size\n            while self.__currsize + diffsize > maxsize:\n                self.popitem()\n        else:\n            diffsize = size - self.__size[key]\n            while self.__currsize + diffsize > maxsize:\n                self.popitem()\n                if key not in self.__data:\n                    diffsize = size\n        self.__data[key] = value\n        self.__size[key] = size\n        self.__currsize += diffsize\n\n    def __delitem__(self, key):\n        size = self.__size.pop(key)\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-03",
+      "repository": "cachetools",
+      "question": "Does checking membership in TTLCache physically remove expired entries, and how do len(cache) and expire() differ?",
+      "expected_facts": [
+        "TTLCache.__contains__ checks the expiration timestamp and returns false for expired entries without removing them.",
+        "_TimedCache.__len__ invokes expire before returning the length.",
+        "expire removes expired entries from storage and returns expired (key,value) pairs."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 404,
+          "end": 425,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "    def __init__(self, maxsize, timer, getsizeof=None):\n        Cache.__init__(self, maxsize, getsizeof)\n        self.__timer = _TimedCache._Timer(timer)\n\n    def __repr__(self, cache_repr=Cache.__repr__):\n        with self.__timer as time:\n            self.expire(time)\n            return cache_repr(self)\n\n    def __len__(self, cache_len=Cache.__len__):\n        with self.__timer as time:\n            self.expire(time)\n            return cache_len(self)\n\n    @property\n    def currsize(self):\n        with self.__timer as time:\n            self.expire(time)\n            return super().currsize\n\n    @property\n    def timer(self):\n"
+        },
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 477,
+          "end": 494,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "    def __contains__(self, key):\n        try:\n            link = self.__links[key]  # no reordering\n        except KeyError:\n            return False\n        else:\n            return self.timer() < link.expires\n\n    def __getitem__(self, key, cache_getitem=Cache.__getitem__):\n        try:\n            link = self.__getlink(key)\n        except KeyError:\n            expired = False\n        else:\n            expired = not (self.timer() < link.expires)\n        if expired:\n            return self.__missing__(key)\n        else:\n"
+        },
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 544,
+          "end": 564,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "    def expire(self, time=None):\n        \"\"\"Remove expired items from the cache and return an iterable of the\n        expired `(key, value)` pairs.\n\n        \"\"\"\n        if time is None:\n            time = self.timer()\n        root = self.__root\n        curr = root.next\n        links = self.__links\n        expired = []\n        cache_delitem = Cache.__delitem__\n        cache_getitem = Cache.__getitem__\n        while curr is not root and not (time < curr.expires):\n            expired.append((curr.key, cache_getitem(self, curr.key)))\n            cache_delitem(self, curr.key)\n            del links[curr.key]\n            next = curr.next\n            curr.unlink()\n            curr = next\n        return expired\n"
+        },
+        {
+          "path": "tests/test_ttl.py",
+          "start": 129,
+          "end": 179,
+          "file_sha256": "dad8f3e725176a39a487d23bd4a25930db05380ce0b452f73485506dbe5284d1",
+          "text": "    def test_ttl_expire(self):\n        cache = TTLCache[int, int, int](maxsize=3, ttl=3, timer=Timer())\n        with cache.timer as time:\n            self.assertEqual(time, cache.timer())\n        self.assertEqual(3, cache.ttl)\n\n        cache[1] = 1\n        cache.timer.tick()\n        cache[2] = 2\n        cache.timer.tick()\n        cache[3] = 3\n        self.assertEqual(2, cache.timer())\n\n        self.assertEqual({1, 2, 3}, set(cache))\n        self.assertEqual(3, len(cache))\n        self.assertEqual(1, cache[1])\n        self.assertEqual(2, cache[2])\n        self.assertEqual(3, cache[3])\n\n        items = cache.expire()\n        self.assertEqual(set(), set(items))\n        self.assertEqual({1, 2, 3}, set(cache))\n        self.assertEqual(3, len(cache))\n        self.assertEqual(1, cache[1])\n        self.assertEqual(2, cache[2])\n        self.assertEqual(3, cache[3])\n\n        items = cache.expire(3)\n        self.assertEqual({(1, 1)}, set(items))\n        self.assertEqual({2, 3}, set(cache))\n        self.assertEqual(2, len(cache))\n        self.assertNotIn(1, cache)\n        self.assertEqual(2, cache[2])\n        self.assertEqual(3, cache[3])\n\n        items = cache.expire(4)\n        self.assertEqual({(2, 2)}, set(items))\n        self.assertEqual({3}, set(cache))\n        self.assertEqual(1, len(cache))\n        self.assertNotIn(1, cache)\n        self.assertNotIn(2, cache)\n        self.assertEqual(3, cache[3])\n\n        items = cache.expire(5)\n        self.assertEqual({(3, 3)}, set(items))\n        self.assertEqual(set(), set(cache))\n        self.assertEqual(0, len(cache))\n        self.assertNotIn(1, cache)\n        self.assertNotIn(2, cache)\n        self.assertNotIn(3, cache)\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-04",
+      "repository": "cachetools",
+      "question": "Which clock does TTLCache use by default, when is an item considered expired at the boundary, and is a datetime timer supported?",
+      "expected_facts": [
+        "TTLCache defaults its timer to time.monotonic.",
+        "An item is live only while timer() < expires, so equality with the expiration time counts as expired.",
+        "Custom timers are supported, including datetime.now with a timedelta TTL, as documented and tested."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 470,
+          "end": 508,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "    def __init__(self, maxsize, ttl, timer=time.monotonic, getsizeof=None):\n        _TimedCache.__init__(self, maxsize, timer, getsizeof)\n        self.__root = root = TTLCache._Link()\n        root.prev = root.next = root\n        self.__links = collections.OrderedDict()\n        self.__ttl = ttl\n\n    def __contains__(self, key):\n        try:\n            link = self.__links[key]  # no reordering\n        except KeyError:\n            return False\n        else:\n            return self.timer() < link.expires\n\n    def __getitem__(self, key, cache_getitem=Cache.__getitem__):\n        try:\n            link = self.__getlink(key)\n        except KeyError:\n            expired = False\n        else:\n            expired = not (self.timer() < link.expires)\n        if expired:\n            return self.__missing__(key)\n        else:\n            return cache_getitem(self, key)\n\n    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        with self.timer as time:\n            self.expire(time)\n            cache_setitem(self, key, value)\n        try:\n            link = self.__getlink(key)\n        except KeyError:\n            self.__links[key] = link = TTLCache._Link(key)\n        else:\n            link.unlink()\n        link.expires = time + self.__ttl\n        link.next = root = self.__root\n"
+        },
+        {
+          "path": "docs/index.rst",
+          "start": 112,
+          "end": 140,
+          "file_sha256": "8599f3c84209dbc2f7a2df062c1b68ce9f6b038199b715e33bc9df3714547850",
+          "text": ".. autoclass:: TTLCache(maxsize, ttl, timer=time.monotonic, getsizeof=None)\n   :members: popitem, timer, ttl\n\n   This class associates a time-to-live value with each item.  Items\n   that expire because they have exceeded their time-to-live will be\n   no longer accessible, and will be removed eventually.  If no\n   expired items are there to remove, the least recently used items\n   will be discarded first to make space when necessary.\n\n   By default, the time-to-live is specified in seconds and\n   :func:`time.monotonic` is used to retrieve the current time.\n\n   .. testcode::\n\n      cache = TTLCache(maxsize=10, ttl=60)\n\n   A custom `timer` function can also be supplied, which does not have\n   to return seconds, or even a numeric value.  The expression\n   `timer() + ttl` at the time of insertion defines the expiration\n   time of a cache item and must be comparable against later results\n   of `timer()`, but `ttl` does not necessarily have to be a number,\n   either.\n\n   .. testcode::\n\n      from datetime import datetime, timedelta\n\n      cache = TTLCache(maxsize=10, ttl=timedelta(hours=12), timer=datetime.now)\n\n"
+        },
+        {
+          "path": "tests/test_ttl.py",
+          "start": 205,
+          "end": 220,
+          "file_sha256": "dad8f3e725176a39a487d23bd4a25930db05380ce0b452f73485506dbe5284d1",
+          "text": "    def test_ttl_datetime(self):\n        from datetime import datetime, timedelta\n\n        cache = TTLCache[int, int, datetime](\n            maxsize=1, ttl=timedelta(days=1), timer=datetime.now\n        )\n\n        cache[1] = 1\n        self.assertEqual(1, len(cache))\n        items = cache.expire(datetime.now())\n        self.assertEqual([], list(items))\n        self.assertEqual(1, len(cache))\n        items = cache.expire(datetime.now() + timedelta(days=1))\n        self.assertEqual([(1, 1)], list(items))\n        self.assertEqual(0, len(cache))\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-05",
+      "repository": "cachetools",
+      "question": "In LRUCache, which operations update recency, and does a membership test alone count as an access?",
+      "expected_facts": [
+        "__getitem__ touches an existing stored key after fetching it.",
+        "__setitem__ touches the inserted or updated key.",
+        "A membership check uses the inherited contains behavior and does not touch recency; popitem chooses the first least-recent key."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 102,
+          "end": 106,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "\n    def __contains__(self, key):\n        return key in self.__data\n\n    def __missing__(self, key):\n"
+        },
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 287,
+          "end": 328,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "class LRUCache(Cache):\n    \"\"\"Least Recently Used (LRU) cache implementation.\"\"\"\n\n    def __init__(self, maxsize, getsizeof=None):\n        Cache.__init__(self, maxsize, getsizeof)\n        self.__order = collections.OrderedDict()\n\n    def __getitem__(self, key, cache_getitem=Cache.__getitem__):\n        value = cache_getitem(self, key)\n        if key in self:  # __missing__ may not store item\n            self.__touch(key)\n        return value\n\n    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        cache_setitem(self, key, value)\n        self.__touch(key)\n\n    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n        cache_delitem(self, key)\n        del self.__order[key]\n\n    def popitem(self):\n        \"\"\"Remove and return the `(key, value)` pair least recently used.\"\"\"\n        try:\n            key = next(iter(self.__order))\n        except StopIteration:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__order.clear()\n\n    def __touch(self, key):\n        \"\"\"Mark as recently used\"\"\"\n        try:\n            self.__order.move_to_end(key)\n        except KeyError:\n            self.__order[key] = None\n\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-06",
+      "repository": "cachetools",
+      "question": "When FIFOCache updates an existing key, does it retain its original eviction position or move to the end?",
+      "expected_facts": [
+        "FIFOCache.__setitem__ moves an existing key to the end of its OrderedDict.",
+        "Updating therefore refreshes its insertion-order position.",
+        "popitem removes the first key in that order."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 171,
+          "end": 200,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "class FIFOCache(Cache):\n    \"\"\"First In First Out (FIFO) cache implementation.\"\"\"\n\n    def __init__(self, maxsize, getsizeof=None):\n        Cache.__init__(self, maxsize, getsizeof)\n        self.__order = collections.OrderedDict()\n\n    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        cache_setitem(self, key, value)\n        if key in self.__order:\n            self.__order.move_to_end(key)\n        else:\n            self.__order[key] = None\n\n    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n        cache_delitem(self, key)\n        del self.__order[key]\n\n    def popitem(self):\n        \"\"\"Remove and return the `(key, value)` pair first inserted.\"\"\"\n        try:\n            key = next(iter(self.__order))\n        except StopIteration:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__order.clear()\n"
+        },
+        {
+          "path": "tests/test_fifo.py",
+          "start": 1,
+          "end": 68,
+          "file_sha256": "c6134627b4d9daab20e67b27fe2ff8d7e225116ae46d6a0e79b2c9b620d25941",
+          "text": "import unittest\n\nfrom cachetools import FIFOCache\n\nfrom . import CacheTestMixin\n\n\nclass FIFOCacheTest(unittest.TestCase, CacheTestMixin):\n    Cache = FIFOCache\n\n    def test_fifo(self):\n        cache = FIFOCache[int, int](maxsize=2)\n\n        cache[1] = 1\n        cache[2] = 2\n        cache[3] = 3\n\n        self.assertEqual(len(cache), 2)\n        self.assertEqual(cache[2], 2)\n        self.assertEqual(cache[3], 3)\n        self.assertNotIn(1, cache)\n\n        cache[2]\n        cache[4] = 4\n        self.assertEqual(len(cache), 2)\n        self.assertEqual(cache[3], 3)\n        self.assertEqual(cache[4], 4)\n        self.assertNotIn(2, cache)\n\n        cache[5] = 5\n        self.assertEqual(len(cache), 2)\n        self.assertEqual(cache[4], 4)\n        self.assertEqual(cache[5], 5)\n        self.assertNotIn(3, cache)\n\n    def test_fifo_getsizeof(self):\n        cache = FIFOCache[int, int](maxsize=3, getsizeof=lambda x: x)\n\n        cache[1] = 1\n        cache[2] = 2\n\n        self.assertEqual(len(cache), 2)\n        self.assertEqual(cache[1], 1)\n        self.assertEqual(cache[2], 2)\n\n        cache[3] = 3\n\n        self.assertEqual(len(cache), 1)\n        self.assertEqual(cache[3], 3)\n        self.assertNotIn(1, cache)\n        self.assertNotIn(2, cache)\n\n        with self.assertRaises(ValueError):\n            cache[4] = 4\n        self.assertEqual(len(cache), 1)\n        self.assertEqual(cache[3], 3)\n\n    def test_fifo_update_existing(self):\n        cache = FIFOCache[int, int | str](maxsize=2)\n\n        cache[1] = 1\n        cache[2] = 2\n        cache[1] = \"updated\"\n        cache[3] = 3\n\n        self.assertEqual(cache[1], \"updated\")\n        self.assertIn(3, cache)\n        self.assertNotIn(2, cache)\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-07",
+      "repository": "cachetools",
+      "question": "What happens when a TLRUCache key is overwritten with a value whose ttu expiry is already in the past, and which test covers this?",
+      "expected_facts": [
+        "TLRUCache computes expires = ttu(key,value,time) on assignment.",
+        "When time is not less than expires, it removes an existing item instead of keeping the prior value or caching the expired replacement.",
+        "The behavior is covered by test_overwrite_existing_with_expired in tests/test_tlru.py."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/__init__.py",
+          "start": 635,
+          "end": 651,
+          "file_sha256": "1dcec682b66362b4d924b1e5162722c348745a87898ffe7891bd8dc9c843e903",
+          "text": "    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        with self.timer as time:\n            self.expire(time)\n            expires = self.__ttu(key, value, time)\n            if not (time < expires):\n                # updating an existing item with an already expired\n                # one should remove the existing item\n                return self.__delitem(key)\n            cache_setitem(self, key, value)\n        # removing an existing item would break the heap structure, so\n        # only mark it as removed for now\n        try:\n            self.__getitem(key).removed = True\n        except KeyError:\n            pass\n        self.__items[key] = item = TLRUCache._Item(key, expires)\n        heapq.heappush(self.__order, item)\n"
+        },
+        {
+          "path": "tests/test_tlru.py",
+          "start": 147,
+          "end": 166,
+          "file_sha256": "461fd80337d3e4a7fba830b30765cce19666611f797568f18740e4f6eea98199",
+          "text": "    def test_overwrite_existing_with_expired(self):\n        # Overwriting an existing key with an already-expired value must not\n        # silently retain the previous value: the assignment cannot store the\n        # new (dead-on-arrival) value, so the key has to be evicted instead.\n        def ttu(_k, value, t):\n            return t + value\n\n        cache = TLRUCache[int, int, int](maxsize=2, ttu=ttu, timer=Timer())\n        cache[1] = 5\n        self.assertEqual(cache[1], 5)\n        self.assertEqual(len(cache), 1)\n        self.assertEqual(cache.currsize, 1)\n\n        cache[1] = 0  # ttu -> t, i.e. not (t < t): immediately expired\n        self.assertNotIn(1, cache)\n        self.assertIsNone(cache.get(1))\n        self.assertEqual(len(cache), 0)\n        self.assertEqual(cache.currsize, 0)\n        self.assertEqual(set(cache), set())\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-08",
+      "repository": "cachetools",
+      "question": "How does cached(condition=...) prevent duplicate concurrent computations for one key, and is the wrapped function executed under the lock?",
+      "expected_facts": [
+        "The condition wrapper tracks a pending set of keys and waits until the requested key is no longer pending.",
+        "The wrapped function is called outside the lock; cache access and pending bookkeeping use the lock.",
+        "A finally block removes the pending key and calls notify_all, including when the function raises."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/_cached.py",
+          "start": 144,
+          "end": 168,
+          "file_sha256": "3f301c0cfbf6a108ca2ffca574568198164f9599439b595c859f6450a4da795b",
+          "text": "def _condition(func, cache, key, lock, cond):\n    pending = set()\n\n    def wrapper(*args, **kwargs):\n        k = key(*args, **kwargs)\n        with lock:\n            cond.wait_for(lambda: k not in pending)\n            try:\n                result = cache[k]\n                return result\n            except KeyError:\n                pending.add(k)\n        try:\n            v = func(*args, **kwargs)\n            with lock:\n                try:\n                    cache[k] = v\n                except ValueError:\n                    pass  # value too large\n                return v\n        finally:\n            with lock:\n                pending.remove(k)\n                cond.notify_all()\n\n"
+        },
+        {
+          "path": "tests/test_threading.py",
+          "start": 1,
+          "end": 69,
+          "file_sha256": "fd6bfb6b3d0b4c650a1786381ab4c33d04ff348cd5d1e91d8014239df111c165",
+          "text": "import threading\nimport time\nimport unittest\nfrom typing import Any\n\nfrom cachetools import LRUCache, cached, cachedmethod\n\ncount = 0\n\n\n@cached(cache=LRUCache(1), condition=threading.Condition(), info=True)\ndef func():\n    global count\n    time.sleep(1.0)\n    count += 1\n    return count\n\n\n@cached(cache=LRUCache(1), lock=threading.Lock(), info=True)\ndef locked_func():\n    global count\n    time.sleep(1.0)\n    count += 1\n    return 42\n\n\nclass ThreadingTest(unittest.TestCase):\n    NTHREADS = 10\n\n    TIMEOUT = 10\n\n    cache: LRUCache[Any, int] = LRUCache(1)\n\n    cond = threading.Condition()\n\n    lock = threading.Lock()\n\n    count = 0\n\n    @cachedmethod(\n        cache=lambda self: self.cache, condition=lambda self: self.cond, info=True\n    )\n    def method(self):\n        time.sleep(1.0)\n        self.count += 1\n        return 42\n\n    @cachedmethod(cache=lambda self: self.cache, lock=lambda self: self.lock, info=True)\n    def locked_method(self):\n        time.sleep(1.0)\n        self.count += 1\n        return 42\n\n    def test_cached_stampede(self):\n        global count\n        count = 0\n        threads = [threading.Thread(target=func) for i in range(self.NTHREADS)]\n        for t in threads:\n            t.start()\n        for t in threads:\n            t.join(timeout=self.TIMEOUT)\n            self.assertFalse(t.is_alive())\n\n        self.assertEqual(count, 1)\n\n        info = func.cache_info()\n        self.assertEqual(info.hits, self.NTHREADS - 1)\n        self.assertEqual(info.misses, 1)\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-09",
+      "repository": "cachetools",
+      "question": "Does cached(lock=...) alone prevent simultaneous computations on a cache miss, and how is a race resolved when storing the results?",
+      "expected_facts": [
+        "No: the lock protects cache operations, while func executes outside the lock, allowing duplicate computations.",
+        "After computation, cache.setdefault(k,v) prefers a value already stored by a concurrent call.",
+        "A condition parameter is the mechanism for coordinating in-progress computations for a key."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/_cached.py",
+          "start": 144,
+          "end": 168,
+          "file_sha256": "3f301c0cfbf6a108ca2ffca574568198164f9599439b595c859f6450a4da795b",
+          "text": "def _condition(func, cache, key, lock, cond):\n    pending = set()\n\n    def wrapper(*args, **kwargs):\n        k = key(*args, **kwargs)\n        with lock:\n            cond.wait_for(lambda: k not in pending)\n            try:\n                result = cache[k]\n                return result\n            except KeyError:\n                pending.add(k)\n        try:\n            v = func(*args, **kwargs)\n            with lock:\n                try:\n                    cache[k] = v\n                except ValueError:\n                    pass  # value too large\n                return v\n        finally:\n            with lock:\n                pending.remove(k)\n                cond.notify_all()\n\n"
+        },
+        {
+          "path": "src/cachetools/_cached.py",
+          "start": 177,
+          "end": 195,
+          "file_sha256": "3f301c0cfbf6a108ca2ffca574568198164f9599439b595c859f6450a4da795b",
+          "text": "def _locked(func, cache, key, lock):\n    def wrapper(*args, **kwargs):\n        k = key(*args, **kwargs)\n        with lock:\n            try:\n                return cache[k]\n            except KeyError:\n                pass  # key not found\n        v = func(*args, **kwargs)\n        with lock:\n            try:\n                # In case of a race condition, i.e. if another thread\n                # stored a value for this key while we were calling\n                # func(), prefer the cached value.\n                return cache.setdefault(k, v)\n            except ValueError:\n                return v  # value too large\n\n    def cache_clear():\n"
+        },
+        {
+          "path": "tests/test_threading.py",
+          "start": 86,
+          "end": 103,
+          "file_sha256": "fd6bfb6b3d0b4c650a1786381ab4c33d04ff348cd5d1e91d8014239df111c165",
+          "text": "    def test_cached_locked(self):\n        global count\n        count = 0\n        threads = [threading.Thread(target=locked_func) for i in range(self.NTHREADS)]\n        for t in threads:\n            t.start()\n        for t in threads:\n            t.join(timeout=self.TIMEOUT)\n            self.assertFalse(t.is_alive())\n\n        # Without condition/stampede prevention, func is called by multiple\n        # threads, but all return the same cached value (42).\n        self.assertGreaterEqual(count, 1)\n\n        info = locked_func.cache_info()\n        self.assertEqual(info.hits + info.misses, self.NTHREADS)\n        self.assertGreaterEqual(info.misses, 1)\n\n"
+        }
+      ]
+    },
+    {
+      "id": "cachetools-10",
+      "repository": "cachetools",
+      "question": "How do hashkey, methodkey and typedkey differ in handling keyword order, self and argument types?",
+      "expected_facts": [
+        "hashkey sorts keyword items so keyword ordering does not change the key.",
+        "methodkey ignores self and delegates to hashkey for the remaining arguments.",
+        "typedkey appends argument types (including keyword value types), distinguishing otherwise equal values of different types."
+      ],
+      "reference_spans": [
+        {
+          "path": "src/cachetools/keys.py",
+          "start": 32,
+          "end": 66,
+          "file_sha256": "9550bd6914744c2fc6fd211dfb83cdae2d6206b1a1bfcf052d017cb23b39b49e",
+          "text": "# A sentinel for separating args from kwargs.  Using the class itself\n# ensures uniqueness and preserves identity when pickling/unpickling.\n_kwmark = (_HashedTuple,)\n\n\ndef hashkey(*args, **kwargs):\n    \"\"\"Return a cache key for the specified hashable arguments.\"\"\"\n\n    if kwargs:\n        return _HashedTuple(args + _kwmark + tuple(sorted(kwargs.items())))\n    else:\n        return _HashedTuple(args)\n\n\ndef methodkey(self, *args, **kwargs):\n    \"\"\"Return a cache key for use with cached methods.\"\"\"\n    return hashkey(*args, **kwargs)\n\n\ndef typedkey(*args, **kwargs):\n    \"\"\"Return a typed cache key for the specified hashable arguments.\"\"\"\n\n    if kwargs:\n        sorted_kwargs = tuple(sorted(kwargs.items()))\n        key = _HashedTuple(args + _kwmark + sorted_kwargs)\n        key += tuple(type(v) for _, v in sorted_kwargs)\n    else:\n        key = _HashedTuple(args)\n    key += tuple(type(v) for v in args)\n    return key\n\n\ndef typedmethodkey(self, *args, **kwargs):\n    \"\"\"Return a typed cache key for use with cached methods.\"\"\"\n    return typedkey(*args, **kwargs)\n"
+        },
+        {
+          "path": "tests/test_keys.py",
+          "start": 1,
+          "end": 92,
+          "file_sha256": "c6e39d6e781cb737159b43d725c4a0f00ce6f2885376fb6efd01c5d59e196064",
+          "text": "import unittest\n\nimport cachetools.keys\n\n\nclass CacheKeysTest(unittest.TestCase):\n    def test_hashkey(self, key=cachetools.keys.hashkey):\n        self.assertEqual(key(), key())\n        self.assertEqual(hash(key()), hash(key()))\n        self.assertEqual(key(1, 2, 3), key(1, 2, 3))\n        self.assertEqual(hash(key(1, 2, 3)), hash(key(1, 2, 3)))\n        self.assertEqual(key(1, 2, 3, x=0), key(1, 2, 3, x=0))\n        self.assertEqual(hash(key(1, 2, 3, x=0)), hash(key(1, 2, 3, x=0)))\n        self.assertNotEqual(key(1, 2, 3), key(3, 2, 1))\n        self.assertNotEqual(key(1, 2, 3), key(1, 2, 3, x=None))\n        self.assertNotEqual(key(1, 2, 3, x=0), key(1, 2, 3, x=None))\n        self.assertNotEqual(key(1, 2, 3, x=0), key(1, 2, 3, y=0))\n        with self.assertRaises(TypeError):\n            hash(key({}))\n        # untyped keys compare equal\n        self.assertEqual(key(1, 2, 3), key(1.0, 2.0, 3.0))\n        self.assertEqual(hash(key(1, 2, 3)), hash(key(1.0, 2.0, 3.0)))\n\n    def test_methodkey(self, key=cachetools.keys.methodkey):\n        # similar to hashkey(), but ignores its first positional argument\n        self.assertEqual(key(\"x\"), key(\"y\"))\n        self.assertEqual(hash(key(\"x\")), hash(key(\"y\")))\n        self.assertEqual(key(\"x\", 1, 2, 3), key(\"y\", 1, 2, 3))\n        self.assertEqual(hash(key(\"x\", 1, 2, 3)), hash(key(\"y\", 1, 2, 3)))\n        self.assertEqual(key(\"x\", 1, 2, 3, x=0), key(\"y\", 1, 2, 3, x=0))\n        self.assertEqual(hash(key(\"x\", 1, 2, 3, x=0)), hash(key(\"y\", 1, 2, 3, x=0)))\n        self.assertNotEqual(key(\"x\", 1, 2, 3), key(\"x\", 3, 2, 1))\n        self.assertNotEqual(key(\"x\", 1, 2, 3), key(\"x\", 1, 2, 3, x=None))\n        self.assertNotEqual(key(\"x\", 1, 2, 3, x=0), key(\"x\", 1, 2, 3, x=None))\n        self.assertNotEqual(key(\"x\", 1, 2, 3, x=0), key(\"x\", 1, 2, 3, y=0))\n        with self.assertRaises(TypeError):\n            hash(key(\"x\", {}))\n        # untyped keys compare equal\n        self.assertEqual(key(\"x\", 1, 2, 3), key(\"y\", 1.0, 2.0, 3.0))\n        self.assertEqual(hash(key(\"x\", 1, 2, 3)), hash(key(\"y\", 1.0, 2.0, 3.0)))\n\n    def test_typedkey(self, key=cachetools.keys.typedkey):\n        self.assertEqual(key(), key())\n        self.assertEqual(hash(key()), hash(key()))\n        self.assertEqual(key(1, 2, 3), key(1, 2, 3))\n        self.assertEqual(hash(key(1, 2, 3)), hash(key(1, 2, 3)))\n        self.assertEqual(key(1, 2, 3, x=0), key(1, 2, 3, x=0))\n        self.assertEqual(hash(key(1, 2, 3, x=0)), hash(key(1, 2, 3, x=0)))\n        self.assertNotEqual(key(1, 2, 3), key(3, 2, 1))\n        self.assertNotEqual(key(1, 2, 3), key(1, 2, 3, x=None))\n        self.assertNotEqual(key(1, 2, 3, x=0), key(1, 2, 3, x=None))\n        self.assertNotEqual(key(1, 2, 3, x=0), key(1, 2, 3, y=0))\n        with self.assertRaises(TypeError):\n            hash(key({}))\n        # typed keys compare unequal\n        self.assertNotEqual(key(1, 2, 3), key(1.0, 2.0, 3.0))\n\n    def test_typedmethodkey(self, key=cachetools.keys.typedmethodkey):\n        # similar to typedkey(), but ignores its first positional argument\n        self.assertEqual(key(\"x\"), key(\"y\"))\n        self.assertEqual(hash(key(\"x\")), hash(key(\"y\")))\n        self.assertEqual(key(\"x\", 1, 2, 3), key(\"y\", 1, 2, 3))\n        self.assertEqual(hash(key(\"x\", 1, 2, 3)), hash(key(\"y\", 1, 2, 3)))\n        self.assertEqual(key(\"x\", 1, 2, 3, x=0), key(\"y\", 1, 2, 3, x=0))\n        self.assertEqual(hash(key(\"x\", 1, 2, 3, x=0)), hash(key(\"y\", 1, 2, 3, x=0)))\n        self.assertNotEqual(key(\"x\", 1, 2, 3), key(\"x\", 3, 2, 1))\n        self.assertNotEqual(key(\"x\", 1, 2, 3), key(\"x\", 1, 2, 3, x=None))\n        self.assertNotEqual(key(\"x\", 1, 2, 3, x=0), key(\"x\", 1, 2, 3, x=None))\n        self.assertNotEqual(key(\"x\", 1, 2, 3, x=0), key(\"x\", 1, 2, 3, y=0))\n        with self.assertRaises(TypeError):\n            hash(key(\"x\", {}))\n        # typed keys compare unequal\n        self.assertNotEqual(key(\"x\", 1, 2, 3), key(\"x\", 1.0, 2.0, 3.0))\n\n    def test_addkeys(self, key=cachetools.keys.hashkey):\n        self.assertIsInstance(key(), tuple)\n        self.assertIsInstance(key(1, 2, 3) + key(4, 5, 6), type(key()))\n        self.assertIsInstance(key(1, 2, 3) + (4, 5, 6), type(key()))\n        self.assertIsInstance((1, 2, 3) + key(4, 5, 6), type(key()))\n\n    def test_pickle(self, key=cachetools.keys.hashkey):\n        import pickle\n\n        for k in [key(), key(\"abc\"), key(\"abc\", 123), key(\"abc\", q=\"abc\")]:\n            # white-box test: assert cached hash value is not pickled\n            self.assertEqual(len(k.__dict__), 0)\n            h = hash(k)\n            self.assertEqual(len(k.__dict__), 1)\n            pickled = pickle.loads(pickle.dumps(k))\n            self.assertEqual(len(pickled.__dict__), 0)\n            self.assertEqual(k, pickled)\n            self.assertEqual(h, hash(pickled))\n"
+        }
+      ]
+    }
+  ]
+}

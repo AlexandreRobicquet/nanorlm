@@ -1,16 +1,30 @@
 # nanoRLM
 
-`nanoRLM` is a small, inference-only reference implementation for recursive long-context inspection with pluggable retention policies.
+`nanoRLM` answers concrete questions about a source repository with cited code,
+reusable evidence, explicit omissions, and a receipt for model usage and cost.
+It also contains a small recursive inspection engine for comparing retention
+policies against simpler retrieval and full context.
 
-The goal is not to be a framework. The goal is a compact reference whose documented minimum
-reading path explains the core end to end while still producing real recursive traces,
-provider-portable runs, and reproducible report bundles.
+## Ask a repository question
 
-## What We Are Building
+Run from a source checkout after installing `uv` using its [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+uv run python ask.py 'Where is the retry limit set, what overrides it, and which tests cover it?' \
+  --repo /path/to/repository --model gpt-4.1-mini-2025-04-14 --output outputs/retry-answer
+```
+
+Open `answer.md` for an answer with source-span citations, and `evidence.json` for reusable evidence, source hashes and omissions. Omit `--model` for local evidence only. Lexical retrieval is the default selected by the [30-question comparison](RESULTS.md): 16 complete answers versus 9 with full context and 3 with retention, at the lowest inference cost. Citation support was 77.5%, so inspect the cited source. Recursive and learned retention remain optional. See [the repository-question guide](REPO_QA.md) for budgets, evidence reuse and source boundaries.
+
+Useful starting questions concern configuration defaults and overrides, retry and
+cache behavior, or the tests that cover a specific edge case. Answers describe the
+scanned source snapshot; they do not establish live deployment behavior.
+
+## Research core
 
 ![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
 
-The whole repo is this loop: start with a root query over too much context, recurse until each shard is small enough to inspect, turn leaf inspections into explicit `MemoryItem`s, keep only what survives the token budget, then answer from retained evidence instead of the full context.
+The research engine starts with a query over too much context, recurses until each shard is small enough to inspect, turns leaf inspections into explicit `MemoryItem`s, and keeps only what survives the token budget. The practical repository command also supports lexical retrieval and full context for direct comparison.
 
 If the retention policy drops a needed fact, the final answer loses it too. That is the central research surface in `nanoRLM`.
 
@@ -32,11 +46,6 @@ Modern long-context systems still fail in a very specific way: they look at ever
 `nanoRLM` is a clone-only reference repository. Run it from a source checkout; a
 pip-installed library and an installed public API are not supported. The import examples below
 work because the checkout root is the active working directory.
-
-The repository is meant to stay easy to run from a fresh machine with `uv`.
-Install `uv` with its
-[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
-before running the first command.
 
 If you are learning the repo day to day, use this flow first:
 
@@ -665,15 +674,20 @@ Hosted OpenAI-compatible runs fail fast when the model has no cost table entry o
 
 To understand the core without reading every workflow and receipt:
 
-1. Read [`nanorlm.py`](nanorlm.py) for the recursive engine and result/trace contract.
-2. Read [`policies.py`](policies.py) for side-by-side retention behavior.
-3. Read `build_pairbench` in [`bench.py`](bench.py) as one concrete dataset builder.
-4. Inspect the saved tree in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
-5. Run the quickstart dossier command and open
-   `outputs/quickstart/dossierbench/experiment_report.md`.
+1. Use [the repository-question guide](REPO_QA.md) and inspect one `answer.md` alongside its `sources.md`.
+2. Read [`ask.py`](ask.py) and [`repoqa.py`](repoqa.py) for retrieval, answer validation and receipts.
+3. Read [`nanorlm.py`](nanorlm.py) for the optional recursive engine and result/trace contract.
+4. Read [`policies.py`](policies.py) for side-by-side retention behavior.
+5. Inspect the saved research trace in [`examples/pairbench_trace.txt`](examples/pairbench_trace.txt).
+
+For a small research fixture, inspect `build_pairbench` in [`bench.py`](bench.py).
+Run the quickstart dossier command and open
+`outputs/quickstart/dossierbench/experiment_report.md` to compare the emitted bundle.
 
 ## Repo Layout
 
+- `ask.py`, `repoqa.py`: repository questions, source retrieval, cited answers and cost receipts
+- `evaluations/`, `scripts/*repoqa.py`: frozen usefulness questions, batch transport, grading and audited reporting
 - `nanorlm.py`: recursion loop, trace recorder, OpenAI-compatible backend, Anthropic backend, deterministic backend
 - `policies.py`: `keep_recent`, `summary_only`, `single_critic_topk`, `pairwise_tournament`
 - `learned_retention.py`: feature extraction, pairwise/pointwise offline training, and the learned policy
@@ -701,6 +715,7 @@ CI intentionally does not run real-model jobs, networked benchmark jobs, or full
 
 Implemented now:
 
+- repository questions with cited original source spans, reusable evidence, omissions and cost accounting
 - small recursive inference engine with a stable source-checkout interface
 - five retention policies
 - provider portability across heuristic, OpenAI-compatible, and Anthropic backends
