@@ -7,9 +7,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.evaluate_repoqa import validate_dataset, verified_receipt
+from scripts.grade_repoqa import validate_grade
 
 
 class EvaluationIntegrityTests(unittest.TestCase):
+    def test_grader_cannot_omit_claims_or_use_truthy_strings(self):
+        grade = {'facts': [{'index': 1, 'correct': True, 'reason': 'source'}],
+                 'claims': [{'index': 1, 'supported': True, 'materially_incorrect': False, 'reason': 'source'}],
+                 'reference_concern': ''}
+        validate_grade(grade, 1, 1)
+        with self.assertRaisesRegex(ValueError, 'count mismatch'):
+            validate_grade(grade, 1, 2)
+        grade['facts'][0]['correct'] = 'false'
+        with self.assertRaisesRegex(ValueError, 'schema mismatch'):
+            validate_grade(grade, 1, 1)
+
     def test_reference_excerpts_must_match_pinned_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)

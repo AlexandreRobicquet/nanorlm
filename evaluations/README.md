@@ -51,6 +51,22 @@ abstentions and failures. Do not substitute substring matching for correctness.
 Report factual coverage, fully correct questions, citation support, median and
 tail latency, and total estimated cost separately, by strategy and repository.
 
+`scripts/grade_repoqa.py` applies the fixed checklist using
+`gpt-4.1-2025-04-14`, with strategy names, costs and competing answers hidden from
+the grader. It receives each claim's actual cited excerpts and separate reference
+excerpts, and records per-fact and per-claim explanations. Grading starts after all
+answer runs finish. Its separate USD 5 cap and full usage receipts distinguish
+evaluation expense from user-facing inference expense. A subsequent assistant
+audit of flagged cases and a spread of passing cases is recorded separately;
+this is **not human adjudication**. Both models share a family, so correlated
+grading errors remain a limitation. The grader and its prompt are frozen before
+grading, and raw judgments are retained when an audit changes a score.
+
+```bash
+uv run python scripts/grade_repoqa.py \
+  --experiment outputs/repoqa-v1 --output outputs/repoqa-v1-grades
+```
+
 Prefer the lowest-cost strategy within one fully correct question of the best and
 within five percentage points of its citation-support precision. Retention needs
 at least three additional fully correct questions over lexical retrieval to
