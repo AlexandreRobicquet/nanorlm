@@ -14,6 +14,17 @@ from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 from scripts.grade_repoqa import validate_grade
 
 
+def select_strategy(summaries: dict) -> tuple[list[str], str | None]:
+    best = max(summaries, key=lambda key: (summaries[key]['fully_correct'], -summaries[key]['estimated_usd']))
+    best_precision = summaries[best]['citation_precision'] or 0
+    eligible = [strategy for strategy, summary in summaries.items()
+                if summary['fully_correct'] >= summaries[best]['fully_correct']-1
+                and (summary['citation_precision'] or 0) >= best_precision-.05
+                and (strategy != 'retention' or summary['fully_correct'] >= summaries['lexical']['fully_correct']+3)]
+    selected = min(eligible, key=lambda key: summaries[key]['estimated_usd']) if eligible else None
+    return eligible, selected
+
+
 def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: Path | None) -> None:
     data = json.loads(dataset.read_text())
     manifest = json.loads((experiment / 'experiment.json').read_text())
@@ -79,15 +90,10 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
             'calls': sum(row['calls'] for row in rows),
             'by_repository': {repo: {'fully_correct': sum(row['fully_correct'] for row in rows if row['repository']==repo),
                                    'questions': sum(row['repository']==repo for row in rows)} for repo in data['repositories']}}
-    best = max(summaries, key=lambda key: (summaries[key]['fully_correct'], -summaries[key]['estimated_usd']))
-    best_precision = summaries[best]['citation_precision'] or 0
-    eligible = [strategy for strategy, summary in summaries.items()
-                if summary['fully_correct'] >= summaries[best]['fully_correct']-1
-                and (summary['citation_precision'] or 0) >= best_precision-.05
-                and (strategy != 'retention' or summary['fully_correct'] >= summaries['lexical']['fully_correct']+3)]
-    selected = min(eligible, key=lambda key: summaries[key]['estimated_usd']) if eligible else None
+    eligible, selected = select_strategy(summaries)
     output.mkdir(parents=True, exist_ok=True)
     report_data = {'dataset_sha256': file_hash(dataset), 'experiment_sha256': manifest['experiment_sha256'],
+        'report_script_sha256': file_hash(Path(__file__)),
         'grading_protocol_sha256': file_hash(grades / 'protocol.json'), 'audit_sha256': file_hash(audit) if audit else None,
         'audit_method': audits['method'], 'source_snapshots': snapshots, 'summaries': summaries,
         'eligible_under_frozen_rule': eligible, 'selected_under_frozen_rule': selected, 'cases': scored,
