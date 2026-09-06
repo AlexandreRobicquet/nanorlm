@@ -67,6 +67,40 @@ uv run python scripts/grade_repoqa.py \
   --experiment outputs/repoqa-v1 --output outputs/repoqa-v1-grades
 ```
 
+## Batch transport amendment, 2026-09-06
+
+The synchronous run completed four cases before the API account exhausted its
+50-request daily model quota during the fifth. Those partial results are retained
+separately and cannot select a default. The Anthropic connection was unavailable.
+The comparison therefore has a separate batch execution protocol, with the same
+questions, model, prompts, budgets, source snapshots and failure scoring. A later
+review-driven fix omits undecodable filenames; it does not change the eligible
+source inventory in these three repositories.
+
+The [Batch API](https://developers.openai.com/api/docs/guides/batch) uses separate
+limits. The first round submits independent inspection leaves and baseline
+answers. Subsequent rounds submit required schema repairs and retention answers
+after their actual inspections are available. The original engine constructs and
+validates all prompts. Local planning placeholders are discarded; only complete
+responses bound to their exact request bodies can become experiment artifacts.
+
+```bash
+uv run python scripts/batch_repoqa.py --repositories /path/to/pinned-checkouts \
+  --output outputs/repoqa-v1-batch --submit
+```
+
+Run the same command to collect a completed round and submit dependent requests.
+Omit `--submit` to prepare or inspect without submitting another round. Batches
+can take up to 24 hours per round. Each submission records its conservative cost
+reservation. No failed/expired batch is silently retried.
+
+**Batch results cannot establish interactive latency.** Receipts set interactive
+latency to null and distinguish local replay assembly time from provider batch
+turnaround. Normal list-price estimates and the 50%-discounted batch estimates
+are reported separately. The earlier interactive observations remain a small,
+quota-interrupted pilot, not a 30-question latency comparison. A release decision
+must disclose this limitation.
+
 Prefer the lowest-cost strategy within one fully correct question of the best and
 within five percentage points of its citation-support precision. Retention needs
 at least three additional fully correct questions over lexical retrieval to
