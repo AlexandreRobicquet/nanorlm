@@ -26,6 +26,7 @@ from bench import (  # noqa: E402
     write_report_bundle,
 )
 from nanorlm import (  # noqa: E402
+    ContextBlock,
     OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
     REMOTE_MODEL_PRICES,
     estimate_tokens,
@@ -349,6 +350,7 @@ def commit_binding(snapshot: Mapping[str, Any] | None, expected: str) -> dict[st
 
 
 def example_record(spec: DatasetSpec, index: int, example: BenchmarkExample) -> dict[str, Any]:
+    example = portable_example(example)
     context = [
         {
             "index": block_index,
@@ -481,7 +483,7 @@ def load_spec_examples(
             )
         if len(names) != len(set(names)):
             raise ValueError(f"dataset {spec.label} contains duplicate example names")
-        loaded[spec.label] = examples
+        loaded[spec.label] = [portable_example(example) for example in examples]
     return loaded
 
 
@@ -968,7 +970,7 @@ def run_budget(
         if max_estimated_cost is not None and cumulative_cost >= max_estimated_cost:
             break
         task_record = example_record(spec, task_index, example)
-        example = replace(example, task_id=task_record["task_id"])
+        example = portable_example(replace(example, task_id=task_record["task_id"]))
         block = {
             "task_index": task_index,
             "task_id": task_record["task_id"],
@@ -1081,7 +1083,7 @@ def determinism_check(
     max_output_tokens: int,
 ) -> dict[str, Any]:
     budget = int(budget_result["budget"])
-    first_example = replace(first_example, task_id=example_record(first_spec, 0, first_example)["task_id"])
+    first_example = portable_example(replace(first_example, task_id=example_record(first_spec, 0, first_example)["task_id"]))
     original_rows = {
         str(row["policy"]): row
         for row in budget_result["rows"]
@@ -1113,27 +1115,35 @@ def determinism_check(
     return {"ok": not mismatches, "task": f"{first_spec.label}:{first_example.name}", "mismatches": mismatches}
 
 
+def portable_path(value: str) -> str | None:
+    posix_path = PurePosixPath(value)
+    windows_path = PureWindowsPath(value)
+    if posix_path.is_absolute():
+        return f"<portable-source>/{posix_path.name or 'source'}"
+    if windows_path.is_absolute():
+        return f"<portable-source>/{windows_path.name or 'source'}"
+    return None
+
+def portable_value(value: Any, key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {name: portable_value(item, str(name)) for name, item in value.items()}
+    if isinstance(value, list):
+        return [portable_value(item, key) for item in value]
+    if isinstance(value, str) and key in {"path", "source_path", "source_paths", "source_name", "repo_root", "dataset_path", "name"}:
+        scrubbed = portable_path(value)
+        if scrubbed is not None:
+            return scrubbed
+    return value
+
+
+def portable_example(example: BenchmarkExample) -> BenchmarkExample:
+    return replace(example, metadata=portable_value(example.metadata),
+        context=[ContextBlock(portable_path(block.name) or block.name, block.text,
+                              portable_value(block.metadata)) for block in example.context],
+        expected_provenance=[portable_path(path) or path for path in example.expected_provenance])
+
+
 def copy_dataset_sources(output_root: Path, specs: Sequence[DatasetSpec]) -> list[dict[str, Any]]:
-    def portable_path(value: str) -> str | None:
-        posix_path = PurePosixPath(value)
-        windows_path = PureWindowsPath(value)
-        if posix_path.is_absolute():
-            return f"<portable-source>/{posix_path.name or 'source'}"
-        if windows_path.is_absolute():
-            return f"<portable-source>/{windows_path.name or 'source'}"
-        return None
-
-    def portable_value(value: Any, key: str = "") -> Any:
-        if isinstance(value, dict):
-            return {name: portable_value(item, str(name)) for name, item in value.items()}
-        if isinstance(value, list):
-            return [portable_value(item, key) for item in value]
-        if isinstance(value, str) and key in {"path", "source_path", "repo_root", "dataset_path"}:
-            scrubbed = portable_path(value)
-            if scrubbed is not None:
-                return scrubbed
-        return value
-
     records = []
     for spec in specs:
         if spec.path is None:
@@ -1614,6 +1624,15 @@ def validate_phase_configuration(
             raise ValueError("offline phase does not accept a response cache")
         if list(budgets) != DEFAULT_BUDGETS:
             raise ValueError("offline phase must use the frozen 96/128/192 development grid")
+        families = [("dossierbench", "dossierbench"), ("ruler-synthetic", "ruler_synthetic"),
+                    ("babilong-synthetic", "babilong_synthetic")]
+        if [(spec.label, spec.dataset) for spec in specs] != families or any(spec.path for spec in specs):
+            raise ValueError("offline phase must use the frozen three development families")
+        expected = {"limit": 4, "start_index": 0, "depth": 3, "max_output_tokens": 512,
+                    "seed": 0, "provider": "heuristic", "model": "demo/heuristic",
+                    "base_url": "", "max_estimated_cost": None}
+        if any(getattr(args, key, object()) != value for key, value in expected.items()):
+            raise ValueError("offline phase must use the complete frozen development configuration")
         return
     expected_limit = 8 if args.phase == "pilot" else 25
     expected_cap = 5.0 if args.phase == "pilot" else 20.0

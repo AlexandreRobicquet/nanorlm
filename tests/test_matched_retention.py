@@ -959,10 +959,11 @@ class MatchedRetentionTests(unittest.TestCase):
                 [96],
             )
 
-        offline_args = SimpleNamespace(phase="offline", cache_dir="")
-        validate_phase_configuration(offline_args, specs, [96, 128, 192])
+        offline_args = build_parser().parse_args(['--output-dir', 'unused'])
+        offline_specs = [DatasetSpec('dossierbench','dossierbench'), DatasetSpec('ruler-synthetic','ruler_synthetic'), DatasetSpec('babilong-synthetic','babilong_synthetic')]
+        validate_phase_configuration(offline_args, offline_specs, [96, 128, 192])
         with self.assertRaisesRegex(ValueError, "frozen 96/128/192 development grid"):
-            validate_phase_configuration(offline_args, specs, [96])
+            validate_phase_configuration(offline_args, offline_specs, [96])
 
         example = BenchmarkExample(
             name="case",

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bench import build_pairbench
+from scripts.run_matched_retention import build_parser, validate_phase_configuration, portable_example
 from scripts.run_matched_retention import (DatasetSpec, audit_trace_bindings, budget_diagnostics,
     determinism_check, example_record, git_snapshot, run_budget)
 from scripts.train_learned_retention import repository_record
@@ -17,6 +18,7 @@ class MatchedContractTests(unittest.TestCase):
         examples = build_pairbench(n=2, seed=0)
         # Display names do not identify source tasks.
         examples[1].name = examples[0].name
+        examples[0].context[0].metadata['source_path'] = '/workspace/private/raw.jsonl'
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             result = run_budget(phase='offline', specs=[spec], examples={spec.label: examples},
@@ -27,6 +29,8 @@ class MatchedContractTests(unittest.TestCase):
             self.assertEqual({row['task_id'] for row in result['rows']}, expected)
             self.assertEqual(result['diagnostics']['observed_tasks'], 2)
             self.assertTrue(audit_trace_bindings(root, result['rows'])['ok'])
+            self.assertNotIn('/workspace/private', json.dumps(result['rows']))
+            self.assertIn('<portable-source>/raw.jsonl', json.dumps(result['rows']))
             check = determinism_check(result, first_spec=spec, first_example=examples[0], provider='heuristic',
                 model='demo/heuristic', base_url=None, learned_model=None, seed=0, depth=3, max_output_tokens=512)
             self.assertTrue(check['ok'], check)
@@ -50,3 +54,17 @@ class MatchedContractTests(unittest.TestCase):
         with patch('subprocess.run', side_effect=fail_status):
             self.assertFalse(repository_record()['clean'])
             self.assertFalse(git_snapshot(Path('.'))['clean'])
+
+    def test_offline_configuration_cannot_substitute_easier_evidence(self):
+        from dataclasses import replace
+        specs = [DatasetSpec('dossierbench','dossierbench'), DatasetSpec('ruler-synthetic','ruler_synthetic'), DatasetSpec('babilong-synthetic','babilong_synthetic')]
+        for key, value in {'limit':1, 'start_index':1, 'depth':1, 'max_output_tokens':128,
+                           'seed':2, 'model':'other', 'provider':'openai_compatible',
+                           'base_url':'http://localhost', 'max_estimated_cost':1}.items():
+            args = build_parser().parse_args(['--output-dir','unused'])
+            setattr(args,key,value)
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError,'frozen development configuration'):
+                validate_phase_configuration(args,specs,[96,128,192])
+        args = build_parser().parse_args(['--output-dir','unused'])
+        with self.assertRaisesRegex(ValueError,'three development families'):
+            validate_phase_configuration(args,[DatasetSpec('pairbench','pairbench')],[96,128,192])
