@@ -6,6 +6,17 @@ The goal is not to be a framework. The goal is a compact reference whose documen
 reading path explains the core end to end while still producing real recursive traces,
 provider-portable runs, and reproducible report bundles.
 
+## Ask a repository question
+
+Run from a source checkout after installing `uv` using its [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+uv run python ask.py 'Where is the retry limit set, what overrides it, and which tests cover it?' \
+  --repo /path/to/repository --model gpt-4.1-mini-2025-04-14 --output outputs/retry-answer
+```
+
+Open `answer.md` for an answer with source-span citations, and `evidence.json` for reusable evidence, source hashes and omissions. Omit `--model` for local evidence only. Lexical retrieval is the provisional default; recursive and learned retention remain optional pending independent usefulness evidence. See [the repository-question guide](REPO_QA.md) for budgets, evidence reuse and source boundaries.
+
 ## What We Are Building
 
 ![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
@@ -32,11 +43,6 @@ Modern long-context systems still fail in a very specific way: they look at ever
 `nanoRLM` is a clone-only reference repository. Run it from a source checkout; a
 pip-installed library and an installed public API are not supported. The import examples below
 work because the checkout root is the active working directory.
-
-The repository is meant to stay easy to run from a fresh machine with `uv`.
-Install `uv` with its
-[official installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
-before running the first command.
 
 If you are learning the repo day to day, use this flow first:
 

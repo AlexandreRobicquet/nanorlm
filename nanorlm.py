@@ -587,6 +587,8 @@ class StructuredOutputBackend:
                 "You are a recursive language model worker. "
                 "Read the provided branch context and return strict JSON with keys "
                 "summary, evidence, answer_candidate, confidence. "
+                "summary and answer_candidate must be strings; evidence must be a list of strings; "
+                "confidence must be a numeric probability from 0 to 1, never a percentage or label. "
                 "The summary should be terse and preserve only facts that help answer the root query."
             ),
             (
@@ -678,7 +680,9 @@ class StructuredOutputBackend:
                 ),
                 (
                     f"Operation: {operation}\n"
-                    f"Required keys: {', '.join(required_keys)}\n\n"
+                    f"Required keys: {', '.join(required_keys)}\n"
+                    f"Validation error: {exc}\n"
+                    f"Original output instructions: {system_prompt}\n\n"
                     f"Previous response:\n{payload['content']}\n\n"
                     "Return corrected JSON only."
                 ),

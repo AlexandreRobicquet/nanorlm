@@ -44,6 +44,8 @@ PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", 
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
 OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
+    "ask.py",
+    "repoqa.py",
     "artifacts.py",
     "inspection_replay.py",
     "learned_retention.py",
