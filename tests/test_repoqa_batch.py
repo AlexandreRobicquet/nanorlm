@@ -1,12 +1,33 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from nanorlm import RLMConfig
 from repoqa import MeteredBackend, digest
-from scripts.batch_repoqa import Transport
+from scripts.batch_repoqa import Transport, submit
 
 
 class BatchTransportTests(unittest.TestCase):
+    def test_queue_limit_preserves_unsubmitted_requests(self):
+        requests = {str(index): {'custom_id': str(index), 'method': 'POST', 'url': '/v1/chat/completions',
+                    'body': {'model': 'gpt-4.1-mini-2025-04-14', 'max_completion_tokens': 100,
+                             'messages': [{'role': 'user', 'content': 'x' * size}]}}
+                    for index, size in enumerate([90_000, 90_000, 45_000])}
+        encoder = SimpleNamespace(encode=lambda value, **kwargs: range(len(value)), name='test')
+        fake = SimpleNamespace(encoding_for_model=lambda model: encoder)
+        with tempfile.TemporaryDirectory() as temporary, patch.dict('sys.modules', {'tiktoken': fake}), \
+                patch('importlib.metadata.version', return_value='test'), \
+                patch('scripts.batch_repoqa.api', side_effect=[{'id': 'file-test'}, {'id': 'batch-test', 'status': 'validating'}]):
+            root = Path(temporary)
+            submit(root, requests, {}, 'gpt-4.1-mini-2025-04-14', 5)
+            sent = [json.loads(line)['custom_id'] for line in (root/'round-01/input.jsonl').read_text().splitlines()]
+            self.assertEqual(sent, ['0', '2'])
+            self.assertEqual(set(requests), {'0','1','2'})
+            self.assertLessEqual(json.loads((root/'round-01/submission.json').read_text())['queued_input_tokens'],140_000)
+
     def backend(self):
         return MeteredBackend(RLMConfig(model='gpt-4.1-mini-2025-04-14'), .25)
 
