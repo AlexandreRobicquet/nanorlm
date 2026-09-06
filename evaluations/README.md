@@ -56,7 +56,7 @@ tail latency, and total estimated cost separately, by strategy and repository.
 the grader. It receives each claim's actual cited excerpts and separate reference
 excerpts, and records per-fact and per-claim explanations. Grading starts after all
 answer runs finish. Its separate USD 5 cap and full usage receipts distinguish
-evaluation expense from user-facing inference expense. A subsequent assistant
+evaluation expense from user-facing inference expense. The local price table uses the published [GPT-4.1 prices](https://developers.openai.com/api/docs/models/gpt-4.1) and [GPT-4.1 mini prices](https://developers.openai.com/api/docs/models/gpt-4.1-mini), checked on 2026-09-06. A subsequent assistant
 audit of flagged cases and a spread of passing cases is recorded separately;
 this is **not human adjudication**. Both models share a family, so correlated
 grading errors remain a limitation. The grader and its prompt are frozen before

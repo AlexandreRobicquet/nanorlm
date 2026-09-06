@@ -1,10 +1,9 @@
 # nanoRLM
 
-`nanoRLM` is a small, inference-only reference implementation for recursive long-context inspection with pluggable retention policies.
-
-The goal is not to be a framework. The goal is a compact reference whose documented minimum
-reading path explains the core end to end while still producing real recursive traces,
-provider-portable runs, and reproducible report bundles.
+`nanoRLM` answers concrete questions about a source repository with cited code,
+reusable evidence, explicit omissions, and a receipt for model usage and cost.
+It also contains a small recursive inspection engine for comparing retention
+policies against simpler retrieval and full context.
 
 ## Ask a repository question
 
@@ -17,7 +16,11 @@ uv run python ask.py 'Where is the retry limit set, what overrides it, and which
 
 Open `answer.md` for an answer with source-span citations, and `evidence.json` for reusable evidence, source hashes and omissions. Omit `--model` for local evidence only. Lexical retrieval is the provisional default; recursive and learned retention remain optional pending independent usefulness evidence. See [the repository-question guide](REPO_QA.md) for budgets, evidence reuse and source boundaries.
 
-## What We Are Building
+Useful starting questions concern configuration defaults and overrides, retry and
+cache behavior, or the tests that cover a specific edge case. Answers describe the
+scanned source snapshot; they do not establish live deployment behavior.
+
+## Research core
 
 ![nanoRLM recursive memory loop](showcases/assets/dossierbench/architecture.svg)
 
