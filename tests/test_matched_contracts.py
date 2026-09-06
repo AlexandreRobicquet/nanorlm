@@ -82,3 +82,19 @@ class MatchedContractTests(unittest.TestCase):
                 validate_training_configuration(changed)
         with self.assertRaisesRegex(ValueError,'frozen dataset slices'):
             validate_training_configuration({**payload,'datasets':payload['datasets'][:-1]})
+
+    def test_all_absolute_metadata_paths_are_portable_without_altering_task_text(self):
+        from scripts.run_matched_retention import portable_value, portable_example
+        from bench import BenchmarkExample
+        from nanorlm import ContextBlock
+        metadata = {key:'/workspace/private/raw.jsonl' for key in ['file_path','input_path','working_directory','filePath','cwd','arbitrary_metadata_field']}
+        metadata['nested'] = {'list':['/mnt/private/file.txt', r'C:\Users\private\file.txt']}
+        value = {'query':'Explain /workspace/private/raw.jsonl','metadata':metadata}
+        portable = portable_value(value)
+        self.assertEqual(portable['query'],value['query'])
+        self.assertNotIn('/workspace/',json.dumps(portable['metadata']))
+        self.assertNotIn('/mnt/',json.dumps(portable['metadata']))
+        example = BenchmarkExample('case','query',[ContextBlock('block','original text',metadata)],'answer',[])
+        sanitized = portable_example(example)
+        self.assertEqual(sanitized.context[0].text,'original text')
+        self.assertNotIn('/workspace/',json.dumps(sanitized.context[0].metadata))

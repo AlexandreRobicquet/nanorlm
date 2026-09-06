@@ -1124,12 +1124,17 @@ def portable_path(value: str) -> str | None:
         return f"<portable-source>/{windows_path.name or 'source'}"
     return None
 
-def portable_value(value: Any, key: str = "") -> Any:
+def portable_value(value: Any, key: str = "", in_metadata: bool = False) -> Any:
+    in_metadata = in_metadata or key == "metadata"
     if isinstance(value, dict):
-        return {name: portable_value(item, str(name)) for name, item in value.items()}
+        return {name: portable_value(item, str(name), in_metadata) for name, item in value.items()}
     if isinstance(value, list):
-        return [portable_value(item, key) for item in value]
-    if isinstance(value, str) and key in {"path", "source_path", "source_paths", "source_name", "repo_root", "dataset_path", "name"}:
+        return [portable_value(item, key, in_metadata) for item in value]
+    normalized_key = re.sub(r"([a-z])([A-Z])", r"\1_\2", key).lower()
+    path_key = normalized_key in {"name", "source_name", "cwd"} or normalized_key.endswith(
+        ("path", "paths", "dir", "dirs", "directory", "directories", "root", "roots", "filename", "filenames")
+    )
+    if isinstance(value, str) and (in_metadata or path_key):
         scrubbed = portable_path(value)
         if scrubbed is not None:
             return scrubbed
@@ -1137,9 +1142,9 @@ def portable_value(value: Any, key: str = "") -> Any:
 
 
 def portable_example(example: BenchmarkExample) -> BenchmarkExample:
-    return replace(example, metadata=portable_value(example.metadata),
+    return replace(example, metadata=portable_value(example.metadata, in_metadata=True),
         context=[ContextBlock(portable_path(block.name) or block.name, block.text,
-                              portable_value(block.metadata)) for block in example.context],
+                              portable_value(block.metadata, in_metadata=True)) for block in example.context],
         expected_provenance=[portable_path(path) or path for path in example.expected_provenance])
 
 
