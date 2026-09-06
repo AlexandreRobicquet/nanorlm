@@ -1878,6 +1878,8 @@ def curve_replay_directory(main_replay_directory: str | Path | None) -> Path | N
     if main_replay_directory is None or not str(main_replay_directory):
         return None
     path = Path(main_replay_directory)
+    if not path.name:
+        return path / ".nanorlm-curves"
     return path.with_name(f"{path.name}-curves")
 
 

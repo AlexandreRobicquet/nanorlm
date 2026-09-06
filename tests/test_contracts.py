@@ -161,6 +161,11 @@ class AdditionalBoundaryTests(unittest.TestCase):
             self.assertEqual(''.join(block.text for block in blocks), text)
             self.assertTrue(all(estimate_tokens(block.text) <= 40 for block in blocks))
 
+    def test_curve_replay_isolation_accepts_nameless_roots(self):
+        self.assertEqual(bench.curve_replay_directory('.'), Path('.nanorlm-curves'))
+        self.assertEqual(bench.curve_replay_directory('/'), Path('/.nanorlm-curves'))
+        self.assertEqual(bench.curve_replay_directory('capture'), Path('capture-curves'))
+
     def test_context_binding_survives_reused_caller_task_identity(self):
         first = bench.BenchmarkExample('same', 'query', [ContextBlock('a', 'first')], 'first', ['first'], task_id='reused')
         second = bench.BenchmarkExample('same', 'query', [ContextBlock('a', 'second')], 'second', ['second'], task_id='reused')
