@@ -10,8 +10,47 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from repoqa import digest, load_evidence, validate_answer
+from nanorlm import REMOTE_MODEL_PRICES
 from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 from scripts.grade_repoqa import grading_packet, validate_grade
+
+
+def batch_accounting(experiment: Path, model: str) -> dict:
+    prices = REMOTE_MODEL_PRICES['openai_compatible', model.removesuffix('-2025-04-14')]
+    cases, seen = {}, set()
+    for directory in sorted(experiment.glob('round-*')):
+        batch = json.loads((directory/'batch.json').read_text())
+        submission = json.loads((directory/'submission.json').read_text())
+        if batch['status'] != 'completed' or file_hash(directory/'input.jsonl') != submission['input_sha256']:
+            raise ValueError('batch is unfinished or its input changed')
+        requests = {row['custom_id']:row for row in map(json.loads,(directory/'input.jsonl').read_text().splitlines())}
+        returned = set()
+        for filename in ('output.jsonl','errors.jsonl'):
+            path = directory/filename
+            if not path.exists():
+                continue
+            for line in path.read_text().splitlines():
+                row = json.loads(line)
+                cid = row['custom_id']
+                if cid not in requests or cid in seen or requests[cid]['body']['model'] != model:
+                    raise ValueError('batch billing identity/model mismatch')
+                seen.add(cid); returned.add(cid)
+                usage = (row.get('response') or {}).get('body',{}).get('usage')
+                if usage is None:
+                    raise ValueError('a batch request lacks usage; complete cost needs explicit reconciliation')
+                case = cid.split('.')[0]
+                record = cases.setdefault(case, {'calls':0, 'normal_price_usd':0.0,
+                    'first_submitted_at':batch['created_at'], 'last_batch_completed_at':batch['completed_at']})
+                record['calls'] += 1
+                record['normal_price_usd'] += usage['prompt_tokens']*prices[0] + usage['completion_tokens']*prices[1]
+                record['first_submitted_at'] = min(record['first_submitted_at'],batch['created_at'])
+                record['last_batch_completed_at'] = max(record['last_batch_completed_at'],batch['completed_at'])
+        if returned != set(requests):
+            raise ValueError('batch billing inventory is incomplete')
+    for record in cases.values():
+        record['batch_estimated_usd'] = record['normal_price_usd']*.5
+        record['batch_availability_ms'] = (record['last_batch_completed_at']-record['first_submitted_at'])*1000
+    return cases
 
 
 def adjudicate_grade(original: dict, audit: dict, checksum: str, facts: int, claims: int) -> dict:
@@ -57,6 +96,9 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         raise ValueError('expected exactly one result for every task and strategy')
     tasks = {task['id']: task for task in data['tasks']}
     audits = json.loads(audit.read_text()) if audit else {'cases': {}, 'method': 'No secondary audit recorded.'}
+    accounting = batch_accounting(experiment,data['protocol']['model']) if manifest['protocol'].get('execution') == 'batch' else {}
+    if accounting and set(accounting) - {row['directory'] for row in results['rows']}:
+        raise ValueError('billed batch requests are not assigned to evaluated cases')
     scored, snapshots = [], {}
     for row in results['rows']:
         task = tasks[row['task_id']]
@@ -85,7 +127,12 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         facts = sum(item['correct'] for item in grade['facts'])
         incorrect = sum(item['materially_incorrect'] for item in grade['claims'])
         supported = sum(item['supported'] for item in grade['claims'])
-        scored.append({**row, 'facts_correct': facts, 'facts_total': len(task['expected_facts']),
+        billing = accounting.get(row['directory'])
+        billed = {'workflow_estimated_usd':row['estimated_usd'],
+                  'estimated_usd':billing['normal_price_usd'], 'batch_estimated_usd':billing['batch_estimated_usd'],
+                  'unconsumed_billed_calls':billing['calls']-row['calls'], 'calls':billing['calls'],
+                  'batch_availability_ms':billing['batch_availability_ms']} if billing else {}
+        scored.append({**row, **billed, 'facts_correct': facts, 'facts_total': len(task['expected_facts']),
             'fully_correct': run['status'] == 'answered' and facts == len(task['expected_facts']) and incorrect == 0,
             'claims_supported': supported, 'claims_total': len(grade['claims']), 'incorrect_claims': incorrect,
             'source_citation_integrity': True, 'selected_spans': evidence['coverage']['selected_spans'],
@@ -95,6 +142,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
     for strategy in data['protocol']['strategies']:
         rows = [row for row in scored if row['strategy'] == strategy]
         times = sorted(row['latency_ms'] for row in rows if row['latency_ms'] is not None)
+        batch_times = [row['batch_availability_ms'] for row in rows if 'batch_availability_ms' in row]
         claims = sum(row['claims_total'] for row in rows)
         support = sum(row['claims_supported'] for row in rows)
         summaries[strategy] = {'questions': len(rows), 'answered': sum(row['status']=='answered' for row in rows),
@@ -104,6 +152,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
             'estimated_usd': sum(row['estimated_usd'] for row in rows),
             'batch_estimated_usd': sum(row.get('batch_estimated_usd',0) for row in rows) if not times else None,
             'median_latency_ms': statistics.median(times) if times else None,
+            'median_batch_availability_ms': statistics.median(batch_times) if batch_times else None,
             'p95_latency_ms': times[min(len(times)-1, int(len(times)*.95))] if times else None,
             'calls': sum(row['calls'] for row in rows),
             'by_repository': {repo: {'fully_correct': sum(row['fully_correct'] for row in rows if row['repository']==repo),
@@ -112,6 +161,7 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
     output.mkdir(parents=True, exist_ok=True)
     report_data = {'dataset_sha256': file_hash(dataset), 'experiment_sha256': manifest['experiment_sha256'],
         'report_script_sha256': file_hash(Path(__file__)),
+        'batch_accounting':accounting,
         'grading_protocol_sha256': file_hash(grades / 'protocol.json'), 'audit_sha256': file_hash(audit) if audit else None,
         'audit_method': audits['method'], 'source_snapshots': snapshots, 'summaries': summaries,
         'eligible_under_frozen_rule': eligible, 'selected_under_frozen_rule': selected, 'cases': scored,
@@ -121,13 +171,16 @@ def report(dataset: Path, experiment: Path, grades: Path, output: Path, audit: P
         '| Strategy | Fully correct | Facts | Supported claims | Normal-price estimate | Batch estimate |',
         '|---|---:|---:|---:|---:|---:|']
     for strategy, summary in summaries.items():
-        lines.append(f"| {strategy} | {summary['fully_correct']}/30 | {summary['facts_correct']}/90 | "
+        lines.append(f"| {strategy} | {summary['fully_correct']}/{summary['questions']} | {summary['facts_correct']}/{summary['facts_total']} | "
             f"{summary['claims_supported']}/{summary['claims_total']} | ${summary['estimated_usd']:.4f} | "
             + (f"${summary['batch_estimated_usd']:.4f} |" if summary['batch_estimated_usd'] is not None else 'N/A |'))
     lines += ['', f'Frozen selection rule: **{selected or "no eligible strategy"}**.', '',
               'Citation precision counts produced claims; failures still score zero factual completeness. '
               'All source citation identities and span hashes passed integrity checks.', '',
               'Interactive latency is unavailable for batch runs. Local replay times are not API latency.', '',
+              'Batch availability measures first submission to the completion of the last required batch. '
+              'It includes shared batch waiting and is not an interactive response-time estimate. '
+              'Costs include all submitted requests, including unused inspection responses after failures.', '',
               audits['method'], '',
               'This small assistant-authored evaluation covers three Python repositories and uses model-assisted grading. '
               'Public sources may have appeared in pretraining; results do not establish general superiority.', '']
