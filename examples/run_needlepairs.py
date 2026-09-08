@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import build_needlepairs, format_table, generate_curves, policy_sweep, write_report_bundle
+from nanorlm.bench import build_needlepairs, format_table, generate_curves, policy_sweep, write_report_bundle
 
 
 def main() -> None:

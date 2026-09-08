@@ -1,6 +1,6 @@
 # Repository QA usefulness evaluation
 
-The [v0.2 results](../RESULTS.md) select lexical retrieval. This directory contains
+The [v0.2 results](../docs/results.md) select lexical retrieval. This directory contains
 the frozen 30-question dataset, upstream licenses, machine-readable results and
 source adjudication. The release evidence archive contains the original execution
 and grading receipts. Neither the questions nor the grading are an independent
@@ -154,4 +154,4 @@ of the best and five percentage points of its citation support. Retention needs
 at least three additional complete answers over lexical to justify its overhead.
 Only lexical qualifies on these data. Learned retention remains experimental and
 was not evaluated here. Publish the raw counts and these limitations; use a fresh,
-independently authored set for the [next version](../NEXT_STEPS.md).
+independently authored set for the [next version](../docs/roadmap.md).

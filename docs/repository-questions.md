@@ -3,7 +3,7 @@
 Use nanoRLM to locate a behavior, explain its configuration, and find the tests that actually cover it. Start with a specific question:
 
 ```bash
-uv run python ask.py \
+uv run python -m nanorlm \
   'Where is the HTTP retry limit set, what overrides the delay, and which tests cover it?' \
   --repo /path/to/repository \
   --model gpt-4.1-mini-2025-04-14 \
@@ -22,10 +22,10 @@ Open `answer.md` first. Its citations link to `sources.md`, which contains the o
 Use a fresh output directory for every run. Evidence is reusable for the same question:
 
 ```bash
-uv run python ask.py 'Where is the retry limit set?' \
+uv run python -m nanorlm 'Where is the retry limit set?' \
   --repo /path/to/repository --output outputs/retry-evidence
 
-uv run python ask.py 'Where is the retry limit set?' \
+uv run python -m nanorlm 'Where is the retry limit set?' \
   --evidence outputs/retry-evidence/evidence.json \
   --model gpt-4.1-mini-2025-04-14 --output outputs/retry-answer
 ```
@@ -34,7 +34,7 @@ Paid evidence reuse accepts completed `answer-context` bundles and verifies thei
 
 ## Strategies and budgets
 
-`--strategy lexical` is the default selected by the [audited comparison](RESULTS.md): BM25 over source text and path terms, with neighboring windows to preserve function boundaries, followed by one answer call. The normal evidence budget is 6,000 estimated tokens including source headers.
+`--strategy lexical` is the default selected by the [audited comparison](results.md): BM25 over source text and path terms, with neighboring windows to preserve function boundaries, followed by one answer call. The normal evidence budget is 6,000 estimated tokens including source headers.
 
 `--strategy retention` runs recursive inspection and the selected retention policy over the lexical candidate pool, then answers from the retained original source spans. It adds model calls; use it only when an evaluation justifies that cost. `--retention-policy` accepts the existing policies. `--learned-model` is optional and experimental. Defaults are 16,000 candidate tokens and 512 summary-memory tokens. Incomplete inspection is reported in the run receipt. A retention `--preview` shows the entire candidate pool that inspections would receive, even when it exceeds the smaller final-answer context budget; its evidence stage is `candidates`.
 

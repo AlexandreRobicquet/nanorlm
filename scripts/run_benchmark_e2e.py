@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import (  # noqa: E402
+from nanorlm.bench import (  # noqa: E402
     DEFAULT_POLICIES,
     build_dataset,
     curve_replay_directory,
@@ -28,7 +28,7 @@ from bench import (  # noqa: E402
     verifiers_report_metadata,
     write_report_bundle,
 )
-from learned_retention import FEATURE_NAMES, TRAINING_OBJECTIVES, LearnedRetentionModel  # noqa: E402
+from nanorlm.learned_retention import FEATURE_NAMES, TRAINING_OBJECTIVES, LearnedRetentionModel  # noqa: E402
 from nanorlm import is_local_base_url, supports_cost_estimate  # noqa: E402
 from showcases.generate_assets import (  # noqa: E402
     load_payload,
@@ -44,15 +44,15 @@ PHASE_ORDER = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", 
 DEFAULT_PHASES = ["check", "smoke", "synthetic", "external", "assets"]
 OFFLINE_PHASES = ["check", "smoke", "synthetic", "learned", "repo_qa", "external", "assets"]
 COMPILE_TARGETS = [
-    "ask.py",
-    "repoqa.py",
-    "artifacts.py",
-    "inspection_replay.py",
-    "learned_retention.py",
-    "loom_trace.py",
-    "nanorlm.py",
-    "policies.py",
-    "bench.py",
+    "nanorlm/__main__.py",
+    "nanorlm/repoqa.py",
+    "nanorlm/artifacts.py",
+    "nanorlm/inspection_replay.py",
+    "nanorlm/learned_retention.py",
+    "nanorlm/loom_trace.py",
+    "nanorlm/__init__.py",
+    "nanorlm/policies.py",
+    "nanorlm/bench.py",
     "scripts/check_markdown_links.py",
     "scripts/check_verifiers_compatibility.py",
     "scripts/prepare_ruler_external_jsonl.py",
@@ -202,7 +202,8 @@ def run_check_phase(run_root: Path) -> dict[str, Any]:
 def benchmark_command(spec: BenchmarkSpec) -> str:
     parts = [
         "python",
-        "bench.py",
+        "-m",
+        "nanorlm.bench",
         "--dataset",
         spec.dataset,
         "--limit",

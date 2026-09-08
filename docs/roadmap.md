@@ -2,7 +2,7 @@
 
 The useful product boundary is now concrete: ask a question about a source
 checkout, inspect the cited answer, and keep a reusable evidence and cost receipt.
-The [audited comparison](RESULTS.md) selects lexical retrieval: 16/30 complete answers, 77.5% supported claims and $0.002934 mean normal-price inference cost. The next investment should make those answers dependable on unfamiliar repositories; increasing retention complexity is not justified by this evidence.
+The [audited comparison](results.md) selects lexical retrieval: 16/30 complete answers, 77.5% supported claims and $0.002934 mean normal-price inference cost. The next investment should make those answers dependable on unfamiliar repositories; increasing retention complexity is not justified by this evidence.
 
 ## 1. Eliminate avoidable output failures
 

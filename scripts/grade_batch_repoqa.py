@@ -11,9 +11,9 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from artifacts import artifact_path
+from nanorlm.artifacts import artifact_path
 from nanorlm import OpenAICompatibleBackend
-from repoqa import digest
+from nanorlm.repoqa import digest
 from scripts.batch_repoqa import Transport, collect_responses, submit
 from scripts.evaluate_repoqa import file_hash, write_json
 from scripts.grade_repoqa import GRADER_MODEL, GRADER_PROMPT, GRADING_CAP, grade_experiment

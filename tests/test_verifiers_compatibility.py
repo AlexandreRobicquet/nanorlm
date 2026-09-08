@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from bench import (
+from nanorlm.bench import (
     DatasetCompatibilityError,
     dataset_required_paths,
     load_verifiers_30,
@@ -116,12 +116,12 @@ class VerifiersCompatibilityTests(unittest.TestCase):
 
     def test_report_metadata_handles_matching_mismatch_and_non_git_roots(self) -> None:
         compatibility = load_verifiers_compatibility()
-        with patch("bench._git_revision", return_value=compatibility["revision"]):
+        with patch("nanorlm.bench._git_revision", return_value=compatibility["revision"]):
             matching = verifiers_report_metadata("/tmp/pinned")["source_repository"]
         self.assertEqual(matching["revision"], compatibility["revision"])
         self.assertTrue(matching["matches_compatibility_revision"])
 
-        with patch("bench._git_revision", return_value="a" * 40):
+        with patch("nanorlm.bench._git_revision", return_value="a" * 40):
             mismatched = verifiers_report_metadata("/tmp/current")["source_repository"]
         self.assertFalse(mismatched["matches_compatibility_revision"])
 

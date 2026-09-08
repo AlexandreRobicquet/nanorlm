@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from bench import extract_anchor_blocks
+from nanorlm.bench import extract_anchor_blocks
 from showcases.planning import PlanningTask, run_planning_suite
 
 

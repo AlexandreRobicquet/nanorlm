@@ -15,7 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from artifacts import artifact_path, write_text_atomic
+from nanorlm.artifacts import artifact_path, write_text_atomic
 from nanorlm import (AnswerResult, ContextBlock, OpenAICompatibleBackend, REMOTE_MODEL_PRICES,
                      RLM, RLMConfig, Usage, estimate_tokens, extract_json_object, resolved_api_key,
                      split_context_blocks)
@@ -332,9 +332,9 @@ def run_question(*, repository: str | Path | None, question: str, output: str | 
     answer = {'claims':[],'uncertainties':[]}
     run: dict[str,Any] = {'schema':'nanorlm-repo-run-v1', 'status':'started', 'strategy':strategy,
                          'question':question,'model':model,'preview':preview,'max_estimated_usd':max_cost,
-                         'code_commit':git_value(Path(__file__).parent,'rev-parse','HEAD'),
-                         'code_sha256':{name:hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest()
-                                        for name in ('repoqa.py','nanorlm.py','policies.py','learned_retention.py')}}
+                         'code_commit':git_value(Path(__file__).resolve().parents[1],'rev-parse','HEAD'),
+                         'code_sha256':{name:hashlib.sha256((Path(__file__).resolve().parents[1]/name).read_bytes()).hexdigest()
+                                        for name in ('nanorlm/repoqa.py','nanorlm/__init__.py','nanorlm/policies.py','nanorlm/learned_retention.py')}}
     failure = None
     try:
         if evidence_in:

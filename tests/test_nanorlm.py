@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import bench
-from bench import (
+from nanorlm import bench
+from nanorlm.bench import (
     build_experiment_insights,
     build_dataset,
     build_dossierbench,
@@ -497,7 +497,7 @@ class NanoRLMTests(unittest.TestCase):
                 dataset_name="pairbench",
                 summaries=summaries,
                 curves=curves,
-                command="python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2",
+                command="python -m nanorlm.bench --dataset pairbench --limit 4 --budget 60 --depth 2",
                 metadata={"source_repository": {"revision": "fixture-revision"}},
             )
             self.assertTrue((Path(tmpdir) / "summary.json").exists())
@@ -527,7 +527,7 @@ class NanoRLMTests(unittest.TestCase):
             temp_root = Path(tmpdir)
             report_dir = temp_root / "unused" / ".." / "bundle"
             argv = [
-                "bench.py",
+                "nanorlm.bench",
                 "--dataset",
                 "pairbench",
                 "--limit",
@@ -668,7 +668,7 @@ class NanoRLMTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             argv = [
-                "bench.py",
+                "nanorlm.bench",
                 "--dataset",
                 "external_jsonl",
                 "--dataset-path",
@@ -686,8 +686,8 @@ class NanoRLMTests(unittest.TestCase):
             ]
             with (
                 patch.object(sys, "argv", argv),
-                patch("bench.policy_sweep", return_value=[fake_summary]),
-                patch("bench.generate_curves", side_effect=AssertionError("network curve rerun")),
+                patch("nanorlm.bench.policy_sweep", return_value=[fake_summary]),
+                patch("nanorlm.bench.generate_curves", side_effect=AssertionError("network curve rerun")),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 bench.main()

@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import bench
-from inspection_replay import InspectionReplayBackend
+from nanorlm import bench
+from nanorlm.inspection_replay import InspectionReplayBackend
 from nanorlm import ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig, Usage, extract_json_object
 
 POLICIES = ['keep_recent', 'summary_only', 'single_critic_topk', 'pairwise_tournament', 'learned_retention']
@@ -98,11 +98,11 @@ class ContractTests(unittest.TestCase):
         example = bench.BenchmarkExample('case', 'evidence', [ContextBlock('a', 'evidence')], 'evidence', ['evidence'])
         result = RLM(RLMConfig(model='demo/heuristic')).completion('evidence', example.context)
         with tempfile.TemporaryDirectory() as tmp:
-            with patch('bench.time.perf_counter', side_effect=[0, .25]):
+            with patch('nanorlm.bench.time.perf_counter', side_effect=[0, .25]):
                 # Only the harness clock is patched: the engine result is identical.
-                with patch('bench.run_policy_case', return_value=result):
+                with patch('nanorlm.bench.run_policy_case', return_value=result):
                     first = bench.run_dataset([example], 'keep_recent')['results'][0]
-            with patch('bench.run_policy_case', return_value=result), patch('bench.time.perf_counter', side_effect=[0, .001]):
+            with patch('nanorlm.bench.run_policy_case', return_value=result), patch('nanorlm.bench.time.perf_counter', side_effect=[0, .001]):
                 second = bench.run_dataset([example], 'keep_recent')['results'][0]
         self.assertEqual(first['reward_score'], second['reward_score'])
         self.assertNotEqual(first['latency_ms'], second['latency_ms'])

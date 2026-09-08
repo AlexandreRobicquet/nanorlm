@@ -12,7 +12,7 @@ Briefly explain the user-facing, research, or maintenance reason for this change
 ## Validation
 
 - [ ] I ran the full
-      [canonical verification block](https://github.com/AlexandreRobicquet/nanorlm/blob/master/UV.md#canonical-verification).
+      [canonical verification block](https://github.com/AlexandreRobicquet/nanorlm/blob/master/docs/development.md#canonical-verification).
 - [ ] I listed any additional change-specific checks below.
 
 Additional checks:

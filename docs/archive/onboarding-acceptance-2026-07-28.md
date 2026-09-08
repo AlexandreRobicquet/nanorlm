@@ -1,5 +1,8 @@
 # Newcomer Acceptance Report — 2026-07-28
 
+> Historical record. Commands and file names below describe the checkout at the time.
+> For the current workflow, see the [development guide](../development.md).
+
 ## Gate decision
 
 **Gate A: Passed and closed.**
@@ -28,7 +31,7 @@ system-under-test revision above.
 ## Scope and evidence standard
 
 This run exercised the final documentation produced by the newcomer-remediation sequence recorded
-in [`ONBOARDING_AUDIT_TODOS.md`](ONBOARDING_AUDIT_TODOS.md). It did not edit runtime, benchmark,
+in [`ONBOARDING_AUDIT_TODOS.md`](onboarding-audit.md). It did not edit runtime, benchmark,
 provider, model, or research-result behavior. A genuine product or documentation-path failure would
 have left Gate A open and been routed to a separate fix.
 
@@ -508,7 +511,7 @@ These checks established:
 - the wheel contains only `.dist-info` entries and has an empty `top_level.txt`;
 - neither archive exposes `nanorlm.py`, `policies.py`, `learned_retention.py`, `bench.py`, or
   `showcases`;
-- the embedded MIT license exactly matches [`LICENSE`](LICENSE); and
+- the embedded MIT license exactly matches [`LICENSE`](../../LICENSE); and
 - after installing the metadata-only wheel in an isolated environment outside the checkout,
   `nanorlm`, `policies`, `learned_retention`, and `showcases` had no import specifications.
 
@@ -628,5 +631,5 @@ generated-output locations and were not added to the repository.
 | Hosted-provider keys/model configuration/API cost | Removed / none / $0 realized execution cost |
 
 On this evidence, the shared completion gate in
-[`ONBOARDING_AUDIT_TODOS.md`](ONBOARDING_AUDIT_TODOS.md) is complete and Gate A in
-[`ROADMAP.example.md`](ROADMAP.example.md) is closed.
+[`ONBOARDING_AUDIT_TODOS.md`](onboarding-audit.md) is complete and Gate A in
+[`ROADMAP.example.md`](../templates/ROADMAP.example.md) is closed.

@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import build_parser as build_bench_parser
-from bench import resolve_provider_choice
+from nanorlm.bench import build_parser as build_bench_parser
+from nanorlm.bench import resolve_provider_choice
 from examples.run_verifiers import build_parser as build_verifiers_parser
 from nanorlm import (
     AnthropicMessagesBackend,

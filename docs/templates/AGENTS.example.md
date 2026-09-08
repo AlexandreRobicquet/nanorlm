@@ -19,9 +19,9 @@ The live `AGENTS.md` is gitignored on purpose so each contributor can keep repo-
 
 ## Guardrails
 
-- Keep `nanorlm.py` as the canonical place to understand the full recursive loop until a split clearly improves readability.
-- Keep `policies.py` easy to compare side by side.
-- Keep `bench.py` runnable and readable, not a framework.
+- Keep `nanorlm/__init__.py` as the canonical place to understand the full recursive loop until a split clearly improves readability.
+- Keep `nanorlm/policies.py` easy to compare side by side.
+- Keep `nanorlm/bench.py` runnable and readable, not a framework.
 - Treat synthetic datasets as tests or smoke demos, not headline evidence.
 - Do not add benchmark-specific hacks that leak answer structure into backends or policies.
 
@@ -47,7 +47,7 @@ If a change makes the repo feel heavier or noisier, it is probably the wrong cha
 
 ## Before Publishing
 
-- Use the canonical verification block in `UV.md` if code or workflow checks changed.
+- Use the canonical verification block in `docs/development.md` if code or workflow checks changed.
 - If benchmark numbers in the README changed, regenerate them honestly and keep the reproduction command close to the claim.
 - Keep the repo publishable from a fresh machine with `uv`.
 

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from artifacts import write_text_atomic
+from nanorlm.artifacts import write_text_atomic
 from nanorlm import MemoryItem, RLMResult, memory_item_record, normalize_text
 
 

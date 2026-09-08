@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from nanorlm import RLMConfig
-from repoqa import MeteredBackend, digest
+from nanorlm.repoqa import MeteredBackend, digest
 from scripts.batch_repoqa import Transport, submit
 
 

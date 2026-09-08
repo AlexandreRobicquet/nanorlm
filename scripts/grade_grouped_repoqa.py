@@ -12,9 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from artifacts import artifact_path
+from nanorlm.artifacts import artifact_path
 from nanorlm import REMOTE_MODEL_PRICES, extract_json_object
-from repoqa import digest, load_evidence
+from nanorlm.repoqa import digest, load_evidence
 from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 from scripts.grade_repoqa import GRADER_PROMPT, grading_packet, normalize_grade
 

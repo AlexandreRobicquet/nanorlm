@@ -5,11 +5,11 @@ import argparse
 import json
 from pathlib import Path
 
-from repoqa import run_question
+from nanorlm.repoqa import run_question
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(prog='python -m nanorlm', description=__doc__)
     parser.add_argument('question',help='Question about code, configuration, behavior, or tests')
     parser.add_argument('--repo',help='Repository or source directory; Git repositories use tracked files')
     parser.add_argument('--output',required=True,help='New empty evidence bundle directory')

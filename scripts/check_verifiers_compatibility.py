@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import (  # noqa: E402
+from nanorlm.bench import (  # noqa: E402
     DatasetCompatibilityError,
     dataset_required_paths,
     load_verifiers_compatibility,

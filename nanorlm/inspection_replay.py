@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from artifacts import write_text_atomic
+from nanorlm.artifacts import write_text_atomic
 from nanorlm import AnswerResult, Backend, ContextBlock, InspectionResult, MemoryItem, Usage
 
 

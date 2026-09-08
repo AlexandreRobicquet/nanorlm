@@ -8,14 +8,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-README = ROOT / "README.md"
+ENGINE_GUIDE = ROOT / "docs" / "engine.md"
 
 
 def run_tiny_example() -> tuple[dict[str, object], str]:
-    readme = README.read_text(encoding="utf-8")
+    readme = ENGINE_GUIDE.read_text(encoding="utf-8")
     heading = "## Tiny Example"
     if heading not in readme:
-        raise AssertionError(f"{README.name} is missing {heading!r}")
+        raise AssertionError(f"{ENGINE_GUIDE.name} is missing {heading!r}")
 
     section = readme.split(heading, 1)[1].split("\n## ", 1)[0]
     match = re.search(r"^```python\n(?P<source>.*?)^```$", section, flags=re.MULTILINE | re.DOTALL)
@@ -25,11 +25,11 @@ def run_tiny_example() -> tuple[dict[str, object], str]:
     namespace: dict[str, object] = {"__name__": "__main__"}
     stdout = io.StringIO()
     with contextlib.redirect_stdout(stdout):
-        exec(compile(match.group("source"), "README.md#tiny-example", "exec"), namespace)
+        exec(compile(match.group("source"), "docs/engine.md#tiny-example", "exec"), namespace)
     return namespace, stdout.getvalue()
 
 
-class ReadmeTinyExampleTests(unittest.TestCase):
+class EngineGuideExampleTests(unittest.TestCase):
     def test_tiny_example_recurses_and_retains_the_complete_answer(self) -> None:
         namespace, stdout = run_tiny_example()
         self.assertIn("result", namespace)

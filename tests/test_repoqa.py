@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -10,7 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nanorlm import HeuristicBackend, RLMConfig, Usage
-from repoqa import (MeteredBackend, load_evidence, rank_chunks, run_question, scan_repository,
+from nanorlm.repoqa import (MeteredBackend, load_evidence, rank_chunks, run_question, scan_repository,
                     seal_evidence, text_hash, validate_answer)
 
 
@@ -29,6 +30,28 @@ class FakeAnswerBackend(HeuristicBackend):
 
 
 class RepoQuestionTests(unittest.TestCase):
+    def test_module_cli_writes_reusable_offline_evidence_and_package_hashes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = self.source(root)
+            output = root / 'evidence'
+            checkout = Path(__file__).resolve().parents[1]
+            completed = subprocess.run(
+                [sys.executable, '-m', 'nanorlm', 'retry limit override tests',
+                 '--repo', str(repo), '--output', str(output)],
+                cwd=checkout, capture_output=True, text=True, check=True, timeout=10,
+            )
+            self.assertEqual(json.loads(completed.stdout)['estimated_usd'], 0)
+            evidence = load_evidence(output / 'evidence.json')
+            self.assertEqual(evidence['question'], 'retry limit override tests')
+            receipt = json.loads((output / 'run.json').read_text())
+            self.assertEqual(set(receipt['code_sha256']), {
+                'nanorlm/repoqa.py', 'nanorlm/__init__.py',
+                'nanorlm/policies.py', 'nanorlm/learned_retention.py',
+            })
+            for path, recorded in receipt['code_sha256'].items():
+                self.assertEqual(recorded, hashlib.sha256((checkout / path).read_bytes()).hexdigest())
+
     @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires Unix named pipes')
     def test_named_pipe_is_omitted_without_waiting_for_a_writer(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -36,7 +59,7 @@ class RepoQuestionTests(unittest.TestCase):
             os.mkfifo(root/'events.py')
             (root/'valid.py').write_text('LIMIT = 3\n')
             result = subprocess.run([sys.executable, '-c',
-                'import json,sys;from pathlib import Path;from repoqa import scan_repository;'
+                'import json,sys;from pathlib import Path;from nanorlm.repoqa import scan_repository;'
                 'print(json.dumps(scan_repository(Path(sys.argv[1]))))', str(root)],
                 capture_output=True, text=True, check=True, timeout=5,
                 cwd=Path(__file__).resolve().parents[1])
@@ -54,7 +77,7 @@ class RepoQuestionTests(unittest.TestCase):
                     return real_run([sys.executable, '-c',
                         "import sys;sys.stdout.buffer.write(b'bad\\xff.py\\x00valid.py\\x00')"], **kwargs)
                 return real_run(args, **kwargs)
-            with patch('repoqa.subprocess.run', side_effect=git_output):
+            with patch('nanorlm.repoqa.subprocess.run', side_effect=git_output):
                 scan = scan_repository(root)
             self.assertEqual([file['path'] for file in scan['files']], ['valid.py'])
             self.assertEqual(scan['omitted_files'][0]['reason'], 'non_utf8_path')
@@ -125,9 +148,9 @@ class RepoQuestionTests(unittest.TestCase):
                 inspected.extend(block.name for block in context)
                 return SimpleNamespace(kept_items=[],completed=True,stop_reasons=[],
                                        retention_stats={},trace=SimpleNamespace(jsonl=''))
-            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
-                  patch('repoqa.resolved_api_key',return_value='test'),
-                  patch('repoqa.RLM') as engine):
+            with (patch('nanorlm.repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('nanorlm.repoqa.resolved_api_key',return_value='test'),
+                  patch('nanorlm.repoqa.RLM') as engine):
                 engine.return_value.completion.side_effect=completion
                 run_question(**args,output=root/'actual')
             self.assertEqual(preview['stage'],'candidates')
@@ -152,8 +175,8 @@ class RepoQuestionTests(unittest.TestCase):
             run_question(repository=repo,question='retry limit',output=root/'candidate',
                          strategy='retention',preview=True)
             backend=FakeAnswerBackend();backend.spent=0;backend.ledger=[]
-            with (patch('repoqa.MeteredBackend',return_value=backend),
-                  patch('repoqa.resolved_api_key',return_value='test'),
+            with (patch('nanorlm.repoqa.MeteredBackend',return_value=backend),
+                  patch('nanorlm.repoqa.resolved_api_key',return_value='test'),
                   patch.object(backend,'_chat_text',side_effect=AssertionError('must not send candidates')) as chat):
                 with self.assertRaisesRegex(ValueError,'not answer-ready'):
                     run_question(repository=None,question='retry limit',output=root/'blocked',
@@ -165,8 +188,8 @@ class RepoQuestionTests(unittest.TestCase):
             self.assertEqual(load_evidence(root/'blocked/evidence.json')['stage'],'candidates')
             # Final answer contexts retain the documented paid reuse behavior.
             run_question(repository=repo,question='retry limit',output=root/'ready')
-            with (patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
-                  patch('repoqa.resolved_api_key',return_value='test')):
+            with (patch('nanorlm.repoqa.MeteredBackend',return_value=FakeAnswerBackend()),
+                  patch('nanorlm.repoqa.resolved_api_key',return_value='test')):
                 reused=run_question(repository=None,question='retry limit',output=root/'reused',
                                    evidence_in=root/'ready/evidence.json',model='gpt-4.1-mini')
             self.assertEqual(reused['status'],'answered')
@@ -184,7 +207,7 @@ class RepoQuestionTests(unittest.TestCase):
         for strategy in ['lexical','full','retention']:
             with self.subTest(strategy=strategy), tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp);repo=self.source(root)
-                with patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('repoqa.resolved_api_key',return_value='test'):
+                with patch('nanorlm.repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('nanorlm.repoqa.resolved_api_key',return_value='test'):
                     run=run_question(repository=repo,question='retry limit',output=root/'out',strategy=strategy,model='gpt-4.1-mini')
                 self.assertEqual(run['status'],'answered')
                 self.assertIn(r'retry\.py:',(root/'out/answer.md').read_text())
@@ -219,13 +242,13 @@ class RepoQuestionTests(unittest.TestCase):
         for policy in ['keep_recent','summary_only','single_critic_topk','pairwise_tournament','learned_retention']:
             with self.subTest(policy=policy), tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp);repo=self.source(root)
-                with patch('repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('repoqa.resolved_api_key',return_value='test'):
+                with patch('nanorlm.repoqa.MeteredBackend',return_value=FakeAnswerBackend()),patch('nanorlm.repoqa.resolved_api_key',return_value='test'):
                     result=run_question(repository=repo,question='retry limit',output=root/'out',strategy='retention',model='gpt-4.1-mini',retention_policy=policy)
                 self.assertEqual(result['status'],'answered')
                 self.assertTrue(load_evidence(root/'out/evidence.json')['spans'])
 
     def test_markdown_claims_cannot_escape_their_citation(self):
-        from repoqa import render_answer
+        from nanorlm.repoqa import render_answer
         evidence={'spans':[{'id':'s_abc','path':'test.py','line_start':1,'line_end':2}],
                   'coverage':{'selected_spans':1,'scanned_spans':1,'selected_files':1,'scanned_files':1},'omitted_files':[]}
         answer={'claims':[{'text':'Supported claim\n- Uncited claim [link](https://example.com) <script>', 'citations':['s_abc']}], 'uncertainties':[]}

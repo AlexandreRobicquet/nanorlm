@@ -22,8 +22,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from nanorlm import OpenAICompatibleBackend, Usage
-from artifacts import artifact_path
-from repoqa import digest, git_value, run_question
+from nanorlm.artifacts import artifact_path
+from nanorlm.repoqa import digest, git_value, run_question
 from scripts.evaluate_repoqa import file_hash, validate_dataset, verified_receipt, write_json
 
 PLACEHOLDER = json.dumps({'summary': 'Planning placeholder', 'evidence': [],
@@ -183,7 +183,7 @@ def advance(dataset: Path, repositories: Path, output: Path, send: bool) -> None
         'amendment_reason': 'Synchronous account limit 50 requests/day per model exhausted after four completed cases; no prompt or question changes.'}
     manifest = {'schema': 'nanorlm-repoqa-experiment-v1', 'dataset_sha256': file_hash(dataset),
         'implementation_commit': git_value(ROOT, 'rev-parse', 'HEAD'),
-        'implementation_sha256': {name: file_hash(ROOT / name) for name in ('repoqa.py','nanorlm.py','policies.py','learned_retention.py')},
+        'implementation_sha256': {name: file_hash(ROOT / name) for name in ('nanorlm/repoqa.py','nanorlm/__init__.py','nanorlm/policies.py','nanorlm/learned_retention.py')},
         'runner_sha256': file_hash(Path(__file__)), 'protocol': protocol, 'repositories': data['repositories']}
     manifest['experiment_sha256'] = digest(manifest)
     output.mkdir(parents=True, exist_ok=True)

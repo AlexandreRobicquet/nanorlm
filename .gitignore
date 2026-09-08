@@ -14,6 +14,6 @@ examples/outputs/
 showcases/outputs/
 
 # local planning and assistant guidance
-AGENTS.md
-CLAUDE.md
-ROADMAP.md
+/AGENTS.md
+/CLAUDE.md
+/ROADMAP.md

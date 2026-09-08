@@ -11,8 +11,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from nanorlm import MemoryItem
-from learned_retention import LearnedRetentionModel, LearnedRetentionPolicy, train_linear_retention_model
-from policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTopKPolicy, SummaryOnlyPolicy
+from nanorlm.learned_retention import LearnedRetentionModel, LearnedRetentionPolicy, train_linear_retention_model
+from nanorlm.policies import KeepRecentPolicy, PairwiseTournamentPolicy, SingleCriticTopKPolicy, SummaryOnlyPolicy
 
 
 class DummyJudge:
