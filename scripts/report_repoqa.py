@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from repoqa import digest, load_evidence, validate_answer
+from nanorlm.repoqa import digest, load_evidence, validate_answer
 from nanorlm import REMOTE_MODEL_PRICES
 from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 from scripts.grade_repoqa import grading_packet, validate_grade

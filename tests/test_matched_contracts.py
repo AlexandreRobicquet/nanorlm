@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from bench import build_pairbench
+from nanorlm.bench import build_pairbench
 from scripts.run_matched_retention import build_parser, validate_phase_configuration, portable_example
 from scripts.run_matched_retention import (DatasetSpec, audit_trace_bindings, budget_diagnostics,
     determinism_check, example_record, git_snapshot, run_budget)
@@ -85,7 +85,7 @@ class MatchedContractTests(unittest.TestCase):
 
     def test_all_absolute_metadata_paths_are_portable_without_altering_task_text(self):
         from scripts.run_matched_retention import portable_value, portable_example
-        from bench import BenchmarkExample
+        from nanorlm.bench import BenchmarkExample
         from nanorlm import ContextBlock
         metadata = {key:'/workspace/private/raw.jsonl' for key in ['file_path','input_path','working_directory','filePath','cwd','arbitrary_metadata_field']}
         metadata['nested'] = {'list':['/mnt/private/file.txt', r'C:\Users\private\file.txt']}

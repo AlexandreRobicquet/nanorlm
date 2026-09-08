@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import (  # noqa: E402
+from nanorlm.bench import (  # noqa: E402
     DATASET_CHOICES,
     BenchmarkExample,
     build_dataset,
@@ -1896,7 +1896,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         "ordering": "round_robin_family_then_source_index",
         "answer_evaluator": {
             "name": "normalized_required_substring_all",
-            "implementation": "bench.score_answer",
+            "implementation": "nanorlm.bench.score_answer",
             "case_sensitive": False,
         },
         "conversion_audit": conversion_audit_result,

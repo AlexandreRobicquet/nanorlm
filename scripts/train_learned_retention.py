@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import (  # noqa: E402
+from nanorlm.bench import (  # noqa: E402
     BenchmarkExample,
     build_dataset,
     compactness_score,
@@ -22,7 +22,7 @@ from bench import (  # noqa: E402
     score_answer,
     score_provenance,
 )
-from learned_retention import TRAINING_OBJECTIVES, retention_features, train_linear_retention_model  # noqa: E402
+from nanorlm.learned_retention import TRAINING_OBJECTIVES, retention_features, train_linear_retention_model  # noqa: E402
 from nanorlm import (  # noqa: E402
     ContextBlock,
     HeuristicBackend,

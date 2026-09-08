@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from loom_trace import build_loom_trace, memory_artifact_id, write_loom_trace
+from nanorlm.loom_trace import build_loom_trace, memory_artifact_id, write_loom_trace
 from nanorlm import ContextBlock, HeuristicBackend, RLM, RLMConfig
 
 

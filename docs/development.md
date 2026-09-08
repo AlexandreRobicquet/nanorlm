@@ -12,9 +12,9 @@ before continuing.
 
 ## Mental Model
 
-- [`pyproject.toml`](pyproject.toml) is the project definition.
-- [`.python-version`](.python-version) pins the expected interpreter to `3.11`.
-- [`uv.lock`](uv.lock) is the resolved lockfile.
+- [`pyproject.toml`](../pyproject.toml) is the project definition.
+- [`.python-version`](../.python-version) pins the expected interpreter to `3.11`.
+- [`uv.lock`](../uv.lock) is the resolved lockfile.
 - `.venv/` is the generated local environment `uv` manages for this repo.
 - Pytest is locked in the default `dev` dependency group; runtime dependencies stay empty.
 - `[tool.uv] package = false` means this repo uses `uv` as an environment-and-runner workflow, not as a package publishing workflow.
@@ -47,17 +47,17 @@ uv sync --frozen
 uv run python scripts/check_markdown_links.py
 uv run python -m unittest discover -s tests -v
 uv run --frozen pytest
-uv run python -m py_compile ask.py repoqa.py scripts/evaluate_repoqa.py scripts/grade_repoqa.py scripts/batch_repoqa.py scripts/grade_batch_repoqa.py scripts/report_repoqa.py artifacts.py inspection_replay.py learned_retention.py loom_trace.py nanorlm.py policies.py bench.py scripts/check_markdown_links.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py scripts/run_matched_retention.py
-uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
-uv run python bench.py --dataset ruler_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
-uv run python bench.py --dataset babilong_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
-uv run python bench.py --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
-uv run python bench.py --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
+uv run python -m py_compile nanorlm/__main__.py nanorlm/repoqa.py scripts/evaluate_repoqa.py scripts/grade_repoqa.py scripts/batch_repoqa.py scripts/grade_batch_repoqa.py scripts/report_repoqa.py nanorlm/artifacts.py nanorlm/inspection_replay.py nanorlm/learned_retention.py nanorlm/loom_trace.py nanorlm/__init__.py nanorlm/policies.py nanorlm/bench.py scripts/check_markdown_links.py scripts/check_verifiers_compatibility.py scripts/prepare_ruler_external_jsonl.py scripts/train_learned_retention.py scripts/run_benchmark_e2e.py examples/run_verifiers.py examples/run_needlepairs.py examples/run_dossiers.py examples/run_planning.py showcases/planning.py showcases/generate_assets.py scripts/run_matched_retention.py
+uv run python -m nanorlm.bench --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python -m nanorlm.bench --dataset ruler_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
+uv run python -m nanorlm.bench --dataset babilong_synthetic --limit 4 --budget 90 --depth 4 --policies pairwise_tournament,learned_retention
+uv run python -m nanorlm.bench --dataset verifiers_smoke --limit 2 --budget 80 --depth 2 --repo-root tests/fixtures/verifiers-mini
+uv run python -m nanorlm.bench --dataset external_jsonl --dataset-path tests/fixtures/external-benchmark-mini.jsonl --limit 2 --budget 80 --depth 2
 uv run python scripts/run_benchmark_e2e.py --phases smoke --smoke-limit 1 --output-root outputs/e2e --run-id verify-smoke
 uv run python scripts/run_benchmark_e2e.py --phases learned --learned-train-limit 2 --learned-eval-limit 2 --output-root outputs/e2e --run-id verify-learned
 ```
 
-The five direct `bench.py` commands intentionally run in stdout-only smoke mode and do not write
+The five direct `python -m nanorlm.bench` commands intentionally run in stdout-only smoke mode and do not write
 report bundles. The evidence-producing e2e commands persist manifests and bundles under their
 explicitly named run roots.
 

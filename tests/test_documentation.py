@@ -10,12 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
 SETUP_DOCS = [
     ROOT / "README.md",
-    ROOT / "UV.md",
+    ROOT / "docs" / "development.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "showcases" / "README.md",
 ]
 COMMAND_DOCS = [
     *SETUP_DOCS,
+    ROOT / "docs" / "engine.md",
+    ROOT / "docs" / "experiments.md",
+    ROOT / "docs" / "repository-questions.md",
     ROOT / "examples" / "benchmark_snapshot.md",
     ROOT / "examples" / "real_runs" / "openai_external_mini" / "benchmark_snapshot.md",
     ROOT / "examples" / "real_runs" / "openai_ruler_small" / "benchmark_snapshot.md",
@@ -66,25 +69,27 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertEqual(failures, [])
 
     def test_generated_environment_is_not_a_markdown_link(self) -> None:
-        uv_guide = (ROOT / "UV.md").read_text(encoding="utf-8")
+        uv_guide = (ROOT / "docs" / "development.md").read_text(encoding="utf-8")
         self.assertNotIn("](.venv/)", uv_guide)
         self.assertIn("`.venv/` is the generated local environment", uv_guide)
 
-    def test_minimum_reading_path_and_research_verdict_are_explicit(self) -> None:
+    def test_reading_path_and_experiment_limits_remain_discoverable(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        experiments = (ROOT / "docs" / "experiments.md").read_text(encoding="utf-8")
 
-        self.assertIn("## Minimum Reading Path", readme)
+        self.assertIn("## Read the code", readme)
         for expected in [
-            "nanorlm.py",
-            "policies.py",
-            "build_pairbench",
-            "examples/pairbench_trace.txt",
+            "nanorlm/__init__.py",
+            "nanorlm/policies.py",
+            "docs/engine.md",
+            "docs/experiments.md",
+            "docs/results.md",
             "outputs/quickstart/dossierbench/experiment_report.md",
         ]:
             self.assertIn(expected, readme)
-        self.assertIn("negative_or_inconclusive", readme)
-        self.assertRegex(readme, r"operational completion\s+only")
-        self.assertIn("--real-max-estimated-cost 20", readme)
+        self.assertIn("negative_or_inconclusive", experiments)
+        self.assertRegex(experiments, r"operational completion\s+only")
+        self.assertIn("--real-max-estimated-cost 20", experiments)
 
 
 if __name__ == "__main__":

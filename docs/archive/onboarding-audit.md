@@ -1,12 +1,15 @@
 # Newcomer Audit Remediation
 
+> Historical record. Commands and file names below describe the checkout at the time.
+> For the current workflow, see the [development guide](../development.md).
+
 This document turns the 2026-07-17 full newcomer audit into a durable, reviewable backlog.
 It is the source of truth for onboarding fixes; `ROADMAP.example.md` keeps the higher-level
 research sequence and links here for implementation detail.
 
 Last reconciled: 2026-07-28 against the clean-checkout acceptance gate on `master` at
 `4467fc2`. The durable receipt is
-[`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+[`ONBOARDING_ACCEPTANCE_REPORT.md`](onboarding-acceptance-2026-07-28.md).
 
 ## Status Legend
 
@@ -35,7 +38,7 @@ newcomer journey and rerun the item-specific acceptance checks.
 
 The remediation sequence and shared completion gate are complete. The literal newcomer journey,
 including environment, timing, semantic, trace, artifact, compatibility, and diagnostic evidence,
-is recorded in [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+is recorded in [`ONBOARDING_ACCEPTANCE_REPORT.md`](onboarding-acceptance-2026-07-28.md).
 
 Future onboarding changes should preserve that evidence standard: run acceptance independently of
 runtime changes, and route a gate failure to a scoped fix rather than repairing it inside the
@@ -428,7 +431,7 @@ Then run the README Tiny Example and the pinned external Codebase QA and plannin
 - [x] Passed the tracked-Markdown checker and recorded every observer-side diagnostic incident
       separately from the documented result.
 - [x] Recorded the dated receipt in
-      [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+      [`ONBOARDING_ACCEPTANCE_REPORT.md`](onboarding-acceptance-2026-07-28.md).
 
 The documented path reached every promised outcome without a hidden command or product workaround.
 Public evidence remains conservative about synthetic, fixture, deterministic, and

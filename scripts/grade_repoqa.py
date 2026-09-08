@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from artifacts import artifact_path
+from nanorlm.artifacts import artifact_path
 from nanorlm import RLMConfig, extract_json_object, resolved_api_key
-from repoqa import MeteredBackend, digest, load_evidence
+from nanorlm.repoqa import MeteredBackend, digest, load_evidence
 from scripts.evaluate_repoqa import file_hash, verified_receipt, write_json
 
 GRADER_MODEL = 'gpt-5.4-2026-03-05'

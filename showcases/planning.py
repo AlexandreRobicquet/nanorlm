@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bench import (
+from nanorlm.bench import (
     CLI_PROVIDER_CHOICES,
     DatasetCompatibilityError,
     dataset_required_paths,

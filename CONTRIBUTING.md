@@ -18,7 +18,7 @@ smoke:
 ```bash
 uv sync --frozen
 uv run python --version
-uv run python bench.py --dataset pairbench --limit 4 --budget 60 --depth 2
+uv run python -m nanorlm.bench --dataset pairbench --limit 4 --budget 60 --depth 2
 ```
 
 The smoke run is offline, uses the deterministic backend, prints a table, and intentionally writes
@@ -39,7 +39,7 @@ uv run python -m unittest discover -s tests -v
 uv run --frozen pytest
 ```
 
-Before every PR, run the entire [canonical verification block](UV.md#canonical-verification).
+Before every PR, run the entire [canonical verification block](docs/development.md#canonical-verification).
 That block is the source of truth for the lock check, frozen sync, compile check, deterministic
 smoke commands, and smoke/learned e2e commands; do not copy a shortened version into a PR.
 
@@ -48,7 +48,7 @@ pre-PR requirement for every row.
 
 | Change | Fast feedback before the full block |
 | --- | --- |
-| Documentation | Run `uv run python scripts/check_markdown_links.py`; run `tests/test_readme.py` for README examples. |
+| Documentation | Run `uv run python scripts/check_markdown_links.py`; run `tests/test_readme.py` for the engine guide's executable example. |
 | Tests | Run the changed test module directly. |
 | Engine, provider, trace, or result contract | Run `tests/test_nanorlm.py` and, when applicable, `tests/test_backends.py`. |
 | Retention policy or learned scorer | Run `tests/test_policies.py` and the relevant deterministic benchmark. |
@@ -60,10 +60,12 @@ workflows, not routine PR gates.
 
 ## Code ownership map
 
-- [`nanorlm.py`](nanorlm.py): recursive engine, providers, and trace/result contract.
-- [`policies.py`](policies.py): retention baselines and their budget behavior.
-- [`learned_retention.py`](learned_retention.py): dependency-free learned scorer and model format.
-- [`bench.py`](bench.py): datasets, scoring, policy sweeps, and report bundles.
+- [`nanorlm/__init__.py`](nanorlm/__init__.py): recursive engine, providers, and trace/result contract.
+- [`nanorlm/policies.py`](nanorlm/policies.py): retention baselines and their budget behavior.
+- [`nanorlm/learned_retention.py`](nanorlm/learned_retention.py): dependency-free learned scorer and model format.
+- [`nanorlm/bench.py`](nanorlm/bench.py): datasets, scoring, policy sweeps, and report bundles.
+- [`nanorlm/repoqa.py`](nanorlm/repoqa.py) and [`nanorlm/__main__.py`](nanorlm/__main__.py): repository evidence, cited answers, and the question CLI.
+- [`docs/`](docs/): user guides, research recipes, templates, and archived records.
 - [`examples/`](examples/): small runnable demos and deliberately reviewed benchmark receipts.
 - [`showcases/`](showcases/): planning and launch-facing asset workflows.
 - [`scripts/`](scripts/): training, conversion, e2e orchestration, and maintenance utilities.

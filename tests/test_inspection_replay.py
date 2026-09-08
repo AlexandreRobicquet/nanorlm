@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from inspection_replay import InspectionReplayBackend
-from loom_trace import memory_artifact_id
+from nanorlm.inspection_replay import InspectionReplayBackend
+from nanorlm.loom_trace import memory_artifact_id
 from nanorlm import ContextBlock, HeuristicBackend, InspectionResult, RLM, RLMConfig
 
 

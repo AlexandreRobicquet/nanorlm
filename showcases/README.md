@@ -4,21 +4,21 @@
 Run them from the clone-only source-checkout root through `uv`; package installation is not
 supported. Install `uv` from its
 [official instructions](https://docs.astral.sh/uv/getting-started/installation/) and complete the
-root [quickstart](../README.md#quickstart-with-uv) first.
+root [quickstart](../README.md#try-it) first.
 
 ## Recommended Runs
 
 Full Verifiers-30 repo QA:
 
 Prerequisite and boundary: create the pinned shallow Verifiers checkout documented in the root
-[Codebase QA section](../README.md#1-codebase-qa). That fetch is networked and its time/disk use
+[Codebase QA section](../docs/experiments.md#1-codebase-qa). That fetch is networked and its time/disk use
 depend on the public upstream repository, but it needs no model credential. The command below is
 then offline, deterministic, and API-cost-free. It uses a 30-row dataset across the configured
 policy/curve sweep, writes one report bundle under `outputs/verifiers_30/`, and scales with that
 sweep as well as checkout size.
 
 ```bash
-uv run python bench.py \
+uv run python -m nanorlm.bench \
   --dataset verifiers_30 \
   --limit 30 \
   --budget 140 \
@@ -37,7 +37,7 @@ two depths, three seeds, and saved traces, so treat it as a benchmark workflow r
 one-command smoke.
 
 ```bash
-uv run python bench.py \
+uv run python -m nanorlm.bench \
   --dataset dossierbench \
   --limit 12 \
   --budget 80 \
@@ -56,7 +56,7 @@ normalized export path and matching limit for external-data work; runtime then s
 and context sizes.
 
 ```bash
-uv run python bench.py \
+uv run python -m nanorlm.bench \
   --dataset external_jsonl \
   --dataset-path tests/fixtures/external-benchmark-mini.jsonl \
   --limit 2 \
@@ -97,7 +97,7 @@ uv run python showcases/generate_assets.py \
 
 ## Output Contract
 
-Direct `bench.py` runs and benchmark wrappers such as Verifiers and DossierBench produce the
+Direct `python -m nanorlm.bench` runs and benchmark wrappers such as Verifiers and DossierBench produce the
 following bundle when given `--output-dir`. Start with `experiment_report.md`; `summary.json` is
 the machine-readable entry point.
 

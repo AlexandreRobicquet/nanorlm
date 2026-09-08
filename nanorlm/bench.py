@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from inspection_replay import InspectionReplayBackend, REPLAY_MODES
-from loom_trace import build_loom_trace, write_loom_trace
-from artifacts import artifact_path
+from nanorlm.inspection_replay import InspectionReplayBackend, REPLAY_MODES
+from nanorlm.loom_trace import build_loom_trace, write_loom_trace
+from nanorlm.artifacts import artifact_path
 
 from nanorlm import (
     ContextBlock,
@@ -31,7 +31,7 @@ from nanorlm import (
 )
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 CLI_PROVIDER_CHOICES = ["heuristic", "openai-compatible", "anthropic"]
 DATASET_CHOICES = [
     "pairbench",
@@ -1968,7 +1968,7 @@ def main() -> None:
             dataset_name=args.dataset,
             summaries=summaries,
             curves=curves,
-            command=" ".join(["python", "bench.py", *filter(None, [
+            command=" ".join(["python", "-m", "nanorlm.bench", *filter(None, [
                 f"--dataset {args.dataset}",
                 f"--limit {args.limit}",
                 f"--start-index {args.start_index}",

@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, Sequence
 
-from learned_retention import LearnedRetentionPolicy
+from nanorlm.learned_retention import LearnedRetentionPolicy
 from nanorlm import MemoryItem, estimate_tokens, query_terms, truncate_words
 
 

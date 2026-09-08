@@ -4,6 +4,9 @@ This file is a tracked starting point for a local `ROADMAP.md`.
 
 The live `ROADMAP.md` is gitignored on purpose so contributors can keep private planning notes, sequencing ideas, and half-formed experiments out of the repo history.
 
+This template preserves the original research milestones. See the public
+[next steps](../roadmap.md) for current priorities based on the repository-answer evaluation.
+
 ## North Star
 
 `nanoRLM` should become a small, readable, benchmark-credible reference implementation of recursive inference with memory retention under hard budgets.
@@ -15,7 +18,7 @@ The live `ROADMAP.md` is gitignored on purpose so contributors can keep private 
 Status: **Closed — 2026-07-28**
 
 The detailed, prioritized backlog is tracked in
-[`ONBOARDING_AUDIT_TODOS.md`](ONBOARDING_AUDIT_TODOS.md).
+[`ONBOARDING_AUDIT_TODOS.md`](../archive/onboarding-audit.md).
 
 Completed on `master`:
 
@@ -32,7 +35,7 @@ Completion evidence:
 
 - [x] run and record the literal clean-checkout newcomer gate, including pinned external QA and
       planning paths, in
-      [`ONBOARDING_ACCEPTANCE_REPORT.md`](ONBOARDING_ACCEPTANCE_REPORT.md).
+      [`ONBOARDING_ACCEPTANCE_REPORT.md`](../archive/onboarding-acceptance-2026-07-28.md).
 
 The acceptance run tested `master` at `4467fc2` from a genuinely fresh checkout. It recorded the
 full newcomer and pinned external paths without hidden setup or any documented-path workaround. No

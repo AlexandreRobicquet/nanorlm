@@ -66,7 +66,7 @@ being evaluated on every attempt, finite-generator exceptions incorrectly descri
 as suppressed, TTL `len` described as leaving expired entries, and missing-file
 behavior confused with dotenv search. Several accurate descriptions cited an
 unrelated test or an adjacent source window missing the actual implementation.
-These observations motivate the ordered [next steps](NEXT_STEPS.md): short citation
+These observations motivate the ordered [next steps](roadmap.md): short citation
 aliases with strict output validation, complete-definition and test retrieval, then
 an independently authored evaluation with synchronous timing.
 
@@ -77,7 +77,7 @@ output limit. Lexical and retention share a 6,000-token candidate pool; retentio
 uses a 512-token memory budget and answers from retained original source spans.
 Full context receives every span admitted by the same bounded scanner. Source
 commits, questions and reference excerpts were frozen before answer generation.
-The [protocol](evaluations/README.md) records implementation and transport changes.
+The [protocol](../evaluations/README.md) records implementation and transport changes.
 
 Final grading used 41 synchronous GPT-5.4 mini calls, with strict schema counts,
 medium reasoning and each claim's cited text attached directly. Strategy names,
@@ -107,8 +107,8 @@ unknown billing and conservative bounds. No discarded pass contributes a score.
 The frozen answer costs above are fully reconciled regardless of those separate
 protocol-development expenses.
 
-Machine-readable [summary](evaluations/results/repoqa-v1/summary.json) and
-[adjudication](evaluations/results/repoqa-v1/audit.json) are checked in. The v0.2.0
+Machine-readable [summary](../evaluations/results/repoqa-v1/summary.json) and
+[adjudication](../evaluations/results/repoqa-v1/audit.json) are checked in. The v0.2.0
 release evidence archive includes the 90 original answer bundles, batch requests
 and responses, final raw grading, audit seeds, fact audit, failure audit, discarded
 grading passes, licenses and checksums. See its README to reproduce aggregation.

@@ -956,7 +956,7 @@ class RLM:
         self.config = config
         self.backend = backend or self._make_backend(config)
         if policy is None:
-            from policies import build_policy
+            from nanorlm.policies import build_policy
 
             if config.retention_judge == "backend":
                 retention_judge = self.backend

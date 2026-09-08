@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from artifacts import artifact_path, write_text_atomic
-from repoqa import digest, git_value, load_evidence, run_question
+from nanorlm.artifacts import artifact_path, write_text_atomic
+from nanorlm.repoqa import digest, git_value, load_evidence, run_question
 
 
 def file_hash(path: Path) -> str:
@@ -77,7 +77,7 @@ def evaluate(dataset_path: Path, repositories: Path, output: Path, *, resume: bo
         raise ValueError('expected three frozen strategies')
     if git_value(ROOT, 'status', '--porcelain') != '':
         raise ValueError('evaluation implementation checkout must be clean')
-    for name in ('repoqa.py', 'nanorlm.py', 'policies.py', 'learned_retention.py'):
+    for name in ('nanorlm/repoqa.py', 'nanorlm/__init__.py', 'nanorlm/policies.py', 'nanorlm/learned_retention.py'):
         frozen = subprocess.run(['git', '-C', str(ROOT), 'show', f"{data['implementation_commit']}:{name}"],
                                 check=True, capture_output=True).stdout
         if hashlib.sha256(frozen).hexdigest() != file_hash(ROOT / name):

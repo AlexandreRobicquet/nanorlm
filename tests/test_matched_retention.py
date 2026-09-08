@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bench import BenchmarkExample
+from nanorlm.bench import BenchmarkExample
 from nanorlm import ContextBlock, openai_compatible_cache_key
 from scripts.run_matched_retention import (
     DatasetSpec,
