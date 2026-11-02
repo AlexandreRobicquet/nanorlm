@@ -16,7 +16,7 @@ license-files = ["LICENSE"]
 
 [dependency-groups]
 dev = [
-  "pytest>=9.1.1,<9.2",
+  "pytest>=9.1.1,<9.3",
 ]
 
 [tool.uv]
